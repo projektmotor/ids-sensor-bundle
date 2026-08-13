@@ -8,13 +8,8 @@
 
 ## Inhaltsverzeichnis
 
-- [1. Ausgangslage & Scope](#1-ausgangslage-scope)
-  - [1.1 IdsSensorBundle](#11-idssensorbundle)
-    - [1.1.1 Kein Datenbankzugriff erlaubt](#111-kein-datenbankzugriff-erlaubt)
-    - [1.1.2 Konfiguration (erste Gedanken)](#112-konfiguration-erste-gedanken)
-  - [1.2 IdsCollectorBundle](#12-idscollectorbundle)
-    - [1.2.1 Konfiguration (erste Gedanken)](#121-konfiguration-erste-gedanken)
-- [2. Sensorik und Normalisierungs-Mapping](#2-sensorik-und-normalisierungs-mapping)
+- [1. Ausgangslage & Scope](#1-ausgangslage--scope)
+- [2. IdsSensorBundle](#2-idssensorbundle)
   - [2.1 Sensorik](#21-sensorik)
     - [2.1.1 HttpKernel-Events](#211-httpkernel-events)
     - [2.1.2 Security-Component-Events](#212-security-component-events)
@@ -24,56 +19,45 @@
       - [Anwendungs- und Instanzkontext](#anwendungs--und-instanzkontext)
       - [Konkrete Ableitungsregeln für event_severity](#konkrete-ableitungsregeln-für-event_severity)
     - [2.2.2 Normalisierung Kernel-Ebene](#222-normalisierung-kernel-ebene)
-    - [2.2.2.1 Nutzerkontext auf Kernel-Ebene](#2221-nutzerkontext-auf-kernel-ebene)
+      - [Nutzerkontext auf Kernel-Ebene](#nutzerkontext-auf-kernel-ebene)
     - [2.2.3 Normalisierung Security-Ebene](#223-normalisierung-security-ebene)
     - [2.2.4 Normalisierung Business-Ebene](#224-normalisierung-business-ebene)
-      - [Bildung der Sitzungskontext-Felder](#2241-bildung-der-sitzungskontext-felder)
+      - [Bildung der Sitzungskontext-Felder](#bildung-der-sitzungskontext-felder)
 - [3. Normalisierungsformat](#3-normalisierungsformat)
-  - [3.1 Payload-Struktur pro Event-Typ](#31-payload-struktur-pro-event-typ)
-    - [`kernel.request`](#kernelrequest)
-    - [`kernel.exception`](#kernelexception)
-    - [`kernel.response`](#kernelresponse)
-    - [`security.authentication.success`](#securityauthenticationsuccess)
-    - [`security.authentication.failure`](#securityauthenticationfailure)
-    - [Autorisierungsentscheidung (`security.access_decision`)](#autorisierungsentscheidung-securityaccess_decision)
-    - [Business-Events (generisch)](#business-events-generisch)
+  - [3.1 Payload-Format pro Ebene / Events](#31-payload-format-pro-ebene--events)
+    - [3.1.1 Kernel-Ebene / -Events](#311-kernel-ebene---events)
+      - [`kernel.request`](#kernelrequest)
+      - [`kernel.exception`](#kernelexception)
+      - [`kernel.response`](#kernelresponse)
+    - [3.1.2 Security-Ebene / -Events](#312-security-ebene---events)
+      - [`security.authentication.success`](#securityauthenticationsuccess)
+      - [`security.authentication.failure`](#securityauthenticationfailure)
+      - [`security.access_decision`](#securityaccess_decision)
+    - [3.1.3 Business-Ebene / -Events](#313-business-ebene---events)
+      - [Generische Business-Events](#generische-business-events)
   - [3.2 Bewusste Feldredundanz zwischen Request- und Folge-Events](#32-bewusste-feldredundanz-zwischen-request--und-folge-events)
-- [4. Zentrale Sammelstelle](#4-zentrale-sammelstelle)
-  - [4.1 Komponenten](#41-komponenten)
-    - [4.1.1 Ausfall- und Überlastverhalten](#411-ausfall--und-überlastverhalten)
-  - [4.2 Tabellenschema](#42-tabellenschema)
-  - [4.3 Indizierung](#43-indizierung)
-  - [4.4 Retention & Partitionierung](#44-retention-partitionierung)
-    - [4.4.1 Volumenbudget und gestufte Retention](#441-volumenbudget-und-gestufte-retention)
-    - [4.4.2 Partitionierung mit pg_partman](#442-partitionierung-mit-pg_partman)
-  - [4.5 Auswertungstabellen](#45-auswertungstabellen)
-    - [4.5.1 Vorfall statt Einzelalarm](#451-vorfall-statt-einzelalarm)
-  - [4.6 Absicherung der Sammelstelle und Rohdatenschutz](#46-absicherung-der-sammelstelle-und-rohdatenschutz)
-    - [4.6.1 Redaktion sensibler Werte in `raw`](#461-redaktion-sensibler-werte-in-raw)
-    - [4.6.2 Zugriffstrennung in der Datenbank](#462-zugriffstrennung-in-der-datenbank)
-    - [4.6.3 Weitere Maßnahmen](#463-weitere-maßnahmen)
-- [5. Erkennungsstruktur](#5-erkennungsstruktur)
-  - [5.1 Architekturüberblick](#51-architekturüberblick)
-  - [5.2 Regeln](#52-regeln)
-    - [5.2.1 Echtzeit-Regeln (pro Event, im Consumer)](#521-echtzeit-regeln-pro-event-im-consumer)
-    - [5.2.1.1 Pfad-Wissensbasis (`known_paths.yaml`)](#5211-pfad-wissensbasis-known_pathsyaml)
-    - [5.2.2 Periodische Regeln (Batch, alle 1–5 Minuten)](#522-periodische-regeln-batch-alle-15-minuten)
-    - [5.2.3 Ebenenübergreifende Korrelation](#523-ebenenübergreifende-korrelation)
-    - [5.2.4 Positivpfad-Regeln (Prüfung erfolgreicher Vorgänge)](#524-positivpfad-regeln-prüfung-erfolgreicher-vorgänge)
-    - [5.2.5 Anomaliebasierte Ergänzung](#525-anomaliebasierte-ergänzung)
-  - [5.3 Symfony-typische Angriffsszenarien und ihre Detektion](#53-symfony-typische-angriffsszenarien-und-ihre-detektion)
-    - [S1 — Profiler/Web-Debug-Toolbar in Produktion erreichbar](#s1-profilerweb-debug-toolbar-in-produktion-erreichbar)
-    - [S2 — Konfigurationsdatei-Zugriff (`.env`, `composer.json`, `/.git`)](#s2-konfigurationsdatei-zugriff-env-composerjson-git)
-    - [S3 — Fragment-Handler-Missbrauch (`/_fragment`)](#s3-fragment-handler-missbrauch-_fragment)
-    - [S4 — Template-Injection in Twig (SSTI)](#s4-template-injection-in-twig-ssti)
-    - [S5 — Deserialisierungs-Angriffe (Symfony Serializer / PHP `unserialize`)](#s5-deserialisierungs-angriffe-symfony-serializer-php-unserialize)
-    - [S6 — Mass Assignment über Symfony Forms](#s6-mass-assignment-über-symfony-forms)
-    - [S7 — Insecure Direct Object Reference (IDOR)](#s7-insecure-direct-object-reference-idor)
-    - [S8 — Brute-Force und Credential Stuffing gegen die Symfony-Firewall](#s8-brute-force-und-credential-stuffing-gegen-die-symfony-firewall)
-    - [S9 — Session-Fixation und Remember-Me-Token-Missbrauch](#s9-session-fixation-und-remember-me-token-missbrauch)
-    - [S10 — Enumeration bekannter Symfony-Bundle-Routen](#s10-enumeration-bekannter-symfony-bundle-routen)
-    - [5.3.1 Zusammenfassung: Abdeckung und Lücken](#531-zusammenfassung-abdeckung-und-lücken)
-- [6. Offene Punkte — priorisierte Gesamtübersicht](#6-offene-punkte-priorisierte-gesamtübersicht)
+- [4. IdsBackendBundle - Zentrale Sammelstelle](#4-idsbackendbundle---zentrale-sammelstelle)
+  - [4.1 Consumer](#41-consumer)
+  - [4.2 PostgreSQL-Datenbank](#42-postgresql-datenbank)
+    - [4.2.1 Tabellenschema](#421-tabellenschema)
+    - [4.2.2 Indizierung](#422-indizierung)
+    - [4.2.3 Retention & Partitionierung](#423-retention--partitionierung)
+      - [Volumenbudget und gestufte Retention](#volumenbudget-und-gestufte-retention)
+      - [Partitionierung mit pg_partman](#partitionierung-mit-pg_partman)
+    - [4.2.4 Auswertungstabellen](#424-auswertungstabellen)
+  - [4.3 Detection](#43-detection)
+    - [4.3.1 Echtzeit-Regeln (pro Event, im Consumer)](#431-echtzeit-regeln-pro-event-im-consumer)
+    - [4.3.2 Periodische Regeln (Batch, alle 1–5 Minuten)](#432-periodische-regeln-batch-alle-15-minuten)
+    - [4.3.3 Ebenenübergreifende Korrelation](#433-ebenenübergreifende-korrelation)
+    - [4.3.4 Positivpfad-Regeln (Prüfung erfolgreicher Vorgänge)](#434-positivpfad-regeln-prüfung-erfolgreicher-vorgänge)
+    - [4.3.5 Anomaliebasierte Ergänzung](#435-anomaliebasierte-ergänzung)
+    - [4.3.6 Detektions-Regeln Symfony-typische Angriffsszenarien](#436-detektions-regeln-symfony-typische-angriffsszenarien)
+  - [4.4 Alerting - Vorfall statt Einzelalarm](#44-alerting---vorfall-statt-einzelalarm)
+  - [4.5 Absicherung der Sammelstelle und Rohdatenschutz](#45-absicherung-der-sammelstelle-und-rohdatenschutz)
+    - [4.5.1 Redaktion sensibler Werte in `raw`](#451-redaktion-sensibler-werte-in-raw)
+    - [4.5.2 Zugriffstrennung in der Datenbank](#452-zugriffstrennung-in-der-datenbank)
+    - [4.5.3 Weitere Maßnahmen](#453-weitere-maßnahmen)
+- [6. Offene Punkte — priorisierte Gesamtübersicht](#6-offene-punkte--priorisierte-gesamtübersicht)
   - [6.1 Erledigt in dieser Fassung](#61-erledigt-in-dieser-fassung)
   - [6.2 Erkennung](#62-erkennung)
   - [6.3 Betrieb, Auslieferung, Validierung](#63-betrieb-auslieferung-validierung)
@@ -99,7 +83,7 @@ Betrachtet wird ausschließlich das, was **innerhalb der Symfony-Anwendung selbs
 | Paket | Läuft wo | Aufgabe |
 |---|---|---|
 | `IdsSensorBundle` | in der überwachten Symfony-Anwendung | Erfassung, Normalisierung, Redaktion (4.6.1), Versand an den Broker |
-| `IdsCollectorBundle` | läuft in eigenständiger Symfony-Anwendung (Backend / Dashboard), getrennt deployed| Empfang, Speicherung, sämtliche Regeln aus Abschnitt 5, Alerts, Applications verwalten, ... |
+| `IdsBackendBundle` | läuft in eigenständiger Symfony-Anwendung (Backend / Dashboard), getrennt deployed| Empfang, Speicherung, sämtliche Regeln aus Abschnitt 5, Alerts, Applications verwalten, ... |
 
 **Die Paketgrenze ist das normalisierte Event-Format aus Abschnitt 3.** Alle zur Erkennung nötigen Daten stecken darin — deshalb liegen *alle* Regeln im Collector, auch die Symfony-spezifischen. Sie prüfen normalisierte Feldwerte (`payload.path`, `payload.exception_class`), nicht Framework-Objekte, und brauchen zur Laufzeit keine Symfony-Kenntnis.
 
@@ -107,11 +91,13 @@ Betrachtet wird ausschließlich das, was **innerhalb der Symfony-Anwendung selbs
 
 ---
 
-### 1.1 IdsSensorBundle
+## 2. IdsSensorBundle
+
+**Architekturentscheidung:** Sensor und Normalisierer bilden **einen Baustein** (nicht zwei getrennte Komponenten) — z. B. ein Symfony-Event-Subscriber, der das Rohevent abfängt und direkt in normalisierter Form weitergibt.
 
 **Kernel- und Security-Ebene (siehe 2. Sensorik und Normalisierung) sind nach `composer require` ohne Anwendungscode aktiv** — die Event-Subscriber registrieren sich selbst. Die Business-Ebene erfordert zwingend Arbeit in der Anwendung (Implementierung der benötigten Events). Diese Asymmetrie entspricht der Wirksamkeitsaussage aus 2.1.1 und wird in der Auslieferung nicht verschleiert.
 
-#### 1.1.1 Kein Datenbankzugriff erlaubt
+> **Hinweis zur Wirksamkeit:** Die drei Ebenen sind nicht gleichwertig ersetzbar. Kernel- und Security-Ebene erkennen zuverlässig *gescheiterte* Angriffe (Fehler, Denials, Fehlversuche). Erfolgreiche Angriffe, die die Anwendung bestimmungsgemäß benutzen, erzeugen dort **kein Signal** und sind ausschließlich über die Business-Ebene erkennbar. Wird die Business-Ebene nicht impleentiert, bleibt das System auf die Erkennung gescheiterter Angriffe beschränkt.
 
 **Warum das IdsSensorBundle keinen Datenbankzugriff erhalten darf**
 
@@ -127,47 +113,6 @@ Damit kann ein Angreifer in der Anwendung keine bereits abgesendeten Events lös
 **Was dadurch nicht verhindert wird:** gefälschte Events einschleusen (der Sensor braucht Schreibrecht), die Queue fluten (Restrisiko aus 4.1.1), und den Sensor stilllegen. Letzteres ist lautlos und daher am gefährlichsten — deshalb sendet jeder Sensor im festen Intervall (Vorschlag: 60 s) einen **Heartbeat** mit `application_id` und `instance_id`. Bleibt er aus, erzeugt der Collector einen Alert (`rule_id = "ids.sensor_silent"`). Das macht aus dem Stilllegen ein detektierbares Ereignis.
 
 Aus demselben Grund liegt die **Erkennungskonfiguration collectorseitig** (Pfad-Wissensbasis, Schwellwerte, Cooldowns) und wird nicht vom Sensor mitgeliefert — andernfalls könnte eine kompromittierte Anwendung sich die unangenehmen Regeln abschalten.
-
-#### 1.1.2 Konfiguration (erste Gedanken)
-
-```yaml
-# config/packages/ids_sensor.yaml — in der überwachten Anwendung
-ids_sensor:
-    application_id: 'shop-api'
-    instance_id: '%env(default::HOSTNAME)%'
-    environment: '%kernel.environment%'
-    transport: 'ids_events'
-    heartbeat_interval: 60
-    layers: { kernel: true, security: true, business: true }
-    redaction: '%kernel.project_dir%/config/ids/redaction.yaml'
-```
-
-### 1.2 IdsCollectorBundle
-
-Ist der entscheidende Teil einer späteren Backend-Anwendung. Diese Anwendung wird außerdem ein Dashboard mit allen Alerts, aufgetretenen Anomalien, sowie einen Einblick in die Live-Daten enthalten. Sie wird dem Nutzer Einsicht in den Status seiner Systeme geben können und weitere Funktionen bieten, wie das Einrichten neuer Applications (Symfony-Projekte inkl. IdsSensorBundle). Die genaue Funktion und Umsetzung wird später in einem anderen Konzept definiert.
-
-#### 1.2.1 Konfiguration (erste Gedanken)
-
-```yaml
-# config/packages/ids_collector.yaml — in der Collector-Anwendung
-ids_collector:
-    connection: '%env(IDS_DATABASE_URL)%'
-    known_paths: '%kernel.project_dir%/config/ids/known_paths.yaml'
-    detection:
-        batch_interval: '5 minutes'
-        cooldown_default: '30 minutes'
-```
-
-
-**Der Collector nutzt DBAL direkt, kein Doctrine ORM.** Partitionierte Tabellen, eine `UNION ALL`-View als Leseziel, JSONB, Upserts mit `ON CONFLICT` und `pg_partman` sind mit ORM-Entities nicht sinnvoll abbildbar. Migrationen als reines SQL.
-
----
-
-## 2. Sensorik und Normalisierungs-Mapping
-
-**Architekturentscheidung:** Sensor und Normalisierer bilden **einen Baustein** (nicht zwei getrennte Komponenten) — z. B. ein Symfony-Event-Subscriber, der das Rohevent abfängt und direkt in normalisierter Form weitergibt.
-
-> **Hinweis zur Wirksamkeit:** Die drei Ebenen sind nicht gleichwertig ersetzbar. Kernel- und Security-Ebene erkennen zuverlässig *gescheiterte* Angriffe (Fehler, Denials, Fehlversuche). Erfolgreiche Angriffe, die die Anwendung bestimmungsgemäß benutzen, erzeugen dort **kein Signal** und sind ausschließlich über die Business-Ebene erkennbar. Wird die Business-Ebene nicht impleentiert, bleibt das System auf die Erkennung gescheiterter Angriffe beschränkt.
 
 ### 2.1 Sensorik
 
@@ -264,6 +209,7 @@ Aufbauend auf den konkreten Events aus Abschnitt 2.1: Für jede Ebene wird festg
 
 #### 2.2.1 Gemeinsame genutzte Eigenschaften (bei allen Sensoren gleich)
 
+- `schema_version` — Versionsnummer des normalisierten Event-Formats (siehe 3.)
 - `event_id` — vom Normalisierer generierte UUID, eindeutig pro Event
 - `layer` — fester Wert `"kernel"` / `"security"` / `"business"`, abhängig vom Baustein
 - `event_severity` — bei Kernel/Security durch feste Regeln abgeleitet (siehe 2.2.5), bei Business direkt aus `getSeverityHint()` übernommen
@@ -310,20 +256,20 @@ Gilt nur für Einzelevents (Bewertung ohne Kontext/Häufung — Muster über meh
 
 #### 2.2.2 Normalisierung Kernel-Ebene
 
-| Rohfeld (aus 2.1.2) | Normalisiertes Feld |
+| Normalisiertes Feld | Rohfeld (aus 2.1.2) |
 |---|---|
-| Zeitstempel | `timestamp` |
-| Request-ID | `correlation_id` |
-| Client-IP | `actor.ip` |
-| Benutzerkennung aus dem Security-Token, sofern zum Event-Zeitpunkt authentifiziert | `actor.user` (siehe 2.2.1.1) |
-| Session-ID aus dem Request (gehasht, nie im Klartext) | `actor.session_id_hash` |
-| User-Agent + ausgewählte Header (gehasht) | `actor.client_fingerprint` |
-| HTTP-Methode, Pfad, Query-Parameter, Route, User-Agent, Content-Length | `payload.*` (event-spezifisch, unverändert strukturiert übernommen) |
-| Exception-Klasse, Exception-Message, Statuscode | `payload.*` (bei `kernel.exception`) |
-| Statuscode, Response-Zeit, Response-Größe | `payload.*` (bei `kernel.response`) |
-| Event-Name (`kernel.request` / `kernel.exception` / `kernel.response`) | `event_type` |
+| `timestamp` | Zeitstempel |
+| `correlation_id` | Request-ID |
+| `actor.ip` | Client-IP |
+| `actor.user` (siehe 2.2.1.1) | Benutzerkennung aus dem Security-Token, sofern zum Event-Zeitpunkt authentifiziert |
+| `actor.session_id_hash` | Session-ID aus dem Request (gehasht, nie im Klartext) |
+| `actor.client_fingerprint` | User-Agent + ausgewählte Header (gehasht) |
+| `payload.*` (event-spezifisch, unverändert strukturiert übernommen) | HTTP-Methode, Pfad, Query-Parameter, Route, User-Agent, Content-Length |
+| `payload.*` (bei `kernel.exception`) | Exception-Klasse, Exception-Message, Statuscode |
+| `payload.*` (bei `kernel.response`) | Statuscode, Response-Zeit, Response-Größe |
+| `event_type` | Event-Name (`kernel.request` / `kernel.exception` / `kernel.response`) |
 
-#### 2.2.2.1 Nutzerkontext auf Kernel-Ebene
+##### Nutzerkontext auf Kernel-Ebene
 
 **Entscheidung:** Der Kernel-Normalisierer setzt `actor.user` aus dem Security-Token, sofern zum Zeitpunkt des Events eine Authentifizierung vorliegt.
 
@@ -333,27 +279,27 @@ Gilt nur für Einzelevents (Bewertung ohne Kontext/Häufung — Muster über meh
 
 #### 2.2.3 Normalisierung Security-Ebene
 
-| Rohfeld (aus 2.1.3) | Normalisiertes Feld |
+| Normalisiertes Feld | Rohfeld (aus 2.1.3) |
 |---|---|
-| Zeitstempel | `timestamp` |
-| Request-ID | `correlation_id` |
-| Client-IP | `actor.ip` |
-| Benutzerkennung (angemeldet oder versucht) | `actor.user` |
-| Session-ID (gehasht) | `actor.session_id_hash` |
-| User-Agent + ausgewählte Header (gehasht) | `actor.client_fingerprint` |
-| Firewall-Name, Fehlergrund, angefragtes Attribut/Ressource, Entscheidung | `payload.*` |
-| Event-Name | `event_type` |
+| `timestamp` | Zeitstempel |
+| `correlation_id` | Request-ID |
+| `actor.ip` | Client-IP |
+| `actor.user` | Benutzerkennung (angemeldet oder versucht) |
+| `actor.session_id_hash` | Session-ID (gehasht) |
+| `actor.client_fingerprint` | User-Agent + ausgewählte Header (gehasht) |
+| `payload.*` | Firewall-Name, Fehlergrund, angefragtes Attribut/Ressource, Entscheidung |
+| `event_type` | Event-Name |
 
 #### 2.2.4 Normalisierung Business-Ebene
 
-| Rohfeld (aus 2.1.4, Interface) | Normalisiertes Feld |
+| Normalisiertes Feld | Rohfeld (aus 2.1.4, Interface) |
 |---|---|
-| `getActorId()` | `actor.user` |
-| — (keine IP auf Business-Ebene garantiert) | `actor.ip = null`, sofern nicht im Payload mitgeliefert |
-| Session-Kontext aus dem laufenden Request, sofern vorhanden | `actor.session_id_hash`, `actor.client_fingerprint` (bei CLI-/Worker-Kontext `null`) |
-| `getEventName()` | `event_type` |
-| `getSeverityHint()` | `severity` |
-| `getPayload()` | `payload.*` (unverändert durchgereicht — Business-Sensor kennt die projektspezifische Struktur nicht) |
+| `actor.user` | `getActorId()` |
+| `actor.ip = null`, sofern nicht im Payload mitgeliefert | — (keine IP auf Business-Ebene garantiert) |
+| `actor.session_id_hash`, `actor.client_fingerprint` (bei CLI-/Worker-Kontext `null`) | Session-Kontext aus dem laufenden Request, sofern vorhanden |
+| `event_type` | `getEventName()` |
+| `severity` | `getSeverityHint()` |
+| `payload.*` (unverändert durchgereicht — Business-Sensor kennt die projektspezifische Struktur nicht) | `getPayload()` |
 
 ##### Bildung der Sitzungskontext-Felder
 
@@ -408,9 +354,11 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 **Variabler Teil:**
 `payload` — Struktur abhängig von `event_type`; siehe Abschnitt 3.1. Immer ein flaches oder maximal zweistufig verschachteltes JSON-Objekt.
 
-### 3.1 Payload-Struktur pro Event-Typ
+### 3.1 Payload-Format pro Ebene / Events
 
-#### `kernel.request`
+#### 3.1.1 Kernel-Ebene / -Events
+
+##### `kernel.request`
 ```json
 {
   "method": "GET",
@@ -425,7 +373,7 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 - `query`: flaches Objekt aus den Query-Parametern (keine Arrays von Arrays; verschachtelte Query-Strukturen werden auf einer Ebene abgeflacht bzw. als String belassen)
 - `route`: `null`, falls zum Zeitpunkt von `kernel.request` noch nicht aufgelöst
 
-#### `kernel.exception`
+##### `kernel.exception`
 ```json
 {
   "exception_class": "Symfony\\Component\\HttpKernel\\Exception\\NotFoundHttpException",
@@ -438,7 +386,7 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 - `exception_message`: auf 500 Zeichen gekürzt, um übergroße Payloads zu vermeiden
 - `path` und `content_length` werden aus dem zugehörigen Request **redundant übernommen** (siehe 3.2)
 
-#### `kernel.response`
+##### `kernel.response`
 ```json
 {
   "http_status": 200,
@@ -450,7 +398,9 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 ```
 - `path` und `route` werden aus dem zugehörigen Request **redundant übernommen** (siehe 3.2)
 
-#### `security.authentication.success`
+#### 3.1.2 Security-Ebene / -Events
+
+##### `security.authentication.success`
 ```json
 {
   "firewall": "main",
@@ -459,7 +409,7 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 ```
 - `authenticator`: Kurzname des verwendeten Authenticators (z. B. `form_login`, `api_token`, `json_login`)
 
-#### `security.authentication.failure`
+##### `security.authentication.failure`
 ```json
 {
   "firewall": "main",
@@ -468,7 +418,7 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 ```
 - Die versuchte Benutzerkennung steht in `actor.user` (siehe 2.2.2), nicht im Payload — Vermeidung von Redundanz
 
-#### Autorisierungsentscheidung (`security.access_decision`)
+##### `security.access_decision`
 ```json
 {
   "attribute": "ROLE_ADMIN",
@@ -479,7 +429,9 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 - `resource`: Identifier-String (`Klasse#ID`), niemals das vollständige Objekt
 - `decision`: `"granted"` oder `"denied"`
 
-#### Business-Events (generisch)
+#### 3.1.3 Business-Ebene / -Events
+
+##### Generische Business-Events
 Für Business-Events wird **keine feste Payload-Struktur** vorgegeben — `payload` entspricht 1:1 dem Rückgabewert von `getPayload()` aus dem Interface (siehe 2.1.4) und ist damit projektspezifisch. Empfehlung für Projekte, die das Interface implementieren:
 - flache Struktur (keine verschachtelten Objekte/Entities)
 - nur primitive Typen (string, number, bool, null) als Werte
@@ -504,17 +456,13 @@ Beispiel (projektspezifisch, nicht Teil des generischen Konzepts):
 
 ---
 
-## 4. Zentrale Sammelstelle
+## 4. IdsBackendBundle - Zentrale Sammelstelle
+
+Ist der entscheidende Teil einer späteren Backend-Anwendung. Diese Anwendung wird außerdem ein Dashboard mit allen Alerts, aufgetretenen Anomalien, sowie einen Einblick in die Live-Daten enthalten. Sie wird dem Nutzer Einsicht in den Status seiner Systeme geben können und weitere Funktionen bieten, wie das Einrichten neuer Applications (Symfony-Projekte inkl. IdsSensorBundle). Die genaue Funktion und Umsetzung wird später in einem anderen Konzept definiert.
 
 **Entscheidung:** PostgreSQL als Datenhaltung. Feste Felder des normalisierten Schemas (Abschnitt 3) werden als eigene, indexierbare Spalten geführt; `payload` und `raw` bleiben als JSONB, da sie strukturell variabel sind.
 
-### 4.1 Komponenten
-
-Die Sammelstelle besteht aus zwei Teilen:
-- **Consumer** — liest die normalisierten Events vom Message Broker (siehe 2.1.1) und schreibt sie unverändert in die Datenbank; keine weitere Transformation, reines Mapping der bereits normalisierten Top-Level-Felder auf Spalten. Er entscheidet anhand von `event_severity`, in welche Event-Tabelle geschrieben wird, setzt `received_at` und führt die Echtzeitregeln aus (5.2.1)
-- **PostgreSQL-Datenbank** — die Event-Tabellen `events_relevant` und `events_info` (strukturgleich, getrennt wegen gestufter Retention, gemeinsam abfragbar über die View `events`), die Rohdatentabelle `events_raw` (nur selektiv gefüllt) sowie die Auswertungstabellen `alerts` und `metric_baselines` (siehe 4.5)
-
-#### 4.1.1 Ausfall- und Überlastverhalten
+**Der Collector nutzt DBAL direkt, kein Doctrine ORM.** Partitionierte Tabellen, eine `UNION ALL`-View als Leseziel, JSONB, Upserts mit `ON CONFLICT` und `pg_partman` sind mit ORM-Entities nicht sinnvoll abbildbar. Migrationen als reines SQL.
 
 **Grundsatzentscheidung: fail-open.** Eine Störung des IDS darf die überwachte Anwendung unter keinen Umständen beeinträchtigen. Ein IDS, das bei eigenem Ausfall Requests blockiert, wird nach dem ersten Vorfall abgeschaltet — und ist damit dauerhaft wirkungslos.
 
@@ -535,7 +483,15 @@ ON CONFLICT (event_id, "timestamp") DO NOTHING;
 
 > **Restrisiko, das aus fail-open folgt:** Ein Angreifer kann die Erkennung abschalten, indem er den Broker oder Consumer überlastet, und den eigentlichen Angriff anschließend unbeobachtet ausführen. Denial of Service gegen das IDS wird damit zu einem sinnvollen Vorbereitungsschritt. Die Gegenmaßnahme ist keine technische Härtung des Transports, sondern **Sichtbarkeit**: Jeder verworfene oder verlorene Event wird gezählt und löst ab einem Schwellwert einen eigenen Alert aus (`rule_id = "ids.event_loss"`, siehe 4.5). Ein stiller Ausfall ist gefährlicher als ein sichtbarer, weil er Schutz suggeriert, den es nicht gibt.
 
-### 4.2 Tabellenschema
+### 4.1 Consumer
+
+Liest die normalisierten Events vom Message Broker (siehe 2.1.1) und schreibt sie unverändert in die Datenbank; keine weitere Transformation, reines Mapping der bereits normalisierten Top-Level-Felder auf Spalten. Er entscheidet anhand von `event_severity`, in welche Event-Tabelle geschrieben wird, setzt `received_at` und führt die Echtzeitregeln aus (5.2.1)
+
+### 4.2 PostgreSQL-Datenbank
+
+die Event-Tabellen `events_relevant` und `events_info` (strukturgleich, getrennt wegen gestufter Retention, gemeinsam abfragbar über die View `events`), die Rohdatentabelle `events_raw` (nur selektiv gefüllt) sowie die Auswertungstabellen `alerts` und `metric_baselines` (siehe 4.5)
+
+#### 4.2.1 Tabellenschema
 
 ```sql
 CREATE TYPE layer_type AS ENUM ('kernel', 'security', 'business');
@@ -591,7 +547,7 @@ CREATE TABLE events_raw (
 - `layer` und `event_severity` als ENUM statt freiem Text — verhindert Tippfehler/Inkonsistenzen bei festen Wertebereichen
 - `event_type` bleibt `TEXT` (nicht ENUM), da Business-Ebene beliebige, projektdefinierte Event-Namen liefert
 
-### 4.3 Indizierung
+#### 4.2.2 Indizierung
 
 Die Indizes werden auf **beiden** Event-Tabellen angelegt (hier am Beispiel `events_relevant`; für `events_info` identisch, da über `LIKE ... INCLUDING ALL` übernommen):
 
@@ -606,7 +562,6 @@ CREATE INDEX idx_evr_session_hash ON events_relevant (actor_session_hash);
 CREATE INDEX idx_evr_payload_gin ON events_relevant USING GIN (payload);
 ```
 
-- Der frühere partielle Index auf `event_severity != 'info'` entfällt: Die Trennung in zwei Tabellen (4.2) leistet dasselbe strukturell — eine Abfrage auf `events_relevant` berührt `info`-Events gar nicht mehr.
 - `idx_evr_correlation_id`: ermöglicht das Zusammenführen aller Events einer einzelnen Anfrage über alle drei Ebenen hinweg (z. B. `kernel.request` + `security.authentication.failure` + `kernel.response` mit derselben `correlation_id`)
 - `idx_evr_scope`: Grundlage der verbindlichen Aggregationsregel aus 2.2.4.1 — jede Regelabfrage filtert zuerst auf Anwendung und Umgebung
 - `idx_evr_actor_user_ts`: zusammengesetzter Index für die nutzerbezogenen Zeitfenster-Regeln (B4, B7, X2, X3, P1–P3), die durchgängig nach `actor_user` innerhalb eines Zeitraums filtern
@@ -614,9 +569,9 @@ CREATE INDEX idx_evr_payload_gin ON events_relevant USING GIN (payload);
 - GIN-Index auf `payload`: erlaubt spätere Abfragen auf einzelne Payload-Felder (z. B. `payload->>'http_status'`), ohne dass jedes mögliche Feld vorab bekannt sein muss
 - `events_raw` erhält keine eigenen Indizes über `event_id`/`timestamp` hinaus — die Tabelle wird ausschließlich für gezielte Einzelabfragen per `event_id` genutzt, nicht für Analysen
 
-### 4.4 Retention & Partitionierung
+#### 4.2.3 Retention & Partitionierung
 
-#### 4.4.1 Volumenbudget und gestufte Retention
+##### Volumenbudget und gestufte Retention
 
 Die Retention muss aus dem tatsächlichen Datenvolumen abgeleitet werden, nicht umgekehrt. Rechnung für eine Anwendung mit **50 Requests/s** (≈ 4,3 Mio. Requests/Tag, ~3 Events pro Request, also ~13 Mio. Events/Tag):
 
@@ -643,7 +598,7 @@ Umsetzung: `info`-Events und relevante Events werden in getrennte, jeweils monat
 
 **Sampling als Reservemaßnahme:** Reicht das nicht (Anwendungen deutlich über 50 Req/s), werden `info`-Events auf Sensorebene gesampelt, z. B. jedes n-te `kernel.request`. `warning`/`critical`-Events und alle Security- und Business-Events werden **nie** gesampelt. Sampling verfälscht Baselines und muss daher als Sampling-Rate im Event mitgeführt werden, damit Aggregate hochgerechnet werden können.
 
-#### 4.4.2 Partitionierung mit pg_partman
+##### Partitionierung mit pg_partman
 
 **Entscheidung:** Alle drei Event-Tabellen werden über die Erweiterung **`pg_partman`** monatlich partitioniert und automatisiert bereinigt, mit den in 4.4.1 abgeleiteten Aufbewahrungsdauern:
 
@@ -696,9 +651,7 @@ WHERE parent_table = 'public.events_raw';
 - `p_premake := 3`: `pg_partman` legt automatisch die nächsten drei Monatspartitionen im Voraus an
 - **Wichtig:** `pg_partman` benötigt einen regelmäßig laufenden Wartungsjob (`partman.run_maintenance_proc()`), der die eigentliche Erstellung/Bereinigung der Partitionen auslöst — üblich über die Erweiterung `pg_cron`, alternativ ein externer Scheduler, der die Prozedur periodisch aufruft (z. B. stündlich)
 
----
-
-### 4.5 Auswertungstabellen
+#### 4.2.4 Auswertungstabellen
 
 Neben den Event-Tabellen hält die Sammelstelle zwei Tabellen für die Ergebnisse der Erkennungsstruktur (Abschnitt 5). Sie stehen hier, damit alle Datenbankobjekte an einer Stelle definiert sind.
 
@@ -750,82 +703,7 @@ CREATE INDEX idx_alerts_actor_ip ON alerts (actor_ip);
 - `actor_session_hash` ist ergänzt, damit sitzungsbezogene Alerts (B8/B9) ohne Rückgriff auf `details` auswertbar sind.
 - Alerts referenzieren die auslösenden Events **nicht** per Fremdschlüssel auf `event_id` (ein Alert kann auf mehreren/aggregierten Events beruhen), sondern lose über `correlation_ids`/`actor_ip`/`actor_user`/`actor_session_hash`, die bei Bedarf gegen `events` nachgeschlagen werden können.
 
-#### 4.5.1 Vorfall statt Einzelalarm
-
-**Problem:** Ohne Deduplizierung feuert R3, sobald der Redis-Zähler die Schwelle überschreitet — also bei *jedem weiteren* Fehlversuch. Ein Brute-Force-Angriff mit 500 Versuchen erzeugt rund 495 Alerts für **einen** Vorfall. Das macht die Alert-Tabelle unbrauchbar und trainiert jeden Betrachter darauf, sie zu ignorieren.
-
-**Lösung:** `alerts` ist keine Ereignis-, sondern eine **Vorfallstabelle**. Ein Vorfall wird einmal angelegt und danach fortgeschrieben.
-
-**Bildung des `dedup_key`** — zusammengesetzt aus:
-- `rule_id`
-- dem für die Regel maßgeblichen Akteur: `actor_ip` (R2, R3, B1, B2, X4), `actor_user` (R4, B4, B6, B7, X2, X3, P1–P3) oder `actor_session_hash` (B8, B9)
-- `application_id` und `environment` (Konsequenz der Aggregationsregel aus 2.2.4.1)
-- einem Fensterkennzeichen (siehe unten)
-
-**Schreibvorgang** — Upsert statt Insert:
-
-```sql
-INSERT INTO alerts (alert_id, dedup_key, rule_id, alert_severity, source,
-                    application_id, environment, description, details)
-VALUES (...)
-ON CONFLICT (dedup_key) DO UPDATE
-SET last_seen = now(),
-    occurrence_count = alerts.occurrence_count + 1,
-    details = EXCLUDED.details;
-```
-
-**Vorfallsende:** Ein Vorfall gilt als abgeschlossen, wenn er länger als das Cooldown-Fenster seiner Regel nicht mehr aufgetreten ist (Vorschlag: 30 Minuten). Das Fensterkennzeichen im `dedup_key` sorgt dafür, dass ein erneutes Auftreten danach einen **neuen** Vorfall erzeugt statt einen Monate alten Eintrag wiederzubeleben.
-
-**Cooldown im Echtzeitpfad:** Damit R1–R7 nicht pro Event einen Datenbank-Upsert auslösen, hält der Consumer je `dedup_key` einen Redis-Schlüssel mit der Cooldown-Dauer als TTL. Innerhalb dieses Fensters wird nur der Redis-Zähler erhöht; der Upsert erfolgt gebündelt. Das ist zugleich Voraussetzung für das Latenzbudget aus 2.1.1.1.
-
-**Nebeneffekt, der eigene Aussagekraft hat:** `occurrence_count` ist selbst ein Signal. 500 Fehlversuche statt 6 unterscheiden einen automatisierten Angriff von einem vergesslichen Nutzer — ohne dass es dafür eine eigene Regel braucht. Für Priorisierung und Eskalation ist der Zählerstand oft aussagekräftiger als die `alert_severity`.
-
-**Retention:** `alerts` wird bewusst **nicht** partitioniert und **nicht** automatisch bereinigt. Das Volumen liegt um Größenordnungen unter dem der `events`-Tabelle, und Alerts sind der eigentliche Auswertungsgegenstand — eine langfristige Historie ist hier erwünscht, nicht lästig. Sollte das Volumen unerwartet wachsen (etwa durch unkalibrierte Schwellwerte), ist eine Partitionierung nach `created_at` analog zu 4.4 jederzeit nachrüstbar. `metric_baselines` wird bei jedem Baseline-Lauf überschrieben und wächst nicht.
-
-### 4.6 Absicherung der Sammelstelle und Rohdatenschutz
-
-Die Sammelstelle ist das wertvollste Einzelziel der gesamten Architektur: Sie enthält, was ein Angreifer in der überwachten Anwendung erst mühsam einsammeln müsste — und das für alle Nutzer gleichzeitig.
-
-#### 4.6.1 Redaktion sensibler Werte in `raw`
-
-**Auflösung eines Widerspruchs:** In 2.2.3.1 wird das Hashen der Session-ID damit begründet, dass die Event-Datenbank sonst selbst zum Session-Hijacking-Vektor würde. Über ein unredigiertes `raw`-Feld wäre sie das trotzdem — dort lägen Cookies, `Authorization`-Header und Login-Formulardaten im Klartext. Die Begründung wird deshalb konsequent durchgezogen statt zurückgenommen.
-
-**Ausführungsort: der Sensor, nicht der Consumer.** Andernfalls würden Klartext-Zugangsdaten über den Broker laufen und dort in Queues, Logs und Spool-Dateien landen.
-
-Redaktionsliste — Werte werden durch `[redacted]` ersetzt, Feldnamen bleiben erhalten:
-
-| Kategorie | Einträge |
-|---|---|
-| Header | `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token` |
-| Parameter (Namensmuster) | `password`, `passwd`, `pwd`, `secret`, `token`, `_token`, `api_key`, `apikey`, `private_key`, `credit_card`, `cvv`, `iban` |
-
-Die Liste wird wie die Pfad-Wissensbasis (5.2.1.1) als versionierte Konfiguration geführt, nicht hartkodiert.
-
-> **Ehrliche Einordnung:** Dies ist eine Denylist und teilt deren grundsätzliche Schwäche — unbekannte Feldnamen werden nicht erfasst. Auch vollständig redigiert bleibt `raw` sensibel, weil es Geschäftsdaten und personenbezogene Formularinhalte enthält. Die Redaktion senkt das Schadensmaß bei einer Kompromittierung, sie beseitigt es nicht.
-
-#### 4.6.2 Zugriffstrennung in der Datenbank
-
-Drei getrennte Rollen statt eines gemeinsamen Zugangs:
-
-| Rolle | Rechte | Verwendet von |
-|---|---|---|
-| `ids_writer` | nur `INSERT` auf `events_relevant`, `events_info`, `events_raw` | Consumer |
-| `ids_analyst` | nur `SELECT` auf die Event-Tabellen und `metric_baselines`, `INSERT`/`UPDATE` auf `alerts` — **kein Zugriff auf `events_raw`** | Detection Job |
-| `ids_forensics` | `SELECT` auf `events_raw`, personengebunden, Zugriffe protokolliert | manuelle Nachanalyse |
-
-Der Ausschluss von `events_raw` für `ids_analyst` ist möglich, weil **keine einzige Regel aus Abschnitt 5 auf `raw` zugreift**. Damit ist der sensibelste Datenbestand kein Bestandteil des laufenden Betriebs, sondern nur bei begründetem Anlass erreichbar — die Standardkompromittierung eines Dienstkontos erreicht ihn nicht.
-
-#### 4.6.3 Weitere Maßnahmen
-
-- **Transport:** Broker-Verbindungen ausschließlich über TLS und mit Authentifizierung; der Broker ist nicht öffentlich erreichbar.
-- **Log-Injection:** `path`, `user_agent` und `payload` sind angreiferkontrolliert. Sie werden ausschließlich als JSONB-Werte gespeichert, nie in Textlogzeilen interpoliert, und müssen in jeder späteren Auswertungsoberfläche als Daten behandelt werden, nicht als Markup.
-- **Datenschutz:** Die Entscheidung, Datenschutzaspekte bei `raw` nachrangig zu behandeln, ist bewusst getroffen worden (Priorität auf forensische Vollständigkeit). Sie ist vor einem produktiven Einsatz mit echten Nutzerdaten erneut zu prüfen — betroffen sind Rechtsgrundlage, Aufbewahrungsfristen und Auskunftsfähigkeit. Als offener Punkt geführt (Abschnitt 6, B8).
-
----
-
-## 5. Erkennungsstruktur
-
-### 5.1 Architekturüberblick
+### 4.3 Detection
 
 Vier Schichten:
 
@@ -844,11 +722,7 @@ Neue Komponente: **Pfad-Wissensbasis** (`known_paths.yaml`, siehe 5.2.1.1) — d
 
 Ergebnis aller Schichten: Einträge in der Tabelle `alerts` (Schema siehe 4.5).
 
-### 5.2 Regeln
-
-Alle Regeln aus den vier bisher getrennten Kategorien — Echtzeit, periodisch, ebenenübergreifend, positivpfadbasiert — sind hier als gemeinsamer Regelbestand zusammengefasst.
-
-#### 5.2.1 Echtzeit-Regeln (pro Event, im Consumer)
+#### 4.3.1 Echtzeit-Regeln (pro Event, im Consumer)
 
 | Regel | Ebene | Bedingung | Auslöser |
 |---|---|---|---|
@@ -869,7 +743,7 @@ R3/R4 sind bewusst noch "Echtzeit", weil sie ausschließlich einen Redis-`INCR`+
 
 **Umsetzungshinweis zu R2b:** `kernel.request` und `kernel.response` sind zwei getrennte Events. Der Consumer hält den Pfadlisten-Treffer daher kurzzeitig in Redis unter der `correlation_id` (TTL ~30s) vor und wertet ihn aus, sobald das zugehörige `kernel.response`-Event eintrifft.
 
-#### 5.2.1.1 Pfad-Wissensbasis (`known_paths.yaml`)
+**Pfad-Wissensbasis (`known_paths.yaml`)**
 
 Die Pfadliste ist der Ort, an dem Symfony-spezifisches Framework-Wissen ins System einfließt. Sie wird deshalb **nicht hartkodiert**, sondern als deklarative, versionierte Konfigurationsdatei außerhalb des Codes geführt und zur Laufzeit geladen:
 
@@ -921,7 +795,7 @@ categories:
 
 **Betrieb:** Die Datei ist bewusst so gestaltet, dass sie ohne Codeänderung und ohne Deployment aktualisiert werden kann (Reload beim Start des Consumers bzw. per Signal). Ihre Pflege ist ein eigener, wiederkehrender Vorgang — analog zur Signaturpflege klassischer IDS —, kein Nebenprodukt der Anwendungsentwicklung.
 
-#### 5.2.2 Periodische Regeln (Batch, alle 1–5 Minuten)
+#### 4.3.2 Periodische Regeln (Batch, alle 1–5 Minuten)
 
 | Regel | Ebene | Bedingung (Beispiel-SQL-Logik) | Auslöser |
 |---|---|---|---|
@@ -949,7 +823,7 @@ HAVING count(*) > 20 AND count(DISTINCT payload->>'path') > 5;
 
 Die Filterung auf `application_id` und `environment` ist keine Option, sondern Pflicht für jede Regelabfrage (siehe Aggregationsregel in 2.2.4.1). Da `kernel.response` mit Status 403/404 die `event_severity` `warning` erhält (2.2.5), könnte diese Abfrage auch direkt gegen `events_relevant` statt gegen die View laufen — schneller, weil die `info`-Partitionen dann gar nicht berührt werden.
 
-#### 5.2.3 Ebenenübergreifende Korrelation
+#### 4.3.3 Ebenenübergreifende Korrelation
 
 Regeln, die Events **verschiedener Ebenen oder verschiedener Anfragen** zusammenführen. Der verbindende Schlüssel ist je nach Regel unterschiedlich: `correlation_id` (eine Anfrage), `actor_user`, `actor_ip` oder `actor_session_hash`.
 
@@ -968,7 +842,7 @@ Technisch: X1 lässt sich direkt per `correlation_id`-Self-Join auf `events` ums
 
 Die Regeln B8/B9 behalten ihre B-Nummerierung, weil sie wie die übrigen Batch-Regeln im periodischen Detection Job laufen; sie stehen hier, weil sie ebenenübergreifend korrelieren.
 
-#### 5.2.4 Positivpfad-Regeln (Prüfung erfolgreicher Vorgänge)
+#### 4.3.4 Positivpfad-Regeln (Prüfung erfolgreicher Vorgänge)
 
 **Ausgangspunkt:** Die Regeln R1–R7, B1–B7 und X1–X4 hängen nahezu durchgängig an Fehlerzuständen — Exceptions, Denials, Fehlversuche, abgewiesene Statuscodes. Daraus folgt ein struktureller Blindfleck: Angriffe, die die Anwendung *bestimmungsgemäß* benutzen und nur semantisch falsch sind (S6 Mass Assignment, S7 IDOR ohne Voter, S9 Session-Übernahme), erzeugen keinen einzigen Fehlerzustand. Sie sind aus Sicht der Anwendung fehlerfreie, autorisierte Vorgänge.
 
@@ -990,7 +864,7 @@ Diese Regelklasse prüft deshalb nicht, ob etwas fehlgeschlagen ist, sondern ob 
 
 > **Abhängigkeit von der Business-Instrumentierung:** P3 setzt voraus, dass die Anwendung die Vorgangsklassen aus 2.1.4.1 tatsächlich instrumentiert. Ohne diese Events existiert für P3 keine Datengrundlage — die Regel läuft dann wirkungslos ins Leere, ohne dass dies im Betrieb auffällt. Gleiches gilt für S6 und für S7 bei fehlendem Voter: Die Positivpfad-Regeln schließen die Lücke nur so weit, wie die Anwendung überhaupt Signale liefert.
 
-#### 5.2.5 Anomaliebasierte Ergänzung
+#### 4.3.5 Anomaliebasierte Ergänzung
 
 Bewusst **keine ML-Infrastruktur** in diesem Konzept — statt eines trainierten Modells eine einfache statistische Baseline:
 
@@ -998,13 +872,26 @@ Bewusst **keine ML-Infrastruktur** in diesem Konzept — statt eines trainierten
 2. **Vergleich** (im selben periodischen Detection Job wie 5.2.2/5.2.4): aktueller Wert der Metrik im laufenden Zeitfenster wird gegen `mean ± 3·stddev` der passenden Baseline verglichen; Überschreitung → Alert `"Anomalie: <Metrik> weicht von Baseline ab"`.
 3. **Bewusste Grenze:** Dieser Ansatz erkennt nur Abweichungen bei Metriken, die explizit als beobachtet definiert wurden — kein unüberwachtes Lernen unbekannter Muster. Ausbau zu echten ML-Verfahren (z. B. Isolation Forest, saisonale Zeitreihenmodelle) ist eine spätere, bewusst offen gelassene Erweiterung.
 
-### 5.3 Symfony-typische Angriffsszenarien und ihre Detektion
+#### 4.3.6 Detektions-Regeln Symfony-typische Angriffsszenarien
 
 Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typische Fehlkonfigurationen und Komponenten) — im Unterschied zu generischen Webangriffen. Für jedes Szenario ist beschrieben, wie es sich im normalisierten Event-Strom (Abschnitt 3) niederschlägt und welche Regeln greifen.
 
+| Szenario | Abgedeckt durch | Status |
+|---|---|---|
+| S1 | R2, R2b | abgedeckt |
+| S2 | R2, R2b, B1 | abgedeckt |
+| S3 | R2 (Variante a), X4 (Variante b) | abgedeckt |
+| S4 | R1, R6, Baseline | abgedeckt |
+| S5 | R1, R7 | abgedeckt |
+| S6 | R5, X3, P3 | **nur bei implementierter Business-Instrumentierung** (V1, V4 — siehe 2.1.4.1) |
+| S7 | R4 (mit Voter), B7, P1, P2 | abgedeckt; ohne Voter zusätzlich auf V3 angewiesen |
+| S8 | R3, B3, B4, B5 | abgedeckt |
+| S9 | B8, B9 | abgedeckt, setzt Sitzungskontext (2.2.3.1) voraus |
+| S10 | B1, Baseline | abgedeckt |
+
 ---
 
-#### S1 — Profiler/Web-Debug-Toolbar in Produktion erreichbar
+**S1 — Profiler/Web-Debug-Toolbar in Produktion erreichbar**
 
 **Angriff:** Der Symfony Profiler (`/_profiler`, `/_wdt/*`) ist eine der ergiebigsten Informationsquellen überhaupt: Konfiguration, Umgebungsvariablen, DB-Queries, Session-Inhalte, teils Klartext-Secrets. Angreifer prüfen diese Pfade routinemäßig. Verwandt: der Legacy-Front-Controller `/app_dev.php` aus Symfony-2/3-Zeiten, der bei migrierten Projekten übrig geblieben sein kann.
 
@@ -1019,7 +906,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S2 — Konfigurationsdatei-Zugriff (`.env`, `composer.json`, `/.git`)
+**S2 — Konfigurationsdatei-Zugriff (`.env`, `composer.json`, `/.git`)**
 
 **Angriff:** Symfony legt Umgebungskonfiguration konventionell in `.env` im Projektwurzelverzeichnis ab. Ist der Document Root falsch gesetzt (auf das Projektwurzelverzeichnis statt auf `public/`), sind `.env` (mit `DATABASE_URL`, `APP_SECRET`), `composer.json`/`composer.lock` (exakte Paketversionen → gezielte CVE-Auswahl) und `.git/` direkt abrufbar.
 
@@ -1032,7 +919,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S3 — Fragment-Handler-Missbrauch (`/_fragment`)
+**S3 — Fragment-Handler-Missbrauch (`/_fragment`)**
 
 **Angriff:** Symfonys Fragment-Handler rendert Controller-Fragmente über `/_fragment` mit einer per `APP_SECRET` signierten URI. Zwei Angriffsvarianten: (a) Aufruf mit ungültiger/fehlender Signatur, um das Verhalten zu sondieren; (b) bei geleaktem `APP_SECRET` (z. B. aus S1/S2) die Erzeugung *gültiger* Signaturen und damit Aufruf beliebiger Controller mit kontrollierten Parametern.
 
@@ -1047,7 +934,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S4 — Template-Injection in Twig (SSTI)
+**S4 — Template-Injection in Twig (SSTI)**
 
 **Angriff:** Wird Nutzereingabe als Template-String (statt als Template-Variable) verarbeitet, kann über Twig-Syntax Code ausgeführt werden. Typischer Einstiegspunkt sind Funktionen, die Benutzertext dynamisch rendern (z. B. konfigurierbare E-Mail-Vorlagen, CMS-artige Inhaltsfelder).
 
@@ -1062,7 +949,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S5 — Deserialisierungs-Angriffe (Symfony Serializer / PHP `unserialize`)
+**S5 — Deserialisierungs-Angriffe (Symfony Serializer / PHP `unserialize`)**
 
 **Angriff:** Nimmt die Anwendung serialisierte Daten von außen entgegen (API-Payloads, Cookies, Cache-Schlüssel) und deserialisiert diese, können präparierte Objektgraphen ("Gadget Chains") beim Deserialisieren Code auslösen. Symfony-Projekte sind hier durch die große Zahl mitgelieferter Klassen im Autoloader potenziell exponiert.
 
@@ -1077,7 +964,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S6 — Mass Assignment über Symfony Forms
+**S6 — Mass Assignment über Symfony Forms**
 
 **Angriff:** Ein Formular, das Extra-Felder toleriert oder direkt auf eine Entity gemappt ist, kann Felder setzen, die im UI nicht vorgesehen sind (z. B. `roles`, `isVerified`, `balance`). Der Angriff ist unauffällig: die Anfrage ist syntaktisch gültig, die Antwort ist `200`.
 
@@ -1090,7 +977,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S7 — Insecure Direct Object Reference (IDOR)
+**S7 — Insecure Direct Object Reference (IDOR)**
 
 **Angriff:** Zugriff auf fremde Ressourcen durch Manipulation von Identifiern in der URL (`/orders/42` → `/orders/43`). Bei korrekt implementierten Symfony-Votern wird der Zugriff abgelehnt; fehlt der Voter, gelingt er.
 
@@ -1104,7 +991,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S8 — Brute-Force und Credential Stuffing gegen die Symfony-Firewall
+**S8 — Brute-Force und Credential Stuffing gegen die Symfony-Firewall**
 
 **Angriff:** Automatisierte Login-Versuche gegen den `form_login`- oder `json_login`-Authenticator, entweder gegen ein Konto mit vielen Passwörtern (Brute-Force) oder mit geleakten Zugangsdaten gegen viele Konten (Credential Stuffing).
 
@@ -1118,7 +1005,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S9 — Session-Fixation und Remember-Me-Token-Missbrauch
+**S9 — Session-Fixation und Remember-Me-Token-Missbrauch**
 
 **Angriff:** Übernahme einer Sitzung durch untergeschobene Session-ID oder gestohlenes `REMEMBER_ME`-Cookie. Ein erfolgreicher Angriff erzeugt legitime, authentifizierte Requests.
 
@@ -1130,7 +1017,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### S10 — Enumeration bekannter Symfony-Bundle-Routen
+**S10 — Enumeration bekannter Symfony-Bundle-Routen**
 
 **Angriff:** Bevor eine bekannte Schwachstelle in einem Bundle ausgenutzt wird, prüft der Angreifer, ob das Bundle überhaupt installiert ist — durch Abruf charakteristischer Routen (Admin-Bundles, API-Dokumentations-Endpunkte, Upload-Handler). Die Statuscode-Verteilung verrät dabei die installierte Bundle-Landschaft, selbst wenn die Endpunkte geschützt sind: `403` bedeutet "vorhanden, aber geschützt", `404` bedeutet "nicht installiert".
 
@@ -1142,26 +1029,78 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ---
 
-#### 5.3.1 Zusammenfassung: Abdeckung und Lücken
+### 4.4 Alerting - Vorfall statt Einzelalarm
 
-| Szenario | Abgedeckt durch | Status |
+**Problem:** Ohne Deduplizierung feuert R3, sobald der Redis-Zähler die Schwelle überschreitet — also bei *jedem weiteren* Fehlversuch. Ein Brute-Force-Angriff mit 500 Versuchen erzeugt rund 495 Alerts für **einen** Vorfall. Das macht die Alert-Tabelle unbrauchbar und trainiert jeden Betrachter darauf, sie zu ignorieren.
+
+**Lösung:** `alerts` ist keine Ereignis-, sondern eine **Vorfallstabelle**. Ein Vorfall wird einmal angelegt und danach fortgeschrieben.
+
+**Bildung des `dedup_key`** — zusammengesetzt aus:
+- `rule_id`
+- dem für die Regel maßgeblichen Akteur: `actor_ip` (R2, R3, B1, B2, X4), `actor_user` (R4, B4, B6, B7, X2, X3, P1–P3) oder `actor_session_hash` (B8, B9)
+- `application_id` und `environment` (Konsequenz der Aggregationsregel aus 2.2.4.1)
+- einem Fensterkennzeichen (siehe unten)
+
+**Schreibvorgang** — Upsert statt Insert:
+
+```sql
+INSERT INTO alerts (alert_id, dedup_key, rule_id, alert_severity, source,
+                    application_id, environment, description, details)
+VALUES (...)
+ON CONFLICT (dedup_key) DO UPDATE
+SET last_seen = now(),
+    occurrence_count = alerts.occurrence_count + 1,
+    details = EXCLUDED.details;
+```
+
+**Vorfallsende:** Ein Vorfall gilt als abgeschlossen, wenn er länger als das Cooldown-Fenster seiner Regel nicht mehr aufgetreten ist (Vorschlag: 30 Minuten). Das Fensterkennzeichen im `dedup_key` sorgt dafür, dass ein erneutes Auftreten danach einen **neuen** Vorfall erzeugt statt einen Monate alten Eintrag wiederzubeleben.
+
+**Cooldown im Echtzeitpfad:** Damit R1–R7 nicht pro Event einen Datenbank-Upsert auslösen, hält der Consumer je `dedup_key` einen Redis-Schlüssel mit der Cooldown-Dauer als TTL. Innerhalb dieses Fensters wird nur der Redis-Zähler erhöht; der Upsert erfolgt gebündelt. Das ist zugleich Voraussetzung für das Latenzbudget aus 2.1.1.1.
+
+**Nebeneffekt, der eigene Aussagekraft hat:** `occurrence_count` ist selbst ein Signal. 500 Fehlversuche statt 6 unterscheiden einen automatisierten Angriff von einem vergesslichen Nutzer — ohne dass es dafür eine eigene Regel braucht. Für Priorisierung und Eskalation ist der Zählerstand oft aussagekräftiger als die `alert_severity`.
+
+**Retention:** `alerts` wird bewusst **nicht** partitioniert und **nicht** automatisch bereinigt. Das Volumen liegt um Größenordnungen unter dem der `events`-Tabelle, und Alerts sind der eigentliche Auswertungsgegenstand — eine langfristige Historie ist hier erwünscht, nicht lästig. Sollte das Volumen unerwartet wachsen (etwa durch unkalibrierte Schwellwerte), ist eine Partitionierung nach `created_at` analog zu 4.4 jederzeit nachrüstbar. `metric_baselines` wird bei jedem Baseline-Lauf überschrieben und wächst nicht.
+
+---
+
+### 4.5 Absicherung der Sammelstelle und Rohdatenschutz
+
+Die Sammelstelle ist das wertvollste Einzelziel der gesamten Architektur: Sie enthält, was ein Angreifer in der überwachten Anwendung erst mühsam einsammeln müsste — und das für alle Nutzer gleichzeitig.
+
+#### 4.5.1 Redaktion sensibler Werte in `raw`
+
+**Auflösung eines Widerspruchs:** In 2.2.3.1 wird das Hashen der Session-ID damit begründet, dass die Event-Datenbank sonst selbst zum Session-Hijacking-Vektor würde. Über ein unredigiertes `raw`-Feld wäre sie das trotzdem — dort lägen Cookies, `Authorization`-Header und Login-Formulardaten im Klartext. Die Begründung wird deshalb konsequent durchgezogen statt zurückgenommen.
+
+**Ausführungsort: der Sensor, nicht der Consumer.** Andernfalls würden Klartext-Zugangsdaten über den Broker laufen und dort in Queues, Logs und Spool-Dateien landen.
+
+Redaktionsliste — Werte werden durch `[redacted]` ersetzt, Feldnamen bleiben erhalten:
+
+| Kategorie | Einträge |
+|---|---|
+| Header | `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token` |
+| Parameter (Namensmuster) | `password`, `passwd`, `pwd`, `secret`, `token`, `_token`, `api_key`, `apikey`, `private_key`, `credit_card`, `cvv`, `iban` |
+
+Die Liste wird wie die Pfad-Wissensbasis (5.2.1.1) als versionierte Konfiguration geführt, nicht hartkodiert.
+
+> **Ehrliche Einordnung:** Dies ist eine Denylist und teilt deren grundsätzliche Schwäche — unbekannte Feldnamen werden nicht erfasst. Auch vollständig redigiert bleibt `raw` sensibel, weil es Geschäftsdaten und personenbezogene Formularinhalte enthält. Die Redaktion senkt das Schadensmaß bei einer Kompromittierung, sie beseitigt es nicht.
+
+#### 4.5.2 Zugriffstrennung in der Datenbank
+
+Drei getrennte Rollen statt eines gemeinsamen Zugangs:
+
+| Rolle | Rechte | Verwendet von |
 |---|---|---|
-| S1 Profiler exponiert | R2, R2b | abgedeckt |
-| S2 Konfigurationsdateien | R2, R2b, B1 | abgedeckt |
-| S3 Fragment-Handler | R2 (Variante a), X4 (Variante b) | abgedeckt |
-| S4 Twig-SSTI | R1, R6, Baseline | abgedeckt |
-| S5 Deserialisierung | R1, R7 | abgedeckt |
-| S6 Mass Assignment | R5, X3, P3 | **nur bei implementierter Business-Instrumentierung** (V1, V4 — siehe 2.1.4.1) |
-| S7 IDOR | R4 (mit Voter), B7, P1, P2 | abgedeckt; ohne Voter zusätzlich auf V3 angewiesen |
-| S8 Brute-Force | R3, B3, B4, B5 | abgedeckt |
-| S9 Session-Übernahme | B8, B9 | abgedeckt, setzt Sitzungskontext (2.2.3.1) voraus |
-| S10 Bundle-Enumeration | B1, Baseline | abgedeckt |
+| `ids_writer` | nur `INSERT` auf `events_relevant`, `events_info`, `events_raw` | Consumer |
+| `ids_analyst` | nur `SELECT` auf die Event-Tabellen und `metric_baselines`, `INSERT`/`UPDATE` auf `alerts` — **kein Zugriff auf `events_raw`** | Detection Job |
+| `ids_forensics` | `SELECT` auf `events_raw`, personengebunden, Zugriffe protokolliert | manuelle Nachanalyse |
 
-**Drei strukturelle Erkenntnisse aus dieser Durchsicht — alle eingearbeitet:**
+Der Ausschluss von `events_raw` für `ids_analyst` ist möglich, weil **keine einzige Regel aus Abschnitt 5 auf `raw` zugreift**. Damit ist der sensibelste Datenbestand kein Bestandteil des laufenden Betriebs, sondern nur bei begründetem Anlass erreichbar — die Standardkompromittierung eines Dienstkontos erreicht ihn nicht.
 
-1. **Die Pfadliste ist die wichtigste Symfony-spezifische Komponente.** Sie ist der Ort, an dem Framework-Wissen ins System einfließt, und darf deshalb nicht hartkodiert sein. → umgesetzt als Pfad-Wissensbasis in **5.2.1.1**.
-2. **"Versuch" und "bestätigte Exposition" sind zwei verschiedene Befundarten.** Ein `200` auf `/_profiler` ist kein Angriffsversuch mehr, sondern eine bestätigte Fehlkonfiguration. → Severity-Unterscheidung umgesetzt in **R2b** (5.2.1) und `severity_if_status_200` (5.2.1.1). Die weitergehende Konsequenz — eine eigene Befundklasse `exposures` mit eigenem Lebenszyklus statt wiederkehrender Alerts — ist als eigener Punkt in Abschnitt 6 vorgemerkt.
-3. **Erfolgreiche Angriffe sind auf Kernel-Ebene systematisch unsichtbar** (S6, S9, S7 ohne Voter). → geschlossen über drei Bausteine: den Instrumentierungs-Katalog in **2.1.4.1**, den Sitzungskontext im Event-Schema (**2.2.3.1**, **3**, **4.2**) und die Positivpfad-Regeln in **5.2.4**. Zusammen rechtfertigen sie nachträglich die Entscheidung aus Abschnitt 2.1, alle drei Ebenen von Anfang an einzubeziehen.
+#### 4.5.3 Weitere Maßnahmen
+
+- **Transport:** Broker-Verbindungen ausschließlich über TLS und mit Authentifizierung; der Broker ist nicht öffentlich erreichbar.
+- **Log-Injection:** `path`, `user_agent` und `payload` sind angreiferkontrolliert. Sie werden ausschließlich als JSONB-Werte gespeichert, nie in Textlogzeilen interpoliert, und müssen in jeder späteren Auswertungsoberfläche als Daten behandelt werden, nicht als Markup.
+- **Datenschutz:** Die Entscheidung, Datenschutzaspekte bei `raw` nachrangig zu behandeln, ist bewusst getroffen worden (Priorität auf forensische Vollständigkeit). Sie ist vor einem produktiven Einsatz mit echten Nutzerdaten erneut zu prüfen — betroffen sind Rechtsgrundlage, Aufbewahrungsfristen und Auskunftsfähigkeit. Als offener Punkt geführt (Abschnitt 6, B8).
 
 ---
 
