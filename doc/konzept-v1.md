@@ -1,8 +1,9 @@
-# IDS-Konzept: Generische Symfony-5.4-Anwendung
+# IDS-Konzept: Generische Symfony-Anwendung (6.4 / 7.x)
 
 **Stand:** 13.08.2026
 **Status:** In Bearbeitung — Neuansatz, ersetzt vorheriges Zwei-Profil-Komplexsystem (TYPO3 + API/Symfony)
 **Versionshistorie:** Version 1 gesichert am 13.08.2026 (Stand nach Restrukturierung: Abschnitte 1–6, inkl. Zwei-Bundle-Auslieferung, Erkennungsstruktur mit Regel-Unterabschnitt 5.2)
+· 15.08.2026: zwei Literale des Drahtformats umbenannt, damit Konzept und Code dieselben Wörter benutzen — `redaction_version` → `cleanup_version` (3.1, 3.4) und `[redacted]` → `[confidential]` (4.5.1). Die deutsche Prosa bleibt bei „Redaktion"; der Implementierung liegt sie als `Support\PayloadConfidentialityCleanup\` zugrunde. Inhaltlich ändert sich nichts.
 
 ---
 
@@ -36,6 +37,10 @@
     - [3.1.3 Business-Ebene / -Events](#313-business-ebene---events)
       - [Generische Business-Events](#generische-business-events)
   - [3.2 Bewusste Feldredundanz zwischen Request- und Folge-Events](#32-bewusste-feldredundanz-zwischen-request--und-folge-events)
+  - [3.3 Transportformat: der Frame](#33-transportformat-der-frame)
+    - [3.3.1 `dispatch_path` — drei Zustände statt eines Flags](#331-dispatch_path--drei-zustände-statt-eines-flags)
+  - [3.4 Heartbeat — ein eigener Nachrichtentyp, kein Event](#34-heartbeat--ein-eigener-nachrichtentyp-kein-event)
+  - [3.5 Inhalt von `raw` je `event_type`](#35-inhalt-von-raw-je-event_type)
 - [4. IdsBackendBundle - Zentrale Sammelstelle](#4-idsbackendbundle---zentrale-sammelstelle)
   - [4.1 Consumer](#41-consumer)
   - [4.2 PostgreSQL-Datenbank](#42-postgresql-datenbank)
@@ -67,14 +72,16 @@
 
 ## 1. Ausgangslage & Scope
 
-**Ziel:** Intrusion Detection (Angriffserkennung) für eine **generische Symfony-5.4-Anwendung**.
+**Ziel:** Intrusion Detection (Angriffserkennung) für eine **generische Symfony-Anwendung** ab Version 6.4.
+
+> **Änderung gegenüber der ersten Fassung:** Ursprünglich lautete das Ziel „Symfony 5.4". Die Zielversion des `IdsSensorBundle` ist stattdessen PHP 8.2+ mit Symfony `^6.4|^7.0` — das löst den offenen Punkt B5 in Richtung der aktuellen LTS. Der Grund ist nicht Modernität, sondern Eindeutigkeit: das Authenticator-System hat sich zwischen 5.4 und 6.x grundlegend geändert, und die Security-Ebene aus 2.1.2 hängt daran unmittelbar. Beide Wege parallel zu unterstützen hieße, zwei verschiedene Erfassungspfade für Anmeldeereignisse zu pflegen — von denen einer in jeder Installation ungetestet läuft. **Folge: in einer 5.4-Anwendung ist das Bundle nicht installierbar.**
 
 **Bewusste Eingrenzung — explizit NICHT Teil dieses Konzepts (vorerst):**
 - Keine Überwachung des Webservers (Apache/Nginx)
 - Keine Überwachung der Datenbank
 - Keine Überwachung eines Reverse-Proxy
 - Keine Überwachung der Netzwerk-/Infrastruktur-Ebene
-- Kein Bezug auf ein konkretes, bestehendes Projekt — es geht um Symfony >5.4 als generisches Muster
+- Kein Bezug auf ein konkretes, bestehendes Projekt — es geht um Symfony 6.4/7.x als generisches Muster
 
 Betrachtet wird ausschließlich das, was **innerhalb der Symfony-Anwendung selbst** beobachtbar ist.
 
@@ -182,7 +189,15 @@ interface SecurityRelevantBusinessEvent
 }
 ```
 
-Der Business-Sensor abonniert generisch alle Events, die dieses Interface implementieren (z. B. via Symfony-EventDispatcher-Tagging), unabhängig vom konkreten Event-Inhalt. Damit bleibt Abschnitt 2.1.3 projektunabhängig, ohne auf feste Business-Events verzichten zu müssen — die Generizität liegt im Vertrag, nicht im Inhalt.
+Der Business-Sensor erfasst generisch alle Events, die dieses Interface implementieren, unabhängig vom konkreten Event-Inhalt. Damit bleibt Abschnitt 2.1.3 projektunabhängig, ohne auf feste Business-Events verzichten zu müssen — die Generizität liegt im Vertrag, nicht im Inhalt.
+
+> **Korrektur gegenüber der ersten Fassung:** Ursprünglich stand hier, das Abonnement erfolge „z. B. via Symfony-EventDispatcher-Tagging". Dieser Weg existiert nicht. Symfonys `EventDispatcher` löst Listener über den **exakten Event-Namen** auf — `getListeners()` schlägt `$this->listeners[$eventName]` als String-Schlüssel nach, ohne `instanceof`-Prüfung und ohne die Klassenhierarchie zu durchlaufen. Ein Listener, der auf den Interface-Namen registriert wird, feuert deshalb **nie**, und zwar ohne Fehlermeldung: die Business-Ebene wäre scheinbar aktiv und faktisch leer — genau der „vollständige blinde Fleck", den der Hinweis zur Tragweite weiter unten beschreibt.
+>
+> Umgesetzt ist stattdessen einer von drei Wegen, konfigurierbar über `layers.business.capture_mode`:
+>
+> - **`dispatcher`** (Vorgabe): ein Decorator auf `event_dispatcher` prüft jedes dispatchte Event mit `instanceof`. Die Fachlogik bleibt frei von IDS-Referenzen, und das Bundle ist rückstandslos entfernbar. Der Preis ist der größere Schadensradius — deshalb liegt `$inner->dispatch()` niemals in einem `try`, und der Decorator läuft außerhalb des `TraceableEventDispatcher`.
+> - **`recorder`**: die Anwendung übergibt das Event ausdrücklich an ein Sensor-Interface. Der dokumentierte Einstieg für Bestandscode, der noch keine Domain-Events auslöst.
+> - **`configured`**: ein Compiler-Pass registriert Listener aus einer ausdrücklichen Liste von Event-Klassen. Für Deployments, die eine Dekoration von `event_dispatcher` ablehnen.
 
 **Empfohlene Business-/Domain-Events**
 
@@ -228,7 +243,6 @@ Ohne diese drei Felder `application_id`, `instance_id` & `environment` kann eine
 > **Verbindliche Aggregationsregel:** Jede Aggregation und jeder Zeitfenster-Join in Abschnitt 4.3 erfolgt zwingend **innerhalb einer Kombination aus `application_id` und `environment`**. Regeln, die über diese Grenze hinweg aggregieren, sind fehlerhaft — auch wenn sie technisch funktionieren.
 
 **Zusätzlich `received_at`:** `timestamp` wird von der Anwendung gesetzt und hängt damit an der Uhr des Anwendungsservers. Der Consumer setzt deshalb zusätzlich `received_at`. Die Differenz beider Werte macht Uhrendrift messbar — bei verteilten Instanzen sonst eine stille Fehlerquelle für alle Zeitfensterregeln, da ein nachlaufender Server Events in bereits ausgewertete Fenster einsortiert.
-application_id
 
 ##### Konkrete Ableitungsregeln für event_severity
 
@@ -298,7 +312,7 @@ Gilt nur für Einzelevents (Bewertung ohne Kontext/Häufung — Muster über meh
 | `actor.ip = null`, sofern nicht im Payload mitgeliefert | — (keine IP auf Business-Ebene garantiert) |
 | `actor.session_id_hash`, `actor.client_fingerprint` (bei CLI-/Worker-Kontext `null`) | Session-Kontext aus dem laufenden Request, sofern vorhanden |
 | `event_type` | `getEventName()` |
-| `severity` | `getSeverityHint()` |
+| `event_severity` | `getSeverityHint()` |
 | `payload.*` (unverändert durchgereicht — Business-Sensor kennt die projektspezifische Struktur nicht) | `getPayload()` |
 
 ##### Bildung der Sitzungskontext-Felder
@@ -353,6 +367,8 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 
 **Variabler Teil:**
 `payload` — Struktur abhängig von `event_type`; siehe Abschnitt 3.1. Immer ein flaches oder maximal zweistufig verschachteltes JSON-Objekt.
+
+**Optionales Feld `sampling_rate`** (float, Vorgabe 1.0): die Rate, unter der dieses Event überlebt hat. Wird nur mitgesendet, wenn tatsächlich gesampelt wurde — bei 1.0 würde es jedes Event ohne Erkenntnisgewinn verbreitern. Abschnitt 4.2.3 verlangt die Rate im Event, damit der Consumer Aggregate hochrechnen kann; ohne dieses Feld wäre jede Zählung um den Faktor 1/Rate zu klein, und niemand könnte das nachträglich korrigieren. Gesampelt wird ausschließlich `layer = kernel` mit `event_severity = info`, und die Entscheidung fällt pro Request statt pro Event: ein `kernel.response` ohne den zugehörigen `kernel.request` wäre nicht von einem Verbindungsabbruch zu unterscheiden und machte jeden Self-Join nach Abschnitt 3.2 wertlos.
 
 ### 3.1 Payload-Format pro Ebene / Events
 
@@ -453,6 +469,104 @@ Beispiel (projektspezifisch, nicht Teil des generischen Konzepts):
 **Begründung:** Nahezu alle Batch-Regeln (B1, B7, S10-Muster) aggregieren Statuscodes *und* Pfade gemeinsam. Ohne Redundanz bräuchte jede dieser Abfragen einen Self-Join auf `kernel.request` über die `correlation_id` — bei Millionen Events pro Partition der teuerste Teil der Abfrage. Der Mehrverbrauch an Speicher (wenige hundert Byte pro Event) wird bewusst in Kauf genommen, um die Erkennungsabfragen einfach und schnell zu halten.
 
 **Konsequenz für die Implementierung:** Der Kernel-Sensor muss den Request-Kontext über den gesamten Request-Lifecycle mitführen (z. B. in einem Request-Scoped Service), damit `kernel.response` und `kernel.exception` darauf zugreifen können.
+
+### 3.3 Transportformat: der Frame
+
+Ein Request erzeugt typischerweise drei bis fünf Events, bei vielen Autorisierungsprüfungen deutlich mehr. Einzeln versendet wären das N Netzwerk-Roundtrips pro Request. Übertragen wird deshalb ein **Frame**: ein Umschlag mit allen Events eines Requests, der Sensor-Kennung und den Zählerständen. Ein Request → ein Frame → **ein** `XADD`.
+
+```json
+{
+  "v": 1,
+  "sensor": { "application_id": "shop-api", "instance_id": "web-03", "environment": "prod", "process_epoch": "01a0…", "pid": 4711 },
+  "flushed_at": "2026-08-14T10:15:32.487Z",
+  "dispatch_path": "direct",
+  "spool_delay_ms": 0,
+  "counters": { "captured": 918273, "sent": 918100, "dropped_spool_full": 33 },
+  "events": [ /* die normalisierten Events dieses Requests */ ]
+}
+```
+
+Der Frame ist **kein Event** und ändert das Event-Schema oben nicht — er umhüllt es. `dispatch_path`, `spool_delay_ms` und die Zählerstände liegen deshalb auf Frame-Ebene: sie sind Eigenschaften der *Sendung*, nicht einer einzelnen Beobachtung. Ein einzelnes Event weiß nicht, ob es verzögert verschickt wurde; die Sendung weiß es.
+
+Derselbe Frame ist auch das Format im lokalen Spool — eine Zeile je Frame. Beim Nachsenden wird er unverändert weitergeschickt, also **nicht** erneut normalisiert oder redigiert; ein zweiter Redaktionsdurchlauf wäre eine zweite Gelegenheit, es falsch zu machen.
+
+#### 3.3.1 `dispatch_path` — drei Zustände statt eines Flags
+
+Nachgesendete Events tragen alte `timestamp`-Werte und würden sonst bereits ausgewertete Zeitfenster verfälschen — dieselbe Fehlerklasse wie die Uhrendrift in „Anwendungs- und Instanzkontext".
+
+Ein binäres Flag („zu spät: ja/nein") genügt dafür **nicht**, und das ist der entscheidende Punkt: unter mod_php gibt es kein `fastcgi_finish_request()`, weshalb dort **planmäßig jeder Frame** über den lokalen Spool läuft. Mit einem Flag wäre jeder dieser Frames als „zu spät" markiert angekommen, und der Consumer hätte eine mod_php-Installation **dauerhaft von der Echtzeit-Erkennung ausgeschlossen** — die Regeln R1–R7 aus 4.3.1 hätten dort nie gefeuert. Ein Flag kann einen planmäßigen Transportweg nicht von einer Störung unterscheiden.
+
+| Wert | Der Sensor setzt ihn, wenn … | Verzögerung | Erwartetes Consumer-Verhalten |
+|---|---|---|---|
+| `direct` | der Frame unmittelbar nach dem Absenden der Antwort an den Broker ging | keine | Echtzeit-Regeln **und** Speicherung — der Normalfall unter PHP-FPM |
+| `deferred` | der Frame planmäßig über den Spool lief (mod_php, oder erzwungene Spool-Policy) | begrenzt: höchstens ein Drain-Intervall | Echtzeit-Regeln **weiterhin anwenden**, solange `spool_delay_ms` unter der consumerseitigen Toleranz liegt; darüber wie `recovered` behandeln |
+| `recovered` | der Frame im Spool lag, weil der Broker nicht erreichbar war | unbegrenzt — Minuten bis Stunden | **keine** Echtzeit-Zähler mehr hochzählen; nur Speicherung und die Batch-Regeln aus 4.3.2 ff. |
+
+`dispatch_path` ist **kein Schalter**, sondern ein vom Sensor abgeleiteter Tatsachenwert; die Anwendung kann ihn nicht setzen. Konfigurierbar ist nur die **Toleranzschwelle auf der Consumer-Seite** — sie gehört ins IdsBackendBundle und ist dort noch zu vereinbaren (Empfehlung als Startwert: das Zweifache des im Heartbeat gemeldeten `drain_interval_s`).
+
+### 3.4 Heartbeat — ein eigener Nachrichtentyp, kein Event
+
+Abschnitt 2 verlangt ein Lebenszeichen im festen Intervall, damit die Stilllegung des Sensors ein detektierbares Ereignis wird. Es wird **nicht** als Event nach dem Schema oben übertragen, und das ist keine Auslegungsfrage:
+
+- `layer` ist ein Enum aus `kernel|security|business`. Ein Heartbeat gehört zu keiner dieser Ebenen — er ist eine Aussage **über den Sensor**, nicht über die Anwendung.
+- `layer`, `event_severity` und `correlation_id` sind laut Tabellenschema in 4.2.1 `NOT NULL`. Ein Heartbeat hat keines davon: er beobachtet nichts, hat keinen Schweregrad und gehört zu keinem Request.
+
+Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Ereignistabelle schreiben, die keine Ereignisse sind — und jede Aggregation nach `layer` oder `event_severity` wäre um sie verfälscht. Der Heartbeat ist deshalb eine eigene Nachricht mit eigenem `type`-Header (`ids.heartbeat` gegenüber `ids.event_batch`), sodass der Consumer sie unterscheiden kann, **ohne den Body zu parsen**.
+
+```json
+{
+  "type": "ids.heartbeat",
+  "schema_version": 1,
+  "sent_at": "2026-08-14T10:15:32.487Z",
+  "application_id": "shop-api",
+  "instance_id": "web-03",
+  "environment": "prod",
+  "process_epoch": "01a0…", "pid": 4711,
+  "heartbeat_mode": "both", "triggered_by": "request",
+  "interval_s": 60, "seconds_since_last": 61,
+  "runtime": { "policy": "auto", "sapi": "fpm-fcgi", "response_detachable": true, "dispatch_path": "direct", "drain_interval_s": 30 },
+  "counters": { "captured": 918273, "sent": 918100, "dropped_sampling": 40, "heartbeat_failed": 0 },
+  "latency": { "in_request_overhead_us": { "p50": 96, "p99": 210 }, "dispatch_ms": { "p50": 2, "p99": 9 } },
+  "spool": { "bytes": 0, "pending_files": 0, "oldest_pending_age_s": null, "discarded_full": 0 },
+  "circuit_breaker": { "state": "closed", "failures": 0, "open_count": 0 },
+  "cleanup_version": 1
+}
+```
+
+Der Heartbeat trägt bewusst mehr als „ich lebe". Er ist der einzige Kanal, über den Betriebszustände **ohne Verkehr** nach draußen kommen, und beantwortet damit drei Anforderungen, die sonst unerfüllbar bleiben:
+
+- **`ids.event_loss`** (Restrisiko in Abschnitt 4) braucht die Verlustzähler. Reisen sie nur im Frame mit, sind sie genau dann unsichtbar, wenn kein Verkehr da ist — also im Fall „Sensor läuft, aber nichts kommt an".
+- **Das 5-ms-Versprechen aus 2.1** ist nur überprüfbar, wenn die gemessene Latenz im Betrieb berichtet wird und nicht nur im Benchmark.
+- **Der Spool-Füllstand** entscheidet unter mod_php über Datenverlust. Läuft der Drain-Prozess nicht, wächst `oldest_pending_age_s` unbegrenzt; von außen ist das ausschließlich hier sichtbar, und zwar bevor der Spool volläuft und verwirft.
+
+**Die Zähler sind absolut, nicht als Zuwachs.** Abschnitt 4 sichert at-least-once-Zustellung zu; bei einer erneuten Zustellung würden Deltas doppelt zählen. Übertragen werden deshalb Absolutwerte samt `process_epoch` und `pid`: der Consumer bildet Zuwächse selbst und erkennt am Wechsel der Epoche, dass ein neuer Prozess bei null angefangen hat — ohne sie wäre ein Neustart von einem Zählerrücksprung nicht zu unterscheiden.
+
+**`heartbeat_mode` und `triggered_by` reisen mit,** weil sie bestimmen, was ein *ausbleibender* Heartbeat bedeutet. Im request-getriebenen Modus heißt Schweigen entweder „Sensor tot" oder „kein Verkehr", und der Consumer kann beides nicht unterscheiden — auf einer nachts unbenutzten Anwendung wäre `ids.sensor_silent` sonst jede Nacht ein Falschalarm. Im command-getriebenen Modus ist Schweigen immer ein Befund. Fallen die beiden Felder auseinander (`mode: both`, aber `triggered_by` dauerhaft `request`), fehlt der cron-Eintrag — erkennbar, bevor er schadet.
+
+**Heartbeats werden nicht gespoolt.** Ein nachgesendeter Heartbeat behauptete Leben zu einem Zeitpunkt, an dem der Sensor den Broker gerade nicht erreichte, und der Consumer würde `ids.sensor_silent` nachträglich unterdrücken — für einen Sensor, der tatsächlich nichts liefern konnte. Scheitert der Versand, ist Schweigen die richtige Auskunft; gezählt wird es in `heartbeat_failed`.
+
+### 3.5 Inhalt von `raw` je `event_type`
+
+Das Schema oben legt für `raw` nur „unverarbeitete Original-Nutzlast, Struktur abhängig von `event_type`" fest. Ohne festgelegten Inhalt ist die Redaktion aus 4.5.1 nicht prüfbar: man kann nicht testen, dass ein Cookie-Wert nicht durchkommt, wenn nicht definiert ist, ob überhaupt Header übertragen werden. Deshalb je Typ verbindlich:
+
+| `event_type` | Inhalt von `raw` |
+|---|---|
+| `kernel.response` | `request_headers`, `response_headers` (beide redigiert), `query`, `request_params` (redigiert), `cookie_names` (**nur Namen**), `cleanup_version` |
+| `kernel.exception` | `trace` (rahmenweise, nur `file`/`line`/`class`/`function`), `exception_chain` (Klasse, Datei, Zeile), `cleanup_version` |
+| `kernel.request` | **nichts** — siehe unten |
+| Security-Events | **nichts** — ihr `payload` ist vollständig, der Austausch steht im `kernel.response` derselben `correlation_id` |
+| Business-Events | `payload` unbereinigt und redigiert, dazu `invalid_severity_hint`, falls der Hinweis der Anwendung unbrauchbar war |
+
+**Warum die Anfrageseite am `kernel.response`-Event hängt und nicht am `kernel.request`-Event.** Das folgt zwingend aus zwei Festlegungen dieses Konzepts, die zusammen eine Falle bilden: `raw` wird nur bei `warning` und `critical` übertragen (Abschnitt 3), und `kernel.request` ist laut den Ableitungsregeln in 2.2.1 **immer** `info`. Ein `raw` am Request-Event würde deshalb ausnahmslos verworfen — die Header, die Formularfelder und die Cookie-Namen eines Angriffsversuchs erreichten den Beweisspeicher **nie**. Also genau die Daten, für die `raw` überhaupt aufgenommen wurde. Das `kernel.response`-Event ist der richtige Träger: seine Stufe spiegelt den *Ausgang* des Requests, und durch die Feldredundanz aus 3.2 ist es ohnehin das zusammenfassende Event.
+
+**Jeder Typ trägt nur, was die anderen nicht haben.** Ein fehlgeschlagener Request erzeugt bis zu vier Events; würde jedes die Anfrage-Header mitschicken, wäre `raw` viermal fast dasselbe — bei einem Feld, das laut 4.2.3 über 95 % des Datenvolumens ausmacht. Die Verkettung über die `correlation_id` ist genau der Zweck der Redundanz aus 3.2; sie hier zu wiederholen wäre Volumen ohne Erkenntnisgewinn.
+
+**Zwei harte Regeln, die nicht verhandelbar sind:**
+
+- **`getTraceAsString()` wird nie benutzt.** Es bettet die Aufrufargumente ein — ein `setPassword('hunter2')` im Stack landete damit im Klartext im Beweisspeicher, und zwar an einer Stelle, die **keine Denylist erreicht**, weil dort kein Feldname steht. Der Trace wird rahmenweise aus `getTrace()` aufgebaut.
+- **Von Cookies nur die Namen.** Der Name zeigt, welche Sitzungs- und Tracking-Cookies eine Anfrage mitbrachte — bei einem Angriffsversuch eine brauchbare Spur. Ein Wert wäre exakt der Session-Hijacking-Vektor, den 4.5.1 ausschließt.
+
+**Formularparameter werden mitgenommen und redigiert, nicht ausgelassen.** 4.5.1 nennt „Login-Formulardaten" als Beispiel für das, was redigiert gehört — nicht für das, was fehlen soll. Dass eine Anfrage ein Feld `password` mitbrachte, ist bei der Auswertung eines Angriffsversuchs die entscheidende Auskunft; sein Inhalt nicht. Gelesen wird ausschließlich, was das Framework bereits geparst hat; der rohe Eingabestrom wird nicht angefasst.
 
 ---
 
@@ -1073,7 +1187,7 @@ Die Sammelstelle ist das wertvollste Einzelziel der gesamten Architektur: Sie en
 
 **Ausführungsort: der Sensor, nicht der Consumer.** Andernfalls würden Klartext-Zugangsdaten über den Broker laufen und dort in Queues, Logs und Spool-Dateien landen.
 
-Redaktionsliste — Werte werden durch `[redacted]` ersetzt, Feldnamen bleiben erhalten:
+Redaktionsliste — Werte werden durch `[confidential]` ersetzt, Feldnamen bleiben erhalten:
 
 | Kategorie | Einträge |
 |---|---|
@@ -1118,6 +1232,9 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 | K4 | Anwendungs- und Instanzkontext, Uhrendrift | 2.2.1, 3, 4.2.1, 4.2.3 |
 | K5 | Vorfallsbegriff, Deduplizierung, Cooldown | 4.4 |
 | B2 | Auslieferungsform: zwei Bundles, Paketgrenze, Broker-Rechte, Heartbeat | 1, 2 |
+| B5 | Symfony-Versionsbindung: `^6.4\|^7.0`, PHP 8.2+ | 1, 6.3 |
+| B6 | `correlation_id`-Erzeugung samt Umgang mit eingehenden Request-IDs | 2.2.1, 6.3 |
+| K6 | Transportformat (Frame), `dispatch_path`, Heartbeat als eigener Nachrichtentyp, `raw` je `event_type`, `sampling_rate` | 3, 3.3–3.5 |
 
 ### 6.2 Erkennung
 
@@ -1140,9 +1257,11 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 | B1 | **Teststrategie** — es gibt kein Verfahren, um zu prüfen, ob eine Regel tatsächlich anschlägt. Ohne simulierte Angriffe ist weder die Inbetriebnahme verifizierbar noch O3 durchführbar. | H | O3 |
 | B4 | **Selbstüberwachung** — Broker-Lag, Verarbeitungsrate, Spool-Füllstand, Trefferquote je Regel. Direkte Voraussetzung des Restrisikos aus Abschnitt 4: fail-open ist nur vertretbar, wenn Verluste sichtbar werden. | H | — |
 | B3 | **Konfigurierbarkeit pro Anwendung** — die Grundstruktur steht in Abschnitt 1 (IdsBackendBundle: Applications verwalten); offen sind das collectorseitige Anwendungsregister (`application_id`, Technologieprofil, erwartetes Heartbeat-Intervall, regelspezifische Schwellwerte) und die Sampling-Rate aus 4.2.3. | M | — |
-| B6 | **`correlation_id`-Erzeugung** — wer erzeugt sie, und wird eine vorhandene Request-ID eines Reverse-Proxy übernommen? | M | — |
-| B5 | **Symfony-Versionsbindung** — das Konzept zielt auf 5.4, das Authenticator-System hat sich zu 6.x/7.x geändert. Migrationspfad offen. | M | — |
-| B8 | **Datenschutz-Entscheidung** — bewusst nachrangig behandelt (4.5.3), vor produktivem Einsatz mit echten Nutzerdaten erneut zu prüfen: Rechtsgrundlage, Aufbewahrungsfristen, Auskunftsfähigkeit. | M | — |
+| B6 | ~~**`correlation_id`-Erzeugung**~~ — **erledigt** durch die Umsetzung: der Sensor erzeugt sie beim ersten `kernel.request` als UUIDv7. Eine eingehende Request-ID wird nur übernommen, wenn `correlation.require_trusted_proxy` erfüllt ist — sonst wäre sie reine Client-Eingabe, und ein Angreifer könnte die Spur eines Opfers übernehmen. | — | — |
+| B5 | ~~**Symfony-Versionsbindung**~~ — **entschieden**: Zielversion des `IdsSensorBundle` ist PHP 8.2+ mit Symfony `^6.4\|^7.0`. Damit entfällt der Legacy-Doppelpfad für das alte Authenticator-System vollständig. Titel und Scope in Abschnitt 1 sind noch nachzuziehen. In einer 5.4-Anwendung ist das Bundle **nicht installierbar**. | — | — |
+| B9 | **Toleranzschwelle für `dispatch_path: deferred`** (3.3.1) — der Consumer muss entscheiden, bis zu welchem `spool_delay_ms` er Echtzeit-Regeln auf einen nachgesendeten Frame anwendet. Empfehlung als Startwert: das Zweifache des im Heartbeat gemeldeten `drain_interval_s`. Ohne diese Festlegung ist unter mod_php **entweder** die Echtzeit-Erkennung dauerhaft aus, **oder** ein Ausfall-Nachlauf verfälscht bereits ausgewertete Zeitfenster. | H | — |
+| B10 | **Rechteübernahme per User-Switch ist ein blinder Fleck** — Symfonys `SwitchUserListener`/`SwitchUserEvent` erzeugt **keines** der Events aus 2.1.1 bis 2.1.3. Ein Administrator, der die Identität eines Kunden übernimmt, hinterlässt im IDS keine Spur. Bis zur Klärung ist das über ein Business-Event (V6 in 2.1.3) abzudecken; sauberer wäre ein zehnter Event-Typ in `schema_version` 2. | M | — |
+| B8 | **Datenschutz-Entscheidung** — bewusst nachrangig behandelt (Abschnitt 3 und 4.5.1), vor produktivem Einsatz mit echten Nutzerdaten erneut zu prüfen: Rechtsgrundlage, Aufbewahrungsfristen, Auskunftsfähigkeit. | M | — |
 | O5 | **Alert-Weiterverarbeitung** (Benachrichtigung, Dashboard, Eskalation) — bewusst außerhalb des Scopes, hier nur zur Vollständigkeit. | — | — |
 
 ### 6.4 Empfohlene Reihenfolge

@@ -1,0 +1,56 @@
+# Resilienz: Circuit Breaker und Datei-Spool.
+#
+# Der Breaker verhindert, dass ein Broker-Ausfall jeden Request ein Timeout kostet und den
+# Worker-Pool erschöpft — ohne ihn kippt fail-open unter Last ins Gegenteil. Der Spool nimmt
+# auf, was währenddessen nicht versendet werden kann.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+        bind:
+            $logger: '@?logger'
+            $directory: '%ids_sensor.spool.dir%'
+
+    # Zustand prozessübergreifend (APCu, sonst Datei): ein Zähler im Prozessspeicher finge
+    # bei PHP-FPM in jedem Kindprozess bei Null an — genau dann soll der Breaker greifen.
+    #
+    # $scopeKey ist die application_id und nicht die instance_id: der Breaker-Zustand gilt je
+    # Anwendung, nicht je Instanz. Zwei Instanzen derselben Anwendung sehen denselben Broker,
+    # also ist auch sein Ausfall gemeinsam.
+    ids_sensor.breaker.state_store:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Breaker\SharedStateStore
+        arguments:
+            $scopeKey: '%ids_sensor.application_id%'
+
+    ids_sensor.circuit_breaker:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker
+        arguments:
+            $store: '@ids_sensor.breaker.state_store'
+            $failureThreshold: '%ids_sensor.circuit_breaker.failure_threshold%'
+            $openForSeconds: '%ids_sensor.circuit_breaker.open_for_s%'
+            $enabled: '%ids_sensor.circuit_breaker.enabled%'
+
+    ids_sensor.spool:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool
+        arguments:
+            $maxBytes: '%ids_sensor.spool.max_bytes%'
+            $maxFileBytes: '%ids_sensor.spool.max_file_bytes%'
+        tags:
+            - { name: monolog.logger, channel: ids_sensor }
+
+    ids_sensor.spool_drainer:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer
+        arguments:
+            $spool: '@ids_sensor.spool'
+            $shipper: '@ids_sensor.shipper'
+        tags:
+            - { name: monolog.logger, channel: ids_sensor }
+
+    # Unter mod_php ist dieser Command der einzige Transportweg und damit Pflicht.
+    ids_sensor.command.spool_flush:
+        class: ProjektMotor\IdsSensor\Command\SpoolFlushCommand
+        arguments:
+            $drainer: '@ids_sensor.spool_drainer'
+            $defaultMaxFiles: '%ids_sensor.spool.drain_max_files_per_run%'

@@ -1,0 +1,65 @@
+# Die Business-Beobachtungsebene (Konzept 2.1.3).
+#
+# Nach `composer require` NICHT wirksam: sie braucht Event-Klassen, die das Interface
+# implementieren. Konzept 2. verlangt, diese Asymmetrie nicht zu verschleiern.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+        bind:
+            $sensor: '@ids_sensor.sensor.business'
+
+    ids_sensor.payload_sanitizer:
+        class: ProjektMotor\IdsSensor\Processing\Normalization\PayloadSanitizer
+        arguments:
+            $cleaner: '@ids_sensor.payload_confidentiality_cleanup.cleaner'
+
+    ids_sensor.normalizer.business:
+        class: ProjektMotor\IdsSensor\Processing\Normalization\BusinessEventNormalizer
+        arguments:
+            $eventFactory: '@ids_sensor.event_factory'
+            $severityResolver: '@ids_sensor.severity_resolver'
+            $sanitizer: '@ids_sensor.payload_sanitizer'
+            $rawBuilder: '@ids_sensor.raw.builder'
+        tags:
+            - { name: ids_sensor.event_normalizer }
+
+    ids_sensor.sensor.business:
+        class: ProjektMotor\IdsSensor\Sensor\Business\EventSensor
+        arguments:
+            $buffer: '@ids_sensor.event_buffer'
+            $binder: '@ids_sensor.captured_event_binder'
+            $budget: '@ids_sensor.capture_budget'
+            $requestStack: '@request_stack'
+            $userFromToken: '%ids_sensor.layers.business.user_from_token%'
+            $ipFromRequest: '%ids_sensor.layers.business.ip_from_request%'
+
+    # Immer verfügbar, unabhängig vom capture_mode.
+    ids_sensor.business_recorder:
+        class: ProjektMotor\IdsSensor\Sensor\Business\EventRecorder
+
+    # Der einzige öffentliche Service des Bundles: Anwendungen typisieren dagegen, er gehört
+    # damit zur semver-gedeckten Oberfläche.
+    ProjektMotor\IdsSensor\Contract\BusinessEventRecorderInterface:
+        alias: ids_sensor.business_recorder
+        public: true
+
+    ids_sensor.business.configured_listener:
+        class: ProjektMotor\IdsSensor\Sensor\Business\ConfiguredEventListener
+
+    # decoration_priority 255: außerhalb von TraceableEventDispatcher, damit das
+    # Dev-Profiling unangetastet bleibt.
+    # autoconfigure: false — die Klasse implementiert EventDispatcherInterface, und Symfony
+    # autokonfiguriert das mit dem Tag `event_dispatcher.dispatcher`. Ein DECORATOR des
+    # Dispatchers würde damit im Profiler und in `debug:event-dispatcher` als zweiter
+    # Dispatcher geführt. Voraussichtlich harmlos — aber „voraussichtlich harmlos" ist für
+    # einen Decorator auf dem zentralen event_dispatcher kein Maßstab.
+    ids_sensor.business.capturing_dispatcher:
+        class: ProjektMotor\IdsSensor\Sensor\Business\CapturingEventDispatcher
+        autoconfigure: false
+        decorates: event_dispatcher
+        decoration_priority: 255
+        arguments:
+            $inner: '@.inner'

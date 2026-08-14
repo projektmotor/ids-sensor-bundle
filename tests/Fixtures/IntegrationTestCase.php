@@ -1,0 +1,46 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ProjektMotor\IdsSensor\Tests\Fixtures;
+
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+
+/**
+ * Gemeinsame Basis für Tests, die den TestKernel booten.
+ *
+ * Enthält bewusst NUR das, was in allen Ableitungen wörtlich gleich war: der Zugriff
+ * auf den Testcontainer und der Sitzungsschlüssel. Die boot()-Helfer bleiben in den
+ * einzelnen Testklassen — ihre dreizehn Signaturen unterscheiden sich sachlich
+ * (Konfigurations-Overrides, Security-Konfiguration, Breaker-Werte), und sie hier zu
+ * einer Methode mit optionalen Parametern zusammenzuziehen hieße, dreizehn Fälle
+ * hinter einer Signatur zu verstecken.
+ *
+ * @internal
+ */
+abstract class IntegrationTestCase extends TestCase
+{
+    /**
+     * Der Sitzungsschlüssel der Tests.
+     *
+     * Muss mindestens 32 Zeichen haben (ConfigurationTree) und darf laut Konzept 2.2.4
+     * ausdrücklich nicht APP_SECRET sein — IdsSensorBundle bricht sonst die
+     * Kompilierung ab. Stand vorher in siebzehn Dateien wörtlich.
+     */
+    public const SESSION_KEY = 'ein-dedizierter-ids-schluessel-mit-32-zeichen';
+
+    /**
+     * Der Testcontainer, über den auch private Services erreichbar sind.
+     *
+     * Das Bundle registriert seine Dienste ausdrücklich als `public: false` — ohne
+     * `test.service_container` käme kein Test an sie heran.
+     */
+    protected function services(TestKernel $kernel): ContainerInterface
+    {
+        /** @var ContainerInterface $testContainer */
+        $testContainer = $kernel->getContainer()->get('test.service_container');
+
+        return $testContainer;
+    }
+}

@@ -1,0 +1,29 @@
+# Vertraulichkeit der Nutzlast (Konzept 4.5.1).
+#
+# Immer geladen, ohne Schalter: `payload_confidentiality_cleanup.enabled` gibt es nicht.
+# Abschaltbar ist nur der Inhalt der Liste. Einen Weg, Werte MIT Klartext zu übertragen,
+# gibt es bewusst nicht.
+#
+# Der raw-Aufbau, der diese Dienste benutzt, steht in services_raw_payload.yaml.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+    # factory, weil Rules einen privaten Konstruktor hat: die Normalisierung der
+    # Namen liegt damit an genau einer Stelle.
+    ids_sensor.payload_confidentiality_cleanup.rules:
+        class: ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Rules
+        factory: ['ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Rules', 'fromLists']
+        arguments:
+            - '%ids_sensor.payload_confidentiality_cleanup.version%'
+            - '%ids_sensor.payload_confidentiality_cleanup.headers%'
+            - '%ids_sensor.payload_confidentiality_cleanup.parameters%'
+
+    ids_sensor.payload_confidentiality_cleanup.cleaner:
+        class: ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Cleaner
+        arguments:
+            $rules: '@ids_sensor.payload_confidentiality_cleanup.rules'
+            $placeholder: '%ids_sensor.payload_confidentiality_cleanup.replacement%'

@@ -1,0 +1,25 @@
+# Gemeinsame Bausteine der Security-Ebene (Konzept 2.1.2), nur geladen mit SecurityBundle.
+#
+# Getrennt von den Sensoren, weil beide Sensorarten unabhängig abschaltbar sind, der
+# Normalisierer aber in jedem Fall gebraucht wird: läge er bei einem der Sensoren, landeten
+# die Events des anderen ohne zuständigen Normalisierer im Puffer und würden verworfen.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+    ids_sensor.authenticator_name_resolver:
+        class: ProjektMotor\IdsSensor\Sensor\Security\AuthenticatorNameResolver
+
+    ids_sensor.resource_identifier_resolver:
+        class: ProjektMotor\IdsSensor\Sensor\Security\ResourceIdentifierResolver
+
+    ids_sensor.normalizer.security:
+        class: ProjektMotor\IdsSensor\Processing\Normalization\SecurityEventNormalizer
+        arguments:
+            $eventFactory: '@ids_sensor.event_factory'
+            $severityResolver: '@ids_sensor.severity_resolver'
+        tags:
+            - { name: ids_sensor.event_normalizer }

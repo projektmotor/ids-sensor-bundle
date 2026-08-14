@@ -1,0 +1,73 @@
+{
+    "name": "projektmotor/ids-sensor-bundle",
+    "type": "symfony-bundle",
+    "description": "Symfony-Sensor-Bundle für Angriffserkennung: erfasst, normalisiert, redigiert und versendet sicherheitsrelevante Events",
+    "license": "MIT",
+    "keywords": [
+        "symfony",
+        "bundle",
+        "ids",
+        "intrusion-detection",
+        "security",
+        "monitoring"
+    ],
+    "authors": [
+        {
+            "name": "Sören Helbig",
+            "email": "soeren.helbig@projektmotor.de"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "ext-json": "*",
+        "psr/log": "^1.1|^2.0|^3.0",
+        "symfony/config": "^6.4|^7.0",
+        "symfony/console": "^6.4|^7.0",
+        "symfony/dependency-injection": "^6.4|^7.0",
+        "symfony/event-dispatcher": "^6.4|^7.0",
+        "symfony/framework-bundle": "^6.4|^7.0",
+        "symfony/http-foundation": "^6.4|^7.0",
+        "symfony/http-kernel": "^6.4|^7.0",
+        "symfony/messenger": "^6.4|^7.0",
+        "symfony/service-contracts": "^2.5|^3.0",
+        "symfony/uid": "^6.4|^7.0",
+        "symfony/yaml": "^6.4|^7.0"
+    },
+    "require-dev": {
+        "ext-redis": "*",
+        "friendsofphp/php-cs-fixer": "^3.60",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-symfony": "^2.0",
+        "phpunit/phpunit": "^10.5",
+        "symfony/browser-kit": "^6.4|^7.0",
+        "symfony/clock": "^6.4|^7.0",
+        "symfony/filesystem": "^6.4|^7.0",
+        "symfony/redis-messenger": "^6.4|^7.0",
+        "symfony/security-bundle": "^6.4|^7.0"
+    },
+    "suggest": {
+        "symfony/redis-messenger": "Für den empfohlenen Redis-Streams-Transport",
+        "symfony/security-bundle": "Aktiviert die Security-Sensorebene (Konzept 2.1.2)",
+        "ext-apcu": "Beschleunigt Zähler, Heartbeat-Drosselung und Circuit-Breaker-Zustand"
+    },
+    "autoload": {
+        "psr-4": {
+            "ProjektMotor\\IdsSensor\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ProjektMotor\\IdsSensor\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "phpstan/extension-installer": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

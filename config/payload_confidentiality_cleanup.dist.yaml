@@ -1,0 +1,49 @@
+# Redaktionsliste nach Konzept 4.5.1 — Redaktion sensibler Werte in `raw`.
+#
+# Werte werden durch `[confidential]` ersetzt, FELDNAMEN BLEIBEN ERHALTEN. Das ist keine
+# Nachlässigkeit, sondern der Zweck: dass ein Request ein Feld `password` mitgebracht hat,
+# ist forensisch relevant; sein Inhalt ist es nicht.
+#
+# Die Liste ist versioniert und nicht hartkodiert (Konzept 4.5.1). `version` wandert in
+# jeden Frame, damit collectorseitig ablesbar ist, nach welcher Fassung redigiert wurde —
+# ohne diese Angabe wäre nach einer Erweiterung der Liste nicht mehr feststellbar, ob ein
+# fehlender Wert redigiert oder nie vorhanden war.
+#
+# EHRLICHE EINORDNUNG (Konzept 4.5.1, wörtlich übernommen): Dies ist eine Denylist und
+# teilt deren grundsätzliche Schwäche — unbekannte Feldnamen werden nicht erfasst. Auch
+# vollständig redigiert bleibt `raw` sensibel, weil es Geschäftsdaten und personenbezogene
+# Formularinhalte enthält. Die Redaktion senkt das Schadensmaß bei einer Kompromittierung,
+# sie beseitigt es nicht.
+#
+# Eigene Einträge gehören NICHT in diese Datei — sie wird mit dem Bundle aktualisiert.
+# Stattdessen eine eigene Liste unter `ids_sensor.payload_confidentiality_cleanup.config`
+# ablegen; mit `merge_defaults: true` (Vorgabe) ergänzt sie diese hier, statt sie zu
+# ersetzen.
+
+version: 1
+
+# Vollständiger, unterscheidungsfreier Namensvergleich.
+headers:
+    - Cookie
+    - Set-Cookie
+    - Authorization
+    - Proxy-Authorization
+    - X-API-Key
+    - X-Auth-Token
+    - X-CSRF-Token
+
+# Namensmuster: Teilzeichenkette, unterscheidungsfrei. `token` trifft damit auch
+# `_token`, `csrf_token` und `refresh_token`. Über-Redaktion ist die sichere Richtung.
+parameters:
+    - password
+    - passwd
+    - pwd
+    - secret
+    - token
+    - _token
+    - api_key
+    - apikey
+    - private_key
+    - credit_card
+    - cvv
+    - iban

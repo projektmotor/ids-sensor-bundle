@@ -1,0 +1,100 @@
+# Die Kernel-Beobachtungsebene (Konzept 2.1.1).
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+        # Was fast jeder Sensor braucht, einmal statt sechsmal. `bind` ordnet über den
+        # Argumentnamen zu und wirkt auch ohne Autowiring; ein Name, den kein Konstruktor
+        # dieser Datei trägt, bricht die Kompilierung ab.
+        bind:
+            $buffer: '@ids_sensor.event_buffer'
+            $binder: '@ids_sensor.captured_event_binder'
+            $registry: '@ids_sensor.request_snapshot_registry'
+            $actorFactory: '@ids_sensor.actor_factory'
+            $budget: '@ids_sensor.capture_budget'
+            $options: '@ids_sensor.kernel_options'
+            $rawBuilder: '@ids_sensor.raw.builder'
+            $requestStack: '@request_stack'
+
+    # WeakMap-basiert: nichts in $request->attributes, und in langlebigen Prozessen wächst
+    # nichts unbemerkt.
+    ids_sensor.request_snapshot_registry:
+        class: ProjektMotor\IdsSensor\Sensor\Context\RequestSnapshotRegistry
+
+    ids_sensor.correlation_id_factory:
+        class: ProjektMotor\IdsSensor\Sensor\Context\CorrelationIdFactory
+        arguments:
+            $inboundHeader: '%ids_sensor.correlation.inbound_header%'
+            $trustIncomingHeader: '%ids_sensor.correlation.trust_incoming_header%'
+            $requireTrustedProxy: '%ids_sensor.correlation.require_trusted_proxy%'
+
+    # Liest den Session-COOKIE, nicht getSession() — das startete eine Session (I/O plus
+    # Cookie in einer Antwort, die vorher keines hatte).
+    ids_sensor.session_id_hasher:
+        class: ProjektMotor\IdsSensor\Sensor\Context\SessionIdHasher
+        arguments:
+            $key: '%ids_sensor.session_hash.key%'
+            $cookieName: '%ids_sensor.session_hash.cookie_name%'
+            $enabled: '%ids_sensor.session_hash.enabled%'
+
+    ids_sensor.client_fingerprinter:
+        class: ProjektMotor\IdsSensor\Sensor\Context\ClientFingerprinter
+        arguments:
+            $headers: '%ids_sensor.fingerprint.headers%'
+            $enabled: '%ids_sensor.fingerprint.enabled%'
+
+    # untracked, NICHT security.token_storage: letzteres erhöht bei getToken() den
+    # Session-Usage-Index und macht damit cachebare Antworten der überwachten Anwendung
+    # uncachebar. Belegt in ResponseCacheabilityTest. Nicht durch Autowiring ersetzen — der
+    # Alias für TokenStorageInterface zeigt auf den falschen. Das `?` ist nötig, weil das
+    # Bundle auch ohne SecurityBundle installierbar sein muss.
+    ids_sensor.actor_factory:
+        class: ProjektMotor\IdsSensor\Sensor\Context\ActorFactory
+        arguments:
+            $sessionIdHasher: '@ids_sensor.session_id_hasher'
+            $fingerprinter: '@ids_sensor.client_fingerprinter'
+            $untrackedTokenStorage: '@?security.untracked_token_storage'
+
+    # Nimmt den fünf Sensoren ab, was bei allen gleich war: Korrelation und Akteur an ein
+    # erfasstes Event heften. Liegt in dieser Datei, weil er Registry und ActorFactory
+    # braucht — die Security- und Business-Dateien werden ohnehin nur bei aktiver
+    # Kernel-Ebene importiert.
+    ids_sensor.captured_event_binder:
+        class: ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder
+        arguments:
+            $registry: '@ids_sensor.request_snapshot_registry'
+            $actorFactory: '@ids_sensor.actor_factory'
+
+    ids_sensor.kernel_options:
+        class: ProjektMotor\IdsSensor\Sensor\Kernel\Options
+        arguments:
+            $captureRequest: '%ids_sensor.layers.kernel.events.request%'
+            $captureResponse: '%ids_sensor.layers.kernel.events.response%'
+            $captureException: '%ids_sensor.layers.kernel.events.exception%'
+            $subRequests: !service
+                class: ProjektMotor\IdsSensor\Sensor\Kernel\SubRequestMode
+                factory: ['ProjektMotor\IdsSensor\Sensor\Kernel\SubRequestMode', 'from']
+                arguments: ['%ids_sensor.layers.kernel.sub_requests%']
+            $ignoredPaths: '%ids_sensor.layers.kernel.ignored_paths%'
+            $exposeCorrelationAttribute: '%ids_sensor.correlation.expose_request_attribute%'
+
+    # Zweiphasig: 1024 erfasst (vor dem Router bei 32, sonst bleibt routenloser
+    # Scanner-Verkehr unsichtbar), 7 trägt route und actor.user nach (Firewall liegt bei 8).
+    ids_sensor.sensor.kernel_request:
+        class: ProjektMotor\IdsSensor\Sensor\Kernel\RequestSensor
+        arguments:
+            $correlationIdFactory: '@ids_sensor.correlation_id_factory'
+
+    # 1024, über dem Security-ExceptionListener (1): so bleibt die Originalklasse sichtbar.
+    ids_sensor.sensor.kernel_exception:
+        class: ProjektMotor\IdsSensor\Sensor\Kernel\ExceptionSensor
+        arguments:
+            $statusResolver: '@ids_sensor.http_status_resolver'
+
+    # -2048, hinter dem Session-Listener (-1000): erst dort sind Status und Header die,
+    # die tatsächlich gesendet werden.
+    ids_sensor.sensor.kernel_response:
+        class: ProjektMotor\IdsSensor\Sensor\Kernel\ResponseSensor

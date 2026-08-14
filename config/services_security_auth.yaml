@@ -1,0 +1,20 @@
+# Anmeldeerfolg und Anmeldefehler.
+#
+# Priorität -128 (AuthenticationSensor::PRIORITY): nach Symfonys SessionStrategyListener (0),
+# damit der Sitzungshash des Erfolgs-Events die NEUE Session-ID trägt — dieselbe, die alle
+# Folge-Requests tragen. Andernfalls bräche die Sitzungsverkettung genau am Übergang von
+# anonym zu angemeldet.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+    ids_sensor.sensor.authentication:
+        class: ProjektMotor\IdsSensor\Sensor\Security\AuthenticationSensor
+        arguments:
+            $buffer: '@ids_sensor.event_buffer'
+            $binder: '@ids_sensor.captured_event_binder'
+            $authenticatorNames: '@ids_sensor.authenticator_name_resolver'
+            $budget: '@ids_sensor.capture_budget'

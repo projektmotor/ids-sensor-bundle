@@ -1,0 +1,3 @@
+user default on nopass ~* &* +@all
+
+user ids_sensor on >sensor-geheim resetkeys resetchannels -@all ~ids:events:* +xadd +ping +client|setinfo

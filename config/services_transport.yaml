@@ -1,0 +1,32 @@
+# Der Transport — nur geladen, wenn eine DSN konfiguriert ist; sonst bleibt der NullShipper.
+#
+# DOPPELUNG: die Serializer-ID steht als Zeichenkette hier UND als Konstante
+# IdsSensorBundle::SERIALIZER_ID — YAML erlaubt in Schlüsseln keine Konstanten. Ein Test
+# prüft beide gegeneinander.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+    # JSON, niemals PhpSerializer: dessen Ausgabe auf dem Stream wäre ein
+    # Deserialisierungs-Pfad aus der überwachten Anwendung in den Beweisspeicher. Der Sensor
+    # hat zwingend Schreibrecht — ein Angreifer mit Codeausführung könnte damit eine Gadget
+    # Chain in genau der Komponente zünden, die die Kompromittierung überleben soll.
+    #
+    # = IdsSensorBundle::SERIALIZER_ID
+    ids_sensor.transport.serializer:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer
+
+    # Das Argument ist der TRANSPORT, nicht ein Message-Bus: ein eigener Bus hat die
+    # Messenger-Einrichtung der überwachten Anwendung beschädigt (ausführlich in
+    # MessengerShipper). `@ids_sensor.transport` ist ein Alias, den das Bundle zur Ladezeit
+    # auf `messenger.transport.<name>` setzt — der Name ist konfigurierbar.
+    ids_sensor.shipper.messenger:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Shipper\MessengerShipper
+        arguments:
+            - '@ids_sensor.transport'
+
+    ids_sensor.shipper:
+        alias: ids_sensor.shipper.messenger

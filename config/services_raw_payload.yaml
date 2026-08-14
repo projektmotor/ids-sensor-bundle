@@ -1,0 +1,26 @@
+# Das raw-Feld: ob es mitreist (Gate) und was darin steht (Builder).
+#
+# Immer geladen. `raw.enabled: false` lässt das Feld ganz weg — das entscheidet das Gate
+# über ein Konstruktorargument, nicht über den Dateiimport. Deshalb gibt es hier keine
+# Abschaltgrenze, nach der zu schneiden wäre; geschnitten ist nach dem Thema.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+        bind:
+            $cleaner: '@ids_sensor.payload_confidentiality_cleanup.cleaner'
+
+    ids_sensor.raw.gate:
+        class: ProjektMotor\IdsSensor\Support\RawPayload\Gate
+        arguments:
+            $enabled: '%ids_sensor.raw.enabled%'
+            $severities: '%ids_sensor.raw.severities%'
+
+    ids_sensor.raw.builder:
+        class: ProjektMotor\IdsSensor\Support\RawPayload\Builder
+        arguments:
+            $includeRequestBody: '%ids_sensor.raw.include_request_body%'
+            $skipMultipart: '%ids_sensor.raw.skip_multipart%'
+            $maxBytes: '%ids_sensor.raw.max_bytes%'

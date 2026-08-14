@@ -1,0 +1,36 @@
+services:
+  # PHP-CLI: Unit-/Integrationstests, composer, phpstan, php-cs-fixer.
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      args:
+        PHP_VERSION: "${PHP_VERSION:-8.3}"
+    # Hält vendor/ und var/ im Besitz des Entwicklers statt root.
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    working_dir: /app
+    volumes:
+      - .:/app
+      - composer-cache:/composer-cache
+    environment:
+      # Der Sensor verbindet sich als eingeschränkter Nutzer — nur XADD.
+      IDS_REDIS_DSN: "redis://ids_sensor:sensor-geheim@redis:6379/ids:events:shop-api/ids-collector/sensor"
+      # Unbeschränkt, übernimmt im Test die Rolle des Collectors.
+      IDS_REDIS_ADMIN: "redis://redis:6379"
+      SYMFONY_DEPRECATIONS_HELPER: "max[direct]=0"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - "redis-server"
+      - "--appendonly"
+      - "no"
+      - "--aclfile"
+      - "/etc/redis/users.acl"
+    volumes:
+      - ./docker/redis/users.acl:/etc/redis/users.acl:ro
+
+volumes:
+  composer-cache:

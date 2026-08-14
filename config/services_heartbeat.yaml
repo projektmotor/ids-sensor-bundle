@@ -1,0 +1,56 @@
+# Der Heartbeat (Konzept 2.).
+#
+# Im Betrieb nicht optional: bleibt er aus, erzeugt der Collector `ids.sensor_silent`.
+# Abschaltbar ist er trotzdem — mit dem Dauerfalschalarm als dokumentierter Folge.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+        bind:
+            $logger: '@?logger'
+            $identityProvider: '@ids_sensor.identity_provider'
+            $counters: '@ids_sensor.counters'
+            $runtime: '@ids_sensor.runtime_profile'
+            $scheduler: '@ids_sensor.heartbeat.scheduler'
+            $mode: '@ids_sensor.heartbeat.mode'
+            $breaker: '@ids_sensor.circuit_breaker'
+            $intervalSeconds: '%ids_sensor.heartbeat.interval_s%'
+
+    # autoconfigure: false — Symfony autokonfiguriert \UnitEnum mit `container.excluded`.
+    # Ein so getaggter Service ist für findTaggedServiceIds() unsichtbar und wird von
+    # rekursiven Compiler-Pässen übersprungen. Heute folgenlos, aber nichts, worauf man baut.
+    ids_sensor.heartbeat.mode:
+        class: ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode
+        autoconfigure: false
+        factory: ['ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode', 'from']
+        arguments: ['%ids_sensor.heartbeat.mode%']
+
+    # Der Provider, nicht die Zeichenkette: der Drosselungsschlüssel muss die instance_id
+    # enthalten, und die wird zur Laufzeit aufgelöst.
+    ids_sensor.heartbeat.scheduler:
+        class: ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler
+        arguments:
+            $stampFile: '%ids_sensor.heartbeat.stamp_file%'
+
+    ids_sensor.heartbeat.payload_factory:
+        class: ProjektMotor\IdsSensor\Delivery\Heartbeat\PayloadFactory
+        arguments:
+            $latencyRecorder: '@ids_sensor.latency_recorder'
+            $cleanupVersion: '%ids_sensor.payload_confidentiality_cleanup.version%'
+            $spool: '@ids_sensor.spool'
+
+    ids_sensor.heartbeat.emitter:
+        class: ProjektMotor\IdsSensor\Delivery\Heartbeat\Emitter
+        arguments:
+            $payloadFactory: '@ids_sensor.heartbeat.payload_factory'
+            $shipper: '@ids_sensor.shipper'
+        tags:
+            - { name: monolog.logger, channel: ids_sensor }
+
+    ids_sensor.command.heartbeat:
+        class: ProjektMotor\IdsSensor\Command\HeartbeatCommand
+        arguments:
+            $emitter: '@ids_sensor.heartbeat.emitter'
+            $configuredMode: '%ids_sensor.heartbeat.mode%'

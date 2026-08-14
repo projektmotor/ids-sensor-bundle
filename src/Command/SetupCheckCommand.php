@@ -1,0 +1,472 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ProjektMotor\IdsSensor\Command;
+
+use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
+use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
+use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
+use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
+use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\HttpFoundation\Request;
+
+/**
+ * Prüft die Betriebsvoraussetzungen — gedacht für den Deploy.
+ *
+ * WARUM ES DIESEN COMMAND GEBEN MUSS
+ *
+ * Das Bundle ist im Request-Pfad konsequent fail-open (Konzept 4.): es verschluckt jeden
+ * Fehler, statt die überwachte Anwendung zu beschädigen. Diese Eigenschaft hat eine
+ * gefährliche Kehrseite — eine Fehlkonfiguration ist im Betrieb NICHT sichtbar. Ein Sensor
+ * mit falschem `environment` sendet fleißig Events, die der Collector wegen
+ * `env_type NOT NULL` (Konzept 4.2.1) verwirft; von außen ist das von einem stillgelegten
+ * Sensor nicht zu unterscheiden. Genau das „lautlose" Versagen, das Konzept 2. als die
+ * gefährlichste Angriffsform beschreibt — nur diesmal selbst verursacht.
+ *
+ * Dieser Command verschiebt solche Fehler dorthin, wo sie auffallen: in den Deploy, mit
+ * Rückgabewert ≠ 0.
+ *
+ * BEFUND ODER HINWEIS
+ *
+ * Ein BEFUND (Rückgabewert 1) bedeutet: die Erkennung ist ganz oder teilweise
+ * wirkungslos. Ein HINWEIS bedeutet: es funktioniert, aber eine Zusage ist eingeschränkt.
+ * Die Trennung ist wichtig, weil ein Command, der bei jeder Kleinigkeit fehlschlägt, im
+ * Deploy sehr schnell mit `|| true` versehen wird — und dann auch die echten Befunde
+ * verschluckt. Mit `--strict` werden Hinweise zu Befunden.
+ *
+ * Der Befehlsname `ids:sensor:setup-check` ist dokumentiert und stabil; die Klasse
+ * selbst ist es nicht.
+ *
+ * @internal
+ */
+#[AsCommand(
+    name: 'ids:sensor:setup-check',
+    description: 'Prüft die Betriebsvoraussetzungen des Sensors. Für den Deploy gedacht.',
+)]
+final class SetupCheckCommand extends Command
+{
+    /** @var list<string> */
+    private array $findings = [];
+
+    /** @var list<string> */
+    private array $hints = [];
+
+    /**
+     * @param array<string, mixed> $config die vollständige aufgelöste Konfiguration
+     */
+    public function __construct(
+        private readonly SensorIdentityProvider $identityProvider,
+        private readonly EnvironmentResolver $environmentResolver,
+        private readonly RuntimeProfile $runtime,
+        private readonly array $config,
+        private readonly ?SpoolInterface $spool = null,
+        private readonly ?Scheduler $heartbeatScheduler = null,
+    ) {
+        parent::__construct();
+    }
+
+    protected function configure(): void
+    {
+        $this
+            ->addOption('strict', null, InputOption::VALUE_NONE, 'Behandelt Hinweise wie Befunde.')
+            ->setHelp(<<<'HELP'
+                Im Deploy-Skript nach dem Cache-Aufbau aufrufen:
+
+                    php bin/console ids:sensor:setup-check
+
+                Rückgabewert 0 heißt „einsatzfähig", 1 heißt „die Erkennung ist ganz oder
+                teilweise wirkungslos". Bitte NICHT mit `|| true` entschärfen — der Sinn des
+                Commands ist, dass eine Fehlkonfiguration im Deploy auffällt und nicht erst
+                bei der Nachanalyse eines Vorfalls.
+                HELP)
+        ;
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $io = new SymfonyStyle($input, $output);
+        $io->title('IDS-Sensor — Betriebsprüfung');
+
+        $this->checkIdentity($io);
+        $this->checkEnvironment($io);
+        $this->checkSessionHash($io);
+        $this->checkTransport($io);
+        $this->checkTrustedProxies($io);
+        $this->checkRuntime($io);
+        $this->checkSpool($io);
+        $this->checkHeartbeat($io);
+        $this->checkLayers($io);
+        $this->checkExtensions($io);
+
+        $strict = true === $input->getOption('strict');
+
+        foreach ($this->hints as $hint) {
+            $io->warning($hint);
+        }
+
+        foreach ($this->findings as $finding) {
+            $io->error($finding);
+        }
+
+        if ([] !== $this->findings) {
+            return Command::FAILURE;
+        }
+
+        if ($strict && [] !== $this->hints) {
+            $io->error('Hinweise vorhanden und --strict gesetzt.');
+
+            return Command::FAILURE;
+        }
+
+        $io->success('Der Sensor ist einsatzfähig.');
+
+        return Command::SUCCESS;
+    }
+
+    private function checkIdentity(SymfonyStyle $io): void
+    {
+        $identity = $this->identityProvider->get();
+        $problems = $identity->validate();
+
+        $io->definitionList(
+            ['application_id' => $identity->applicationId],
+            ['instance_id' => $identity->instanceId],
+            ['environment' => $identity->environment->value],
+        );
+
+        foreach ($problems as $problem) {
+            $this->findings[] = 'Kennung: '.$problem;
+        }
+
+        // Ein zur Compile-Zeit eingebackener Hostname wäre in allen Replicas derselbe und
+        // bräche die Aggregationsregel aus Konzept 2.2.1 — jede Instanz sähe aus wie eine.
+        if ($identity->instanceId === gethostname()) {
+            return;
+        }
+
+        $this->hints[] = \sprintf(
+            'instance_id ("%s") entspricht nicht dem Hostnamen ("%s"). Das ist in Ordnung, wenn sie '
+            .'bewusst gesetzt wurde — bei mehreren Replicas MUSS sie aber je Instanz unterschiedlich '
+            .'sein, sonst sind alle Instanzen in den Auswertungen eine (Konzept 2.2.1).',
+            $identity->instanceId,
+            (string) gethostname(),
+        );
+    }
+
+    /**
+     * Der teuerste Fehler überhaupt — und der unauffälligste.
+     */
+    private function checkEnvironment(SymfonyStyle $io): void
+    {
+        if ($this->environmentResolver->isResolvable()) {
+            return;
+        }
+
+        $this->findings[] = \sprintf(
+            'environment "%s" ist nicht auf prod|staging|dev abbildbar. Der Sensor benutzt den '
+            .'Rückfallwert, aber die Zuordnung ist geraten. Bitte ids_sensor.environment_map ergänzen. '
+            .'Grund für den harten Abbruch: der Collector verlangt env_type NOT NULL (Konzept 4.2.1) — '
+            .'ein falscher Wert führt zu stillem Totalverlust dieser Instanz, und der ist von einem '
+            .'toten Sensor nicht zu unterscheiden.',
+            $this->environmentResolver->configuredValue(),
+        );
+    }
+
+    private function checkSessionHash(SymfonyStyle $io): void
+    {
+        /** @var array{enabled: bool, key: string|null} $sessionHash */
+        $sessionHash = $this->config['session_hash'];
+
+        if (false === $sessionHash['enabled']) {
+            $this->hints[] =
+                'session_hash ist abgeschaltet: actor.session_id_hash bleibt null. Die sitzungsbezogenen '
+                .'Regeln B8/B9 können damit nicht feuern, und eine Sitzungsverkettung über mehrere '
+                .'Requests ist nicht möglich.';
+        }
+    }
+
+    private function checkTransport(SymfonyStyle $io): void
+    {
+        /** @var array{dsn: string|null, options: array<string, mixed>} $transport */
+        $transport = $this->config['transport'];
+        $dsn = $transport['dsn'];
+
+        if (null === $dsn || '' === $dsn) {
+            $this->findings[] =
+                'Keine transport.dsn konfiguriert. Der Sensor erfasst, versendet aber nichts — '
+                .'die Events enden im Nichts.';
+
+            return;
+        }
+
+        $io->definitionList(['transport' => preg_replace('#://[^@/]*@#', '://***@', $dsn) ?? $dsn]);
+
+        // Der wahrscheinlichste Erstinstallationsfehler: auto_setup sendet
+        // XGROUP CREATE ... MKSTREAM, was die XADD-only-Rechte aus Konzept 2. ablehnen.
+        // In der Entwicklung mit root-Zugang funktioniert es, in Produktion nicht.
+        $autoSetup = $transport['options']['auto_setup'] ?? false;
+
+        if (false !== $autoSetup && 0 !== $autoSetup && '0' !== $autoSetup) {
+            $this->findings[] =
+                'transport.options.auto_setup ist nicht false. Der Transport sendet dann '
+                .'XGROUP CREATE ... MKSTREAM, und die XADD-only-Rechte des Sensors (Konzept 2.) lehnen '
+                .'das mit NOPERM ab. In der Entwicklung mit weiten Rechten fällt das nicht auf — beim '
+                .'ersten Versand in Produktion schon. Die Consumer-Gruppe erzeugt der Collector.';
+        }
+    }
+
+    /**
+     * Ohne Trusted Proxies ist actor.ip überall die Proxy-IP — und damit ist JEDE
+     * IP-basierte Regel aus Konzept 4.3 still wirkungslos.
+     */
+    private function checkTrustedProxies(SymfonyStyle $io): void
+    {
+        $trusted = Request::getTrustedProxies();
+
+        if ([] !== $trusted) {
+            return;
+        }
+
+        $this->hints[] =
+            'framework.trusted_proxies ist nicht gesetzt. Steht die Anwendung hinter einem Reverse '
+            .'Proxy oder Load Balancer, ist actor.ip dann bei JEDEM Event die Proxy-IP, und alle '
+            .'IP-basierten Regeln aus Konzept 4.3 sind wirkungslos — ohne jede Fehlermeldung. Läuft die '
+            .'Anwendung direkt am Client, ist dieser Hinweis gegenstandslos.';
+    }
+
+    private function checkRuntime(SymfonyStyle $io): void
+    {
+        $runtime = $this->runtime->describe();
+
+        $io->definitionList(
+            ['SAPI' => $runtime['sapi']],
+            ['flush.policy' => $runtime['policy']],
+            ['Versandweg' => $runtime['dispatch_path']],
+        );
+
+        // Die CLI ist immer abkoppelbar — die Prüfung des Web-Laufzeitmodells kann dieser
+        // Command also gar nicht leisten. Das ehrlich zu sagen ist besser, als eine
+        // Aussage zu treffen, die für den Webserver nicht gilt.
+        $io->note(
+            'Dieser Command läuft unter der CLI-SAPI. Welches Laufzeitmodell der WEBSERVER benutzt, '
+            .'ist hier nicht feststellbar. Bei flush.policy: auto entscheidet der Sensor das im '
+            .'Request selbst; der Heartbeat meldet den tatsächlichen Weg (runtime.dispatch_path).',
+        );
+    }
+
+    private function checkSpool(SymfonyStyle $io): void
+    {
+        if (null === $this->spool) {
+            $this->hints[] =
+                'Kein Spool konfiguriert. Ein Broker-Ausfall bedeutet dann Datenverlust statt '
+                .'Nachlieferung — und unter mod_php käme überhaupt nichts an.';
+
+            return;
+        }
+
+        /** @var array{dir: string, drain: string, drain_interval_s: int} $spoolConfig */
+        $spoolConfig = $this->config['spool'];
+        $directory = $spoolConfig['dir'];
+
+        if (!is_dir($directory)) {
+            // Nicht vorhanden ist in Ordnung — er wird beim ersten Schreiben angelegt.
+            // Nicht beschreibbar ist dagegen ein Befund.
+            $parent = \dirname($directory);
+
+            if (!is_writable($parent)) {
+                $this->findings[] = \sprintf(
+                    'Das Spool-Verzeichnis "%s" existiert nicht und "%s" ist nicht beschreibbar. '
+                    .'Damit gibt es keinen Rückfall bei einem Broker-Ausfall.',
+                    $directory,
+                    $parent,
+                );
+            }
+        } elseif (!is_writable($directory)) {
+            $this->findings[] = \sprintf('Das Spool-Verzeichnis "%s" ist nicht beschreibbar.', $directory);
+        }
+
+        $this->checkSpoolAge($io, $directory, $spoolConfig['drain_interval_s']);
+    }
+
+    /**
+     * Liegt eine alte Datei im Spool, holt sie niemand ab.
+     *
+     * Unter Spool-First (mod_php) ist das der Weg in den Totalverlust: der Sensor schreibt,
+     * niemand drainiert, der Spool läuft voll und verwirft. Deshalb ist ein zu altes
+     * Spool-Element hier ein BEFUND und kein Hinweis.
+     */
+    private function checkSpoolAge(SymfonyStyle $io, string $directory, int $drainInterval): void
+    {
+        $spool = $this->spool;
+
+        if (null === $spool || !method_exists($spool, 'pendingFiles')) {
+            return;
+        }
+
+        /** @var list<string> $files */
+        $files = $spool->pendingFiles();
+
+        if ([] === $files) {
+            $io->definitionList(['Spool' => 'leer']);
+
+            return;
+        }
+
+        $oldest = null;
+
+        foreach ($files as $file) {
+            $modified = @filemtime($file);
+
+            if (false !== $modified) {
+                $oldest = null === $oldest ? $modified : min($oldest, $modified);
+            }
+        }
+
+        $age = null === $oldest ? 0 : max(0, time() - $oldest);
+        $io->definitionList(['Spool' => \sprintf('%d Datei(en), älteste %d s', \count($files), $age)]);
+
+        // Das Dreifache des Intervalls: ein einzelner verpasster Lauf ist noch kein Befund,
+        // drei hintereinander sind einer.
+        $limit = max(1, $drainInterval) * 3;
+
+        if ($age > $limit) {
+            $this->findings[] = \sprintf(
+                'Im Spool liegt ein %d s altes Element, erwartet werden höchstens %d s (drei '
+                .'Drain-Intervalle). Offenbar läuft "ids:sensor:spool:flush" nicht. Der Spool läuft '
+                .'dann voll und verwirft — bei Containern ist die häufigste Ursache ein Drain-Prozess '
+                .'in einem ANDEREN Pod, der das Spool-Verzeichnis des Web-Pods nicht sieht.',
+                $age,
+                $limit,
+            );
+        }
+    }
+
+    private function checkHeartbeat(SymfonyStyle $io): void
+    {
+        if (null === $this->heartbeatScheduler) {
+            $this->findings[] =
+                'Der Heartbeat ist abgeschaltet. Der Collector erzeugt dann dauerhaft den Alarm '
+                .'ids.sensor_silent (Konzept 2.), weil ein schweigender Sensor nicht von einem '
+                .'stillgelegten zu unterscheiden ist.';
+
+            return;
+        }
+
+        /** @var array{mode: string, interval_s: int} $heartbeat */
+        $heartbeat = $this->config['heartbeat'];
+        $age = $this->heartbeatScheduler->secondsSinceLastSend();
+
+        $io->definitionList([
+            'Heartbeat' => \sprintf(
+                'mode=%s, interval=%d s, letzter Versand %s',
+                $heartbeat['mode'],
+                $heartbeat['interval_s'],
+                null === $age ? 'nie' : $age.' s',
+            ),
+        ]);
+
+        if (null === $age) {
+            $this->hints[] =
+                'Es wurde noch nie ein Heartbeat gesendet. Bei einer frischen Installation ist das '
+                .'erwartbar. Zum Prüfen: "ids:sensor:heartbeat --force".';
+
+            return;
+        }
+
+        $limit = max(1, $heartbeat['interval_s']) * 3;
+
+        if ($age > $limit) {
+            $this->findings[] = \sprintf(
+                'Der letzte Heartbeat liegt %d s zurück, erwartet werden höchstens %d s. Bei '
+                .'mode=command fehlt vermutlich der cron- oder systemd-Eintrag; unter einer Laufzeit '
+                .'ohne abkoppelbare Antwort (mod_php) ist der Command der EINZIGE Weg.',
+                $age,
+                $limit,
+            );
+        }
+    }
+
+    /**
+     * Konzept 2. verlangt ausdrücklich, die Asymmetrie der drei Ebenen nicht zu
+     * verschleiern. Dieser Command ist der Ort, an dem sie sichtbar wird.
+     */
+    private function checkLayers(SymfonyStyle $io): void
+    {
+        /** @var array{kernel: array{enabled: bool}, security: array{enabled: bool, access_decision: bool}, business: array{enabled: bool, capture_mode: string}} $layers */
+        $layers = $this->config['layers'];
+
+        $io->definitionList(
+            ['Kernel-Ebene' => $layers['kernel']['enabled'] ? 'aktiv' : 'ABGESCHALTET'],
+            ['Security-Ebene' => $layers['security']['enabled'] ? 'aktiv' : 'ABGESCHALTET'],
+            ['Business-Ebene' => \sprintf(
+                '%s, capture_mode=%s',
+                $layers['business']['enabled'] ? 'aktiv' : 'ABGESCHALTET',
+                $layers['business']['capture_mode'],
+            )],
+        );
+
+        if (false === $layers['kernel']['enabled']) {
+            $this->findings[] =
+                'Die Kernel-Ebene ist abgeschaltet. Damit entfällt die Grundlage nahezu aller Regeln '
+                .'aus Konzept 4.3. Zum Senken der Latenz ist das der falsche Hebel: erst '
+                .'layers.security.access_decision abschalten, dann sampling.info_rate senken '
+                .'(Konzept 2.1).';
+        }
+
+        if (false === $layers['security']['enabled']) {
+            $this->findings[] =
+                'Die Security-Ebene ist abgeschaltet. Anmeldefehler und Autorisierungsablehnungen '
+                .'werden nicht erfasst — also die Signale, an denen die Regeln zu Brute-Force und '
+                .'Rechteausweitung hängen.';
+        }
+
+        // KEIN Befund: dass die Business-Ebene ohne Anwendungscode wirkungslos ist, ist die
+        // im Konzept 2. beschriebene Asymmetrie und kein Fehler. Ungesagt bleiben darf sie
+        // trotzdem nicht.
+        $this->hints[] =
+            'Die Business-Ebene liefert nur Signale, wenn die Anwendung Events auslöst, die '
+            .'SecurityRelevantBusinessEvent implementieren. Ohne sie erzeugen ERFOLGREICHE Angriffe, '
+            .'die die Anwendung bestimmungsgemäß benutzen, kein Signal (Konzept 2.1.3, Szenarien S6, '
+            .'S7 ohne Voter, S9) — und keine Verschärfung der Kernel-Regeln kompensiert das.';
+    }
+
+    private function checkExtensions(SymfonyStyle $io): void
+    {
+        if (!\function_exists('apcu_enabled') || !@apcu_enabled()) {
+            $this->hints[] =
+                'APCu ist nicht verfügbar. Zähler und Circuit-Breaker-Zustand laufen dann über '
+                .'Dateien — funktionsfähig, aber langsamer, und der Breaker reagiert prozessübergreifend '
+                .'träger.';
+        }
+
+        /** @var array{dsn: string|null} $transport */
+        $transport = $this->config['transport'];
+        $dsn = (string) ($transport['dsn'] ?? '');
+
+        if (!str_starts_with($dsn, 'redis')) {
+            return;
+        }
+
+        if (!\extension_loaded('redis') && !\extension_loaded('relay')) {
+            $this->findings[] = 'Die DSN nutzt Redis, aber weder ext-redis noch ext-relay ist geladen.';
+        }
+
+        // Der Stolperstein aus der Installation: symfony/redis-messenger ist eine
+        // Entwicklungsabhängigkeit DIESES Bundles. Die Anwendung muss es selbst in `require`
+        // aufnehmen, sonst registriert Symfony die Transport-Factory nicht — der Befund
+        // lautet dann „No transport supports Messenger DSN".
+        if (!class_exists('Symfony\Component\Messenger\Bridge\Redis\Transport\RedisTransportFactory')) {
+            $this->findings[] =
+                'Die Redis-Transport-Factory fehlt. Die Anwendung muss "symfony/redis-messenger" '
+                .'selbst in require aufnehmen — als Entwicklungsabhängigkeit dieses Bundles wird die '
+                .'Factory dort nicht registriert.';
+        }
+    }
+}

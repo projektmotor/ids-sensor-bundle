@@ -1,0 +1,22 @@
+parameters:
+    # Level 8 statt 9: An den Rändern ist dieses Bundle unvermeidlich mixed-lastig —
+    # getPayload(): array, das raw-Feld, Query-Parameter. Level 9 würde dort zu
+    # Rauschen statt zu Erkenntnis führen.
+    level: 8
+    paths:
+        - src
+        - tests
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # CapturingEventDispatcher weitet addListener/removeListener/getListenerPriority
+        # auf `callable|array` auf, genau wie Symfonys eigene EventDispatcher-Klasse.
+        # Grund: Lazy Listener kommen als Array [$serviceId, 'method'] und sind noch
+        # keine gültigen Callables. Mit dem engeren Interface-Typ `callable` scheitert
+        # die Weitergabe zur Laufzeit an einem TypeError, sobald der
+        # TraceableEventDispatcher einen solchen Listener durchreicht — nachgewiesen im
+        # Integrationstest. Laufzeitrichtigkeit hat hier Vorrang vor der Stub-Signatur.
+        # Betrifft die Weitergabe an $this->inner, das als Interface mit dem engeren
+        # `callable` typisiert ist.
+        -
+            identifier: argument.type
+            path: src/Sensor/Business/CapturingEventDispatcher.php

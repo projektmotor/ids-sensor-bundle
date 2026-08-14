@@ -1,0 +1,27 @@
+# Der AccessDecisionManager-Decorator — getrennt ladbar, weil er der teuerste Sensor des
+# Bundles ist und abschaltbar sein muss.
+#
+# decoration_priority 255: außerhalb des TraceableAccessDecisionManager aus dem Debug-Modus,
+# damit die endgültige Entscheidung beobachtet wird und nicht eine Zwischenstufe.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+    # kernel.reset kommt über ResetInterface (autoconfigure): Dedup-Gedächtnis und Zähler
+    # sind pro Request gemeint, nicht pro Prozess.
+    ids_sensor.sensor.access_decision:
+        class: ProjektMotor\IdsSensor\Sensor\Security\AccessDecisionSensor
+        decorates: security.access.decision_manager
+        decoration_priority: 255
+        arguments:
+            $inner: '@.inner'
+            $buffer: '@ids_sensor.event_buffer'
+            $binder: '@ids_sensor.captured_event_binder'
+            $resourceResolver: '@ids_sensor.resource_identifier_resolver'
+            $budget: '@ids_sensor.capture_budget'
+            $requestStack: '@request_stack'
+            $captureGranted: '%ids_sensor.layers.security.capture_granted%'
+            $maxPerRequest: '%ids_sensor.layers.security.max_decisions_per_request%'

@@ -1,0 +1,280 @@
+# 08 — Konfigurationsreferenz
+
+Alle Schlüssel unter `ids_sensor`, mit Vorgabewert und Wirkung. Der Baum steht in
+`DependencyInjection\ConfigurationTree`; **alle `ids_sensor`-Schlüssel gehören zur
+öffentlichen API** und unterliegen Semver.
+
+Vollständige Ausgabe der aktuell wirksamen Werte:
+
+```bash
+php bin/console config:dump-reference ids_sensor
+php bin/console debug:config ids_sensor
+```
+
+## Mindestkonfiguration
+
+Vier Angaben sind Pflicht:
+
+```yaml
+# config/packages/ids_sensor.yaml
+ids_sensor:
+    application_id: 'shop-api'
+    instance_id: '%env(HOSTNAME)%'
+    environment: '%env(APP_ENV)%'
+    session_hash:
+        key: '%env(IDS_SESSION_HASH_KEY)%'
+    transport:
+        dsn: '%env(IDS_REDIS_DSN)%'
+```
+
+## Herkunftskennung
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | `false` schaltet alle Sensoren ab, ohne das Bundle zu entfernen |
+| `application_id` | **Pflicht** | Kennung der überwachten Anwendung |
+| `instance_id` | `null` | Kennung des Hosts/Containers; `null` ermittelt sie **zur Laufzeit** aus dem Hostnamen |
+| `environment` | **Pflicht** | Rohwert; wird über `environment_map` abgebildet |
+| `environment_map` | siehe unten | Abbildung beliebiger Namen auf `prod\|staging\|dev` |
+| `environment_fallback` | `prod` | greift, wenn `environment` nicht abbildbar ist |
+
+**`instance_id`**: Tragen zwei Replicas dieselbe, sind sie in jeder Auswertung *eine*
+Instanz — Schwellwerte pro Instanz feuern dann zu spät oder gar nicht. Häufigste Ursache:
+der Wert wird beim Bauen des Container-Images aufgelöst und trägt den Hostnamen des
+Build-Containers. Deshalb löst dieses Bundle ihn zur Laufzeit auf; setzen Sie ihn über
+eine Variable, die je Pod bzw. Host unterschiedlich ist.
+
+**`environment`** ist der Wert, dessen Fehler völlig lautlos bleibt. Der Collector führt
+`env_type` als `NOT NULL` mit genau `prod`, `staging`, `dev` (*4.2.1*). Kommt etwas anderes
+an, scheitert das Einfügen: stiller Totalverlust dieser Instanz.
+
+Die mitgelieferte Abbildung — eigene Einträge werden **hinzugemischt**, nicht dagegen
+ausgetauscht:
+
+| Rohwert | → | Rohwert | → |
+|---|---|---|---|
+| `prod`, `production`, `live` | `prod` | `dev`, `develop`, `development` | `dev` |
+| `staging`, `stage`, `preprod` | `staging` | `local`, `test` | `dev` |
+
+```yaml
+ids_sensor:
+    environment_map:
+        prod_eu_west: prod      # ergänzt, die Vorgaben bleiben
+    environment_fallback: prod
+```
+
+Der Rückfall ist `prod` und nicht `dev`: fälschlich als `prod` markierter Verkehr wird
+weiterhin erkannt; fälschlich als `dev` markierter fällt aus **jeder**
+Produktionsauswertung heraus. `ids:sensor:setup-check` bricht mit Rückgabewert 1 ab, wenn
+der Wert nicht abbildbar ist.
+
+## `session_hash`
+
+Die rohe Session-ID wird **nie** übertragen — sonst wäre der Beweisspeicher selbst ein
+Session-Hijacking-Vektor (*2.2.4*). Übertragen wird ein HMAC.
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | `false` arbeitet bewusst ohne Sitzungsverkettung |
+| `key` | `null` | dedizierter HMAC-Schlüssel, ≥ 32 Zeichen |
+| `min_key_length` | `32` | Untergrenze der Prüfung |
+| `cookie_name` | `null` | `null` ermittelt ihn aus der Framework-Konfiguration |
+
+Der Schlüssel ist ausdrücklich **nicht** `APP_SECRET`: die überwachte Anwendung kennt
+`APP_SECRET` und könnte aus einer gestohlenen Event-Datenbank die Hashes nachrechnen.
+
+```bash
+php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'
+```
+
+Fehlt der Schlüssel, bricht die **Container-Kompilierung** ab — der einzige Punkt, an dem
+dieses Bundle nicht fail-open ist. Ein stilles `null` würde die sitzungsbezogenen Regeln
+unsichtbar abschalten.
+
+**Eine Rotation bricht die Sitzungsverkettung**: Events von vor und nach der Rotation
+tragen für dieselbe Sitzung verschiedene Hashes.
+
+## `fingerprint`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | |
+| `headers` | `User-Agent`, `Accept-Language`, `Accept-Encoding` | feste Feldfolge laut (*2.2.4*) |
+
+Bewusst schmal: je mehr Header einfließen, desto häufiger ändert sich der Fingerprint aus
+harmlosen Gründen. Eine Änderung ändert **jeden** Fingerprint und macht die
+sitzungsbezogene Regel B9 für die Übergangszeit blind.
+
+## `correlation`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `trust_incoming_header` | `false` | einen eingehenden Request-ID-Header übernehmen |
+| `incoming_header` | `X-Request-Id` | dessen Name |
+| `require_trusted_proxy` | `true` | Header nur von einem konfigurierten Trusted Proxy übernehmen |
+| `expose_request_attribute` | `true` | legt die `correlation_id` als Request-Attribut ab, damit die Anwendung sie mitloggen kann |
+
+`trust_incoming_header` ist aus gutem Grund aus: ein eingehender Header ist
+angreifergesteuert, solange kein Reverse Proxy ihn überschreibt. Ein Angreifer könnte damit
+die `correlation_id` eines Opfers übernehmen und die forensische Zuordnung vergiften.
+
+## `layers`
+
+### `layers.kernel`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | |
+| `events.request` / `.response` / `.exception` | `true` | einzelne Hooks |
+| `ignored_paths` | `[]` | **absichtlich leer** — Regel R2b lebt davon, Zugriffe auf `/_profiler` zu sehen |
+| `sub_requests` | `exceptions_only` | `none` · `exceptions_only` · `all` |
+| `capture_fatal_errors` | `true` | synthetisiert bei Fatal Errors ein `kernel.exception` mit Status 500 |
+
+### `layers.security`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | |
+| `authentication` | `true` | An- und Abmeldeversuche |
+| `access_decision` | `true` | dekoriert den `AccessDecisionManager`, feuert bei jedem `isGranted()` |
+| `capture_granted` | `true` | `false` erfasst nur Ablehnungen — halbiert das Volumen, kostet die Positivpfad-Regeln |
+| `max_decisions_per_request` | `200` | Hard-Cap; Überlauf zählt `dropped_decision_cap` |
+
+### `layers.business`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | |
+| `capture_mode` | `dispatcher` | `dispatcher` · `recorder` · `configured` — siehe [09](09-business-ebene.md) |
+| `event_classes` | `[]` | nur für `configured`: Liste der Event-FQCNs |
+| `user_from_token` | `true` | ergänzt `actor.user` aus dem Security-Token, wenn `getActorId()` `null` liefert |
+| `ip_from_request` | `true` | ergänzt `actor.ip` aus dem laufenden Request |
+
+## `raw`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | `false` lässt das Feld ganz weg |
+| `severities` | `warning`, `critical` | lässt sich nur **verkleinern**, nicht erweitern |
+| `max_bytes` | `32768` | Kappungsgrenze je `raw` |
+| `include_request_body` | `true` | der sensibelste Teil, deshalb ein eigener Schalter |
+| `skip_multipart` | `true` | Datei-Uploads würden den Frame sprengen |
+
+## `payload_confidentiality_cleanup`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `config` | `null` | Pfad zur eigenen Liste; `null` nutzt die mitgelieferte |
+| `merge_defaults` | `true` | `false` ersetzt die mitgelieferte Liste vollständig |
+| `replacement` | `[confidential]` | der Ersetzungsmarker |
+
+Details in [06 — Vertraulichkeit](06-vertraulichkeit.md).
+
+## `sampling`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `info_rate` | `1.0` | gilt **nur** für `layer=kernel` **und** `severity=info` |
+| `keep_if_request_relevant` | `true` | behält die info-Events eines Requests, der ein `warning`/`critical` enthält |
+
+Details in [04 — Request-Lebenszyklus](04-request-lebenszyklus.md#sampling-einen-teil-gar-nicht-erst-senden).
+
+## `budget`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `capture_us` | `1500` | Erfassungsbudget im Request; `0` = unbegrenzt (CLI/Worker) |
+| `dispatch_ms` | `50` | Versandbudget nach dem Absenden der Antwort |
+| `connect_timeout_ms` | `20` | Broker-Verbindungsaufbau |
+| `read_timeout_ms` | `30` | Broker-Antwort |
+| `drain_ms` | `25` | Zeitfenster je Drain-Lauf |
+| `fatal_dispatch_ms` | `15` | Versandfenster im Shutdown-Pfad |
+| `max_events_per_request` | `64` | Puffergrenze pro Durchlauf |
+| `max_events_per_process` | `200` | Puffergrenze für langlebige Prozesse |
+
+`dispatch_ms` wird als Frist **zwischen** Broker-Operationen geprüft — PHP kann einen
+laufenden Syscall nicht abbrechen.
+
+## `flush`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `policy` | `auto` | `auto` · `direct` · `spool` |
+| `batch` | `true` | bündelt alle Events eines Requests zu einem Frame und damit zu einem `XADD` |
+| `max_frame_bytes` | `262144` | Obergrenze je Frame |
+
+`auto` erkennt, ob die Antwort abkoppelbar ist. Warum das die Vorgabe ist und was `direct`
+auf einer mod_php-Installation anrichtet, steht in
+[05 — Versandweg](05-versandweg.md#schranke-1-ist-die-antwort-abkoppelbar).
+
+## `transport`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `name` | `ids_events` | Name des Messenger-Transports |
+| `dsn` | `null` | `null` bedeutet: die Anwendung konfiguriert ihn selbst |
+| `register_transport` | `true` | `false` überlässt die Registrierung der Anwendung |
+| `options` | `[]` | wird über die sicheren Vorgaben gemischt |
+
+**`auto_setup` muss `false` bleiben** — siehe [07 — Betrieb](07-betrieb.md#broker-rechte-nur-schreiben).
+
+## `spool`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `dir` | `null` | `null` nutzt `%kernel.project_dir%/var/ids-spool`; **muss node-lokal sein** |
+| `max_bytes` | `16777216` | Gesamtgrenze; Überlauf zählt `dropped_spool_full` |
+| `max_file_bytes` | `4194304` | Grenze je Datei |
+| `drain` | `both` | `off` · `command` · `opportunistic` · `both` |
+| `drain_interval_s` | `30` | reiner Dokumentationswert — reist im Heartbeat mit, damit der Collector die normale Verzögerung kennt |
+| `drain_max_files_per_run` | `2` | |
+| `drain_min_interval_s` | `1` | |
+| `stale_after_s` | `300` | ab wann eine Datei als liegengeblieben gilt |
+
+Es gibt **keinen** `spool.enabled`-Schalter, und das ist Absicht — Begründung in
+[05 — Versandweg](05-versandweg.md#der-spool).
+
+## `circuit_breaker`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | |
+| `failure_threshold` | `3` | Fehler bis zum Öffnen |
+| `open_for_s` | `30` | Offenzeit |
+| `half_open_probes` | `1` | Proben nach Ablauf der Offenzeit |
+
+Die Zustandsübergänge stehen in
+[05 — Versandweg](05-versandweg.md#schranke-2-der-circuit-breaker).
+
+## `heartbeat`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `enabled` | `true` | |
+| `mode` | `auto` | `auto` · `request` · `command` · `off` |
+| `interval_s` | `60` | Drosselungsintervall |
+| `stamp_file` | `null` | Rückfallablage neben APCu |
+
+Details in [07 — Betrieb](07-betrieb.md#der-heartbeat-ist-nicht-optional).
+
+## `telemetry` und `logging`
+
+| Schlüssel | Vorgabe | Wirkung |
+|---|---|---|
+| `telemetry.latency_histogram` | `true` | macht die 5-ms-Zusage im laufenden Betrieb überprüfbar |
+| `telemetry.profiler_collector` | `true` | Panel im Symfony-Profiler |
+| `logging.enabled` | `true` | |
+| `logging.channel` | `ids_sensor` | Monolog-Kanal |
+
+## Zwei Eigenheiten des Baums
+
+Beide folgen aus dem Zusammenspiel von Config-Komponente und Umgebungsvariablen und
+erklären, warum der Baum an manchen Stellen lockerer aussieht, als er ist:
+
+- **Kein `enumNode()` für Werte, die aus einer Umgebungsvariable kommen können.** Symfonys
+  `ValidateEnvPlaceholdersPass` prüft mit Typ-Platzhaltern, und `EnumNode` kennt keine
+  Platzhalterbehandlung — die Prüfung liefe gegen `''` und würfe. Stattdessen
+  `scalarNode()` plus `->validate()->ifNotInArray()`.
+- **Numerische Untergrenzen schließen `0` ein.** Der Typ-Platzhalter für `int` ist `0`, und
+  `->min(1)` würde ihn zurückweisen. Die fachlich sinnvolle Untergrenze prüft der
+  verbrauchende Dienst.

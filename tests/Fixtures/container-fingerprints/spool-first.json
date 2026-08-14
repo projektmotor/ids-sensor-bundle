@@ -1,0 +1,1255 @@
+{
+    "parameters": {
+        "ids_sensor.application_id": "shop-api",
+        "ids_sensor.budget.capture_us": 1500,
+        "ids_sensor.budget.max_events_per_request": 64,
+        "ids_sensor.circuit_breaker.enabled": true,
+        "ids_sensor.circuit_breaker.failure_threshold": 3,
+        "ids_sensor.circuit_breaker.open_for_s": 30,
+        "ids_sensor.config": {
+            "application_id": "shop-api",
+            "environment": "prod",
+            "session_hash": {
+                "key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
+                "enabled": true,
+                "min_key_length": 32,
+                "cookie_name": null
+            },
+            "flush": {
+                "policy": "spool",
+                "batch": true,
+                "max_frame_bytes": 262144
+            },
+            "enabled": true,
+            "instance_id": null,
+            "environment_map": {
+                "prod": "prod",
+                "production": "prod",
+                "live": "prod",
+                "staging": "staging",
+                "stage": "staging",
+                "preprod": "staging",
+                "dev": "dev",
+                "develop": "dev",
+                "development": "dev",
+                "local": "dev",
+                "test": "dev"
+            },
+            "environment_fallback": "prod",
+            "fingerprint": {
+                "enabled": true,
+                "headers": [
+                    "User-Agent",
+                    "Accept-Language",
+                    "Accept-Encoding"
+                ]
+            },
+            "correlation": {
+                "trust_incoming_header": false,
+                "incoming_header": "X-Request-Id",
+                "require_trusted_proxy": true,
+                "expose_request_attribute": true
+            },
+            "layers": {
+                "kernel": {
+                    "enabled": true,
+                    "events": {
+                        "request": true,
+                        "response": true,
+                        "exception": true
+                    },
+                    "ignored_paths": [],
+                    "sub_requests": "exceptions_only",
+                    "capture_fatal_errors": true
+                },
+                "security": {
+                    "enabled": true,
+                    "authentication": true,
+                    "access_decision": true,
+                    "capture_granted": true,
+                    "max_decisions_per_request": 200
+                },
+                "business": {
+                    "enabled": true,
+                    "capture_mode": "dispatcher",
+                    "event_classes": [],
+                    "user_from_token": true,
+                    "ip_from_request": true
+                }
+            },
+            "raw": {
+                "enabled": true,
+                "severities": [
+                    "warning",
+                    "critical"
+                ],
+                "max_bytes": 32768,
+                "include_request_body": true,
+                "skip_multipart": true
+            },
+            "payload_confidentiality_cleanup": {
+                "config": null,
+                "merge_defaults": true,
+                "replacement": "[confidential]"
+            },
+            "sampling": {
+                "info_rate": 1,
+                "keep_if_request_relevant": true
+            },
+            "budget": {
+                "capture_us": 1500,
+                "dispatch_ms": 50,
+                "connect_timeout_ms": 20,
+                "read_timeout_ms": 30,
+                "drain_ms": 25,
+                "fatal_dispatch_ms": 15,
+                "max_events_per_request": 64,
+                "max_events_per_process": 200
+            },
+            "transport": {
+                "name": "ids_events",
+                "dsn": null,
+                "register_transport": true,
+                "options": []
+            },
+            "spool": {
+                "dir": null,
+                "max_bytes": 16777216,
+                "max_file_bytes": 4194304,
+                "drain": "both",
+                "drain_interval_s": 30,
+                "drain_max_files_per_run": 2,
+                "drain_min_interval_s": 1,
+                "stale_after_s": 300
+            },
+            "circuit_breaker": {
+                "enabled": true,
+                "failure_threshold": 3,
+                "open_for_s": 30,
+                "half_open_probes": 1
+            },
+            "heartbeat": {
+                "enabled": true,
+                "mode": "auto",
+                "interval_s": 60,
+                "stamp_file": null
+            },
+            "telemetry": {
+                "latency_histogram": true,
+                "profiler_collector": true
+            },
+            "logging": {
+                "enabled": true,
+                "channel": "ids_sensor"
+            }
+        },
+        "ids_sensor.correlation.expose_request_attribute": true,
+        "ids_sensor.correlation.inbound_header": "X-Request-Id",
+        "ids_sensor.correlation.require_trusted_proxy": true,
+        "ids_sensor.correlation.trust_incoming_header": false,
+        "ids_sensor.enabled": true,
+        "ids_sensor.environment": "prod",
+        "ids_sensor.environment_fallback": "prod",
+        "ids_sensor.environment_map": {
+            "prod": "prod",
+            "production": "prod",
+            "live": "prod",
+            "staging": "staging",
+            "stage": "staging",
+            "preprod": "staging",
+            "dev": "dev",
+            "develop": "dev",
+            "development": "dev",
+            "local": "dev",
+            "test": "dev"
+        },
+        "ids_sensor.fingerprint.enabled": true,
+        "ids_sensor.fingerprint.headers": [
+            "User-Agent",
+            "Accept-Language",
+            "Accept-Encoding"
+        ],
+        "ids_sensor.flush.max_frame_bytes": 262144,
+        "ids_sensor.flush.policy": "spool",
+        "ids_sensor.heartbeat.enabled": true,
+        "ids_sensor.heartbeat.interval_s": 60,
+        "ids_sensor.heartbeat.mode": "both",
+        "ids_sensor.heartbeat.stamp_file": "/tmp/ids-sensor-tests/fingerprint-spool-first-private/test/fingerprint-8c5b2ae3/ids-sensor-heartbeat.stamp",
+        "ids_sensor.instance_id": null,
+        "ids_sensor.layers.business.capture_mode": "dispatcher",
+        "ids_sensor.layers.business.event_classes": [],
+        "ids_sensor.layers.business.ip_from_request": true,
+        "ids_sensor.layers.business.user_from_token": true,
+        "ids_sensor.layers.kernel.enabled": true,
+        "ids_sensor.layers.kernel.events.exception": true,
+        "ids_sensor.layers.kernel.events.request": true,
+        "ids_sensor.layers.kernel.events.response": true,
+        "ids_sensor.layers.kernel.ignored_paths": [],
+        "ids_sensor.layers.kernel.sub_requests": "exceptions_only",
+        "ids_sensor.layers.security.active": false,
+        "ids_sensor.layers.security.capture_granted": true,
+        "ids_sensor.layers.security.max_decisions_per_request": 200,
+        "ids_sensor.payload_confidentiality_cleanup.headers": [
+            "Cookie",
+            "Set-Cookie",
+            "Authorization",
+            "Proxy-Authorization",
+            "X-API-Key",
+            "X-Auth-Token",
+            "X-CSRF-Token"
+        ],
+        "ids_sensor.payload_confidentiality_cleanup.parameters": [
+            "password",
+            "passwd",
+            "pwd",
+            "secret",
+            "token",
+            "_token",
+            "api_key",
+            "apikey",
+            "private_key",
+            "credit_card",
+            "cvv",
+            "iban"
+        ],
+        "ids_sensor.payload_confidentiality_cleanup.replacement": "[confidential]",
+        "ids_sensor.payload_confidentiality_cleanup.version": 1,
+        "ids_sensor.raw.enabled": true,
+        "ids_sensor.raw.include_request_body": true,
+        "ids_sensor.raw.max_bytes": 32768,
+        "ids_sensor.raw.severities": [
+            "warning",
+            "critical"
+        ],
+        "ids_sensor.raw.skip_multipart": true,
+        "ids_sensor.sampling.info_rate": 1,
+        "ids_sensor.sampling.keep_if_request_relevant": true,
+        "ids_sensor.schema_version": 1,
+        "ids_sensor.session_hash.cookie_name": null,
+        "ids_sensor.session_hash.enabled": true,
+        "ids_sensor.session_hash.key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
+        "ids_sensor.spool.dir": "/app/tests/Fixtures/var/ids-spool",
+        "ids_sensor.spool.drain": "both",
+        "ids_sensor.spool.drain_interval_s": 30,
+        "ids_sensor.spool.drain_max_files_per_run": 2,
+        "ids_sensor.spool.max_bytes": 16777216,
+        "ids_sensor.spool.max_file_bytes": 4194304,
+        "ids_sensor.telemetry.latency_histogram": true,
+        "ids_sensor.transport.name": "ids_events"
+    },
+    "resettable": {
+        "ids_sensor.capture_budget": [
+            "reset"
+        ],
+        "ids_sensor.event_buffer": [
+            "reset"
+        ],
+        "ids_sensor.request_snapshot_registry": [
+            "reset"
+        ]
+    },
+    "services": {
+        "ProjektMotor\\IdsSensor\\Contract\\BusinessEventRecorderInterface": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Business\\EventRecorder",
+            "public": true,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.sensor.business"
+            ],
+            "tags": []
+        },
+        "ids_sensor.actor_factory": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\ActorFactory",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.session_id_hasher",
+                "@ids_sensor.client_fingerprinter",
+                null
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.breaker.state_store": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Breaker\\SharedStateStore",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "/app/tests/Fixtures/var/ids-spool",
+                "shop-api"
+            ],
+            "tags": []
+        },
+        "ids_sensor.business.capturing_dispatcher": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Business\\CapturingEventDispatcher",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.business.capturing_dispatcher.inner",
+                "@ids_sensor.sensor.business"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.business.capturing_dispatcher.inner": {
+            "class": "Symfony\\Component\\EventDispatcher\\EventDispatcher",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.capture_budget": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\CaptureBudget",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                1500
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ],
+                "kernel.reset": [
+                    {
+                        "method": "reset"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.captured_event_binder": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\CapturedEventBinder",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.request_snapshot_registry",
+                "@ids_sensor.actor_factory"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.circuit_breaker": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Breaker\\CircuitBreaker",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.breaker.state_store",
+                3,
+                30,
+                true
+            ],
+            "tags": []
+        },
+        "ids_sensor.client_fingerprinter": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\ClientFingerprinter",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "%ids_sensor.fingerprint.headers%",
+                true
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.command.heartbeat": {
+            "class": "ProjektMotor\\IdsSensor\\Command\\HeartbeatCommand",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.heartbeat.emitter",
+                "@ids_sensor.heartbeat.scheduler",
+                "both"
+            ],
+            "tags": {
+                "console.command": [
+                    {
+                        "command": "ids:sensor:heartbeat",
+                        "description": "Sendet ein Lebenszeichen des Sensors an den Collector.",
+                        "help": null
+                    },
+                    []
+                ],
+                "container.no_preload": [
+                    [],
+                    []
+                ]
+            },
+            "calls": [
+                [
+                    "setName",
+                    [
+                        "ids:sensor:heartbeat"
+                    ]
+                ],
+                [
+                    "setDescription",
+                    [
+                        "Sendet ein Lebenszeichen des Sensors an den Collector."
+                    ]
+                ]
+            ]
+        },
+        "ids_sensor.command.setup_check": {
+            "class": "ProjektMotor\\IdsSensor\\Command\\SetupCheckCommand",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.identity_provider",
+                "@ids_sensor.environment_resolver",
+                "@ids_sensor.runtime_profile",
+                "%ids_sensor.config%",
+                "@?ids_sensor.spool",
+                "@?ids_sensor.heartbeat.scheduler"
+            ],
+            "tags": {
+                "console.command": [
+                    {
+                        "command": "ids:sensor:setup-check",
+                        "description": "Prüft die Betriebsvoraussetzungen des Sensors. Für den Deploy gedacht.",
+                        "help": null
+                    },
+                    []
+                ],
+                "container.no_preload": [
+                    [],
+                    []
+                ]
+            },
+            "calls": [
+                [
+                    "setName",
+                    [
+                        "ids:sensor:setup-check"
+                    ]
+                ],
+                [
+                    "setDescription",
+                    [
+                        "Prüft die Betriebsvoraussetzungen des Sensors. Für den Deploy gedacht."
+                    ]
+                ]
+            ]
+        },
+        "ids_sensor.command.spool_flush": {
+            "class": "ProjektMotor\\IdsSensor\\Command\\SpoolFlushCommand",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.spool_drainer",
+                2
+            ],
+            "tags": {
+                "console.command": [
+                    {
+                        "command": "ids:sensor:spool:flush",
+                        "description": "Sendet die im Spool liegenden IDS-Frames an den Broker nach",
+                        "help": null
+                    },
+                    []
+                ],
+                "container.no_preload": [
+                    [],
+                    []
+                ]
+            },
+            "calls": [
+                [
+                    "setName",
+                    [
+                        "ids:sensor:spool:flush"
+                    ]
+                ],
+                [
+                    "setDescription",
+                    [
+                        "Sendet die im Spool liegenden IDS-Frames an den Broker nach"
+                    ]
+                ]
+            ]
+        },
+        "ids_sensor.correlation_id_factory": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\CorrelationIdFactory",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "X-Request-Id",
+                false,
+                true
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.counters": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Telemetry\\Counters",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": []
+        },
+        "ids_sensor.deferred_counters": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Telemetry\\DeferredCounters",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.counters",
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.capture_budget",
+                null
+            ],
+            "tags": []
+        },
+        "ids_sensor.environment_resolver": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Identity\\EnvironmentResolver",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "prod",
+                "%ids_sensor.environment_map%",
+                {
+                    "!inline": {
+                        "class": "ProjektMotor\\IdsSensor\\EventFormat\\Vocabulary\\Environment",
+                        "public": false,
+                        "shared": true,
+                        "lazy": false,
+                        "abstract": false,
+                        "synthetic": false,
+                        "arguments": [
+                            "prod"
+                        ],
+                        "tags": [],
+                        "factory": [
+                            "ProjektMotor\\IdsSensor\\EventFormat\\Vocabulary\\Environment",
+                            "from"
+                        ]
+                    }
+                },
+                "@?logger"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.event_buffer": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\EventBuffer",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                64
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ],
+                "kernel.reset": [
+                    {
+                        "method": "reset"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.event_factory": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\EventFactory",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_id_generator",
+                "@ids_sensor.raw.gate"
+            ],
+            "tags": []
+        },
+        "ids_sensor.event_flusher": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Dispatch\\EventFlusher",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.identity_provider",
+                {
+                    "!tagged_iterator": "ids_sensor.event_normalizer",
+                    "resolved": [
+                        "@ids_sensor.normalizer.kernel",
+                        "@ids_sensor.normalizer.business"
+                    ]
+                },
+                "@ids_sensor.frame_dispatcher",
+                "@ids_sensor.counters",
+                "@ids_sensor.deferred_counters",
+                "@ids_sensor.latency_recorder",
+                "@?logger",
+                "@ids_sensor.sampler"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.event_id_generator": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\UuidV7EventIdGenerator",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": []
+        },
+        "ids_sensor.flush_listener": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Dispatch\\FlushListener",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_flusher",
+                "@?ids_sensor.heartbeat.emitter"
+            ],
+            "tags": {
+                "kernel.event_subscriber": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.frame_dispatcher": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Dispatch\\FrameDispatcher",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.shipper",
+                "@ids_sensor.counters",
+                "@ids_sensor.runtime_profile",
+                "@ids_sensor.spool",
+                "@ids_sensor.circuit_breaker",
+                "@?logger"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.heartbeat.emitter": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\Emitter",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.heartbeat.payload_factory",
+                "@ids_sensor.heartbeat.scheduler",
+                "@ids_sensor.shipper",
+                "@ids_sensor.counters",
+                "@ids_sensor.heartbeat.mode",
+                "@ids_sensor.runtime_profile",
+                "@?logger",
+                "@ids_sensor.circuit_breaker"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.heartbeat.mode": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\Mode",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "both"
+            ],
+            "tags": [],
+            "factory": [
+                "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\Mode",
+                "from"
+            ]
+        },
+        "ids_sensor.heartbeat.payload_factory": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\PayloadFactory",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.identity_provider",
+                "@ids_sensor.counters",
+                "@ids_sensor.latency_recorder",
+                "@ids_sensor.runtime_profile",
+                "@ids_sensor.heartbeat.scheduler",
+                "@ids_sensor.heartbeat.mode",
+                60,
+                1,
+                "@ids_sensor.spool",
+                "@ids_sensor.circuit_breaker"
+            ],
+            "tags": []
+        },
+        "ids_sensor.heartbeat.scheduler": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\Scheduler",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.identity_provider",
+                60,
+                "/tmp/ids-sensor-tests/fingerprint-spool-first-private/test/fingerprint-8c5b2ae3/ids-sensor-heartbeat.stamp"
+            ],
+            "tags": []
+        },
+        "ids_sensor.http_status_resolver": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\HttpStatusResolver",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": []
+        },
+        "ids_sensor.identity_provider": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Identity\\SensorIdentityProvider",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "shop-api",
+                "@ids_sensor.instance_id_provider",
+                "@ids_sensor.environment_resolver",
+                "@?logger"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.instance_id_provider": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Identity\\InstanceIdProvider",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                null
+            ],
+            "tags": []
+        },
+        "ids_sensor.kernel_options": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\Options",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                true,
+                true,
+                true,
+                {
+                    "!inline": {
+                        "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\SubRequestMode",
+                        "public": false,
+                        "shared": true,
+                        "lazy": false,
+                        "abstract": false,
+                        "synthetic": false,
+                        "arguments": [
+                            "exceptions_only"
+                        ],
+                        "tags": [],
+                        "factory": [
+                            "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\SubRequestMode",
+                            "from"
+                        ]
+                    }
+                },
+                [],
+                true
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.latency_recorder": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Telemetry\\LatencyRecorder",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                true
+            ],
+            "tags": []
+        },
+        "ids_sensor.normalizer.business": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\BusinessEventNormalizer",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_factory",
+                "@ids_sensor.severity_resolver",
+                "@ids_sensor.payload_sanitizer",
+                "@ids_sensor.raw.builder"
+            ],
+            "tags": {
+                "ids_sensor.event_normalizer": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.normalizer.kernel": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\KernelEventNormalizer",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_factory",
+                "@ids_sensor.severity_resolver",
+                "@ids_sensor.query_normalizer"
+            ],
+            "tags": {
+                "ids_sensor.event_normalizer": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.payload_confidentiality_cleanup.cleaner": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\PayloadConfidentialityCleanup\\Cleaner",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.payload_confidentiality_cleanup.rules",
+                "[confidential]"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.payload_confidentiality_cleanup.rules": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\PayloadConfidentialityCleanup\\Rules",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                1,
+                "%ids_sensor.payload_confidentiality_cleanup.headers%",
+                "%ids_sensor.payload_confidentiality_cleanup.parameters%"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            },
+            "factory": [
+                "ProjektMotor\\IdsSensor\\Support\\PayloadConfidentialityCleanup\\Rules",
+                "fromLists"
+            ]
+        },
+        "ids_sensor.payload_sanitizer": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\PayloadSanitizer",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.payload_confidentiality_cleanup.cleaner"
+            ],
+            "tags": []
+        },
+        "ids_sensor.query_normalizer": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\QueryNormalizer",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.payload_confidentiality_cleanup.cleaner"
+            ],
+            "tags": []
+        },
+        "ids_sensor.raw.builder": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\RawPayload\\Builder",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.payload_confidentiality_cleanup.cleaner",
+                true,
+                true,
+                32768
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.raw.gate": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\RawPayload\\Gate",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                true,
+                "%ids_sensor.raw.severities%"
+            ],
+            "tags": []
+        },
+        "ids_sensor.request_snapshot_registry": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\RequestSnapshotRegistry",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ],
+                "kernel.reset": [
+                    {
+                        "method": "reset"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.runtime_profile": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\RuntimeProfile",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": {
+                "0": "spool",
+                "drainIntervalSeconds": 30
+            },
+            "tags": []
+        },
+        "ids_sensor.sampler": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Dispatch\\CoherentInfoSampler",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                1,
+                true
+            ],
+            "tags": []
+        },
+        "ids_sensor.sensor.business": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Business\\EventSensor",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.captured_event_binder",
+                "@ids_sensor.capture_budget",
+                "@request_stack",
+                true,
+                true
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.sensor.kernel_exception": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\ExceptionSensor",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.captured_event_binder",
+                "@ids_sensor.http_status_resolver",
+                "@ids_sensor.capture_budget",
+                "@ids_sensor.kernel_options",
+                "@ids_sensor.raw.builder"
+            ],
+            "tags": {
+                "kernel.event_subscriber": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.sensor.kernel_request": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\RequestSensor",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.request_snapshot_registry",
+                "@ids_sensor.correlation_id_factory",
+                "@ids_sensor.actor_factory",
+                "@ids_sensor.capture_budget",
+                "@request_stack",
+                "@ids_sensor.kernel_options"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    [],
+                    []
+                ],
+                "kernel.event_subscriber": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.sensor.kernel_response": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\ResponseSensor",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.captured_event_binder",
+                "@ids_sensor.capture_budget",
+                "@ids_sensor.kernel_options",
+                "@ids_sensor.raw.builder"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ],
+                "kernel.event_subscriber": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.session_id_hasher": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\SessionIdHasher",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "ein-dedizierter-ids-schluessel-mit-32-zeichen",
+                null,
+                true
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.severity_resolver": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\SeverityResolver",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@?logger"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.shipper": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Shipper\\NullShipper",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": []
+        },
+        "ids_sensor.spool": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Spool\\FileSpool",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "/app/tests/Fixtures/var/ids-spool",
+                16777216,
+                4194304,
+                "@?logger"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
+        "ids_sensor.spool_drainer": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Spool\\SpoolDrainer",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.spool",
+                "@ids_sensor.shipper",
+                "@?logger"
+            ],
+            "tags": {
+                "container.no_preload": [
+                    []
+                ],
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        }
+    },
+    "watched": {
+        "Symfony\\Component\\Messenger\\MessageBusInterface": "fehlt",
+        "Symfony\\Component\\Security\\Core\\Authentication\\Token\\Storage\\TokenStorageInterface": "fehlt",
+        "event_dispatcher": "definition Symfony\\Component\\HttpKernel\\Debug\\TraceableEventDispatcher",
+        "messenger.default_bus": "definition Symfony\\Component\\Messenger\\MessageBus",
+        "security.access.decision_manager": "fehlt",
+        "security.token_storage": "fehlt",
+        "security.untracked_token_storage": "fehlt"
+    }
+}
