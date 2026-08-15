@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Dispatch;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 
 /**
  * Dünnt info-Events der Kernel-Ebene aus — kohärent pro Request.

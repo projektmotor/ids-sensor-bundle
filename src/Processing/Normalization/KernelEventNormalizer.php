@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Processing\Normalization;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
+use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Cleaner;
 
 /**
  * Normalisiert die Kernel-Ebene nach Konzept 2.2.2 und 3.1.1.
@@ -27,6 +28,7 @@ final class KernelEventNormalizer implements EventNormalizerInterface
         private readonly EventFactory $eventFactory,
         private readonly SeverityResolver $severityResolver,
         private readonly QueryNormalizer $queryNormalizer,
+        private readonly Cleaner $cleaner,
     ) {
     }
 
@@ -90,11 +92,29 @@ final class KernelEventNormalizer implements EventNormalizerInterface
                 KernelPayload::MAX_USER_AGENT_LENGTH,
             ),
             KernelPayload::FIELD_REFERER => FieldValue::truncate(
-                FieldValue::asString($captured->get(KernelPayload::FIELD_REFERER)),
+                $this->referer($captured),
                 KernelPayload::MAX_USER_AGENT_LENGTH,
             ),
             KernelPayload::FIELD_CONTENT_LENGTH => self::intOrNull($captured->get(KernelPayload::FIELD_CONTENT_LENGTH)) ?? 0,
         ];
+    }
+
+    /**
+     * Der Referer, redigiert statt nur gekürzt.
+     *
+     * Er ist der einzige Weg, auf dem eine FREMDE vollständige URL samt Query in ein
+     * Event gelangt, und er lief bisher an der Redaktion vorbei — bei einem Feld, das
+     * laut Konzept 3.1.1 bei JEDER Stufe mitreist, also auch bei `info`. Wer
+     * `https://app.example/reset?token=…` öffnet und dort einen Link anklickt, schickt
+     * das Token im Referer mit.
+     *
+     * null bleibt null: kein Referer ist etwas anderes als ein leerer.
+     */
+    private function referer(CapturedEvent $captured): ?string
+    {
+        $referer = FieldValue::asString($captured->get(KernelPayload::FIELD_REFERER));
+
+        return null === $referer ? null : $this->queryNormalizer->normalizeUrl($referer);
     }
 
     /**
@@ -109,7 +129,7 @@ final class KernelEventNormalizer implements EventNormalizerInterface
     {
         return [
             KernelPayload::FIELD_EXCEPTION_CLASS => FieldValue::asString($captured->get(KernelPayload::FIELD_EXCEPTION_CLASS)),
-            KernelPayload::FIELD_EXCEPTION_MESSAGE => self::sanitizeMessage(
+            KernelPayload::FIELD_EXCEPTION_MESSAGE => $this->sanitizeMessage(
                 FieldValue::asString($captured->get(KernelPayload::FIELD_EXCEPTION_MESSAGE)),
             ),
             KernelPayload::FIELD_HTTP_STATUS => $status,
@@ -146,20 +166,31 @@ final class KernelEventNormalizer implements EventNormalizerInterface
     }
 
     /**
-     * Normalisiert Steuerzeichen VOR dem Kürzen.
+     * Redigiert, normalisiert Steuerzeichen und kürzt — in dieser Reihenfolge.
      *
      * Die Exception-Message ist angreiferbeeinflusst (sie enthält oft den
      * angefragten Pfad, siehe das Beispiel im Konzept: „No route found for GET
-     * /wp-admin/setup-config.php"). Zeilenumbrüche und Steuerzeichen darin könnten
-     * in einer späteren Auswertungsoberfläche die Darstellung zerlegen — Konzept
-     * 4.5.3 fordert ausdrücklich, solche Werte als Daten und nie als Markup zu
-     * behandeln.
+     * /wp-admin/setup-config.php"). Daraus folgen zwei Dinge:
+     *
+     * 1. Zeilenumbrüche und Steuerzeichen darin könnten in einer späteren
+     *    Auswertungsoberfläche die Darstellung zerlegen — Konzept 4.5.3 fordert
+     *    ausdrücklich, solche Werte als Daten und nie als Markup zu behandeln.
+     * 2. Derselbe Pfad kann eine Query tragen, und `?token=…` in einer
+     *    NotFoundHttpException ist ein Geheimnis in einem Feld, das bei JEDER Stufe
+     *    mitreist — anders als das raw-Feld, das es nur bei warning/critical gibt.
+     *    Die Denylist aus Konzept 4.5.1 sah dieses Feld bis dahin nie.
+     *
+     * Redigiert wird VOR dem Kürzen: sonst könnte ein Wert genau am Schnitt
+     * abgeschnitten und damit unkenntlich für die Denylist werden, aber noch lesbar
+     * genug für einen Angreifer.
      */
-    private static function sanitizeMessage(?string $message): ?string
+    private function sanitizeMessage(?string $message): ?string
     {
         if (null === $message) {
             return null;
         }
+
+        $message = $this->cleaner->cleanFreeText($message);
 
         $normalized = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $message);
         if (null === $normalized) {

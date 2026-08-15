@@ -49,10 +49,33 @@ final class SharedStateStore implements BreakerStateStoreInterface
         // derselbe, also ist auch sein Ausfall gemeinsam.
         $this->apcuKey = self::APCU_KEY_PREFIX.$scopeKey;
         $this->file = rtrim($directory, '/').'/breaker.state';
-        $this->useApcu = \function_exists('apcu_fetch') && \function_exists('apcu_store') && filter_var(
-            \ini_get('apc.enabled'),
-            \FILTER_VALIDATE_BOOLEAN,
-        );
+        $this->useApcu = self::apcuUsable();
+    }
+
+    /**
+     * Ob APCu hier und jetzt tatsächlich SPEICHERT.
+     *
+     * Hier stand `ini_get('apc.enabled')`, und das war in der CLI systematisch falsch:
+     * Maßgeblich ist dort `apc.enable_cli`, per Vorgabe 0. `apc.enabled` meldete
+     * trotzdem 1, also galt APCu als verwendbar, während `apcu_store()` folgenlos blieb
+     * und `apcu_fetch()` immer `$success = false` lieferte. Folge: In jedem
+     * CLI-Prozess las {@see read()} dauerhaft `closed()`, und der DATEIRÜCKFALL wurde
+     * nie erreicht — der Breaker war dort still wirkungslos. Betroffen war unter anderem
+     * `ids:sensor:spool:flush` per cron gegen einen ausgefallenen Broker: kein Öffnen,
+     * also bei jedem Lauf das volle Timeout. Genau das Szenario, gegen das der Docblock
+     * dieser Klasse argumentiert.
+     *
+     * `apcu_enabled()` berücksichtigt `apc.enable_cli`. Es ist dieselbe Prüfung, die
+     * {@see \ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler} und
+     * {@see \ProjektMotor\IdsSensor\Command\SetupCheckCommand} schon immer benutzt
+     * haben — es gab drei Antworten auf dieselbe Frage.
+     */
+    private static function apcuUsable(): bool
+    {
+        return \function_exists('apcu_fetch')
+            && \function_exists('apcu_store')
+            && \function_exists('apcu_enabled')
+            && @apcu_enabled();
     }
 
     public function read(): BreakerState
@@ -84,6 +107,80 @@ final class SharedStateStore implements BreakerStateStoreInterface
         }
 
         return \is_array($decoded) ? BreakerState::fromArray($decoded) : BreakerState::closed();
+    }
+
+    /**
+     * @param \Closure(BreakerState): BreakerState $mutator
+     */
+    public function mutate(\Closure $mutator): BreakerState
+    {
+        $handle = $this->lock();
+
+        try {
+            $state = $mutator($this->read());
+            $this->write($state);
+
+            return $state;
+        } finally {
+            if (null !== $handle) {
+                @flock($handle, \LOCK_UN);
+                @fclose($handle);
+            }
+        }
+    }
+
+    /**
+     * Eine exklusive Sperre — oder null, wenn sie nicht zu bekommen war.
+     *
+     * `flock` auf einer eigenen Datei und nicht auf der Zustandsdatei: Diese wird über
+     * `rename()` ersetzt, und eine Sperre auf dem alten Inode schützt danach nichts mehr.
+     * Die Sperrdatei bleibt bestehen und ist damit der stabile Bezugspunkt.
+     *
+     * Auch im APCu-Fall wird die Datei benutzt. APCu hat kein Vergleiche-und-Tausche für
+     * Arrays, und ein Spinlock über `apcu_add()` wäre eine zweite, schwächere Umsetzung
+     * derselben Sache. Der Pfad läuft nach dem Absenden der Antwort — ein lokaler
+     * `flock` ist dort bezahlbar.
+     *
+     * Lässt sich die Sperrdatei gar nicht öffnen — kein Verzeichnis, keine Rechte —, gibt
+     * es eben keine Sperre: Der Aufrufer rechnet dann ungeschützt, statt aufzugeben. Ein
+     * ungenauer Breaker ist besser als keiner, und fail-open (Konzept 4.) gilt ohne
+     * Ausnahme.
+     *
+     * @return resource|null
+     */
+    private function lock()
+    {
+        $directory = \dirname($this->file);
+
+        if (!is_dir($directory) && !@mkdir($directory, 0o775, true) && !is_dir($directory)) {
+            return null;
+        }
+
+        $handle = @fopen($this->file.'.lock', 'c');
+
+        if (false === $handle) {
+            return null;
+        }
+
+        // BLOCKIEREND, und das ist die richtige Wahl — auch unter fail-open.
+        //
+        // Hier stand zuerst ein nicht blockierender Versuch mit kurzer Wiederholung. Der
+        // gab unter Last auf und rechnete dann ungeschützt weiter, also genau in der
+        // Konstellation, für die es die Sperre gibt: Ein Messlauf mit vier Prozessen
+        // verlor damit reproduzierbar Fehlschläge.
+        //
+        // Blockieren ist hier vertretbar, weil der kritische Abschnitt keine
+        // Netzwerk-Ein-/Ausgabe enthält — ein Lesen und ein Schreiben auf einer kleinen,
+        // node-lokalen Datei. Und der wichtigste Punkt: Stirbt ein Prozess, während er
+        // die Sperre hält, gibt das Betriebssystem sie frei. Ein Verklemmen über
+        // Prozessgrenzen hinweg ist damit ausgeschlossen.
+        if (@flock($handle, \LOCK_EX)) {
+            return $handle;
+        }
+
+        @fclose($handle);
+
+        return null;
     }
 
     public function write(BreakerState $state): void

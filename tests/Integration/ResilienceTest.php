@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
@@ -85,7 +85,7 @@ final class ResilienceTest extends IntegrationTestCase
 
         /** @var FileSpool $spool */
         $spool = $services->get('ids_sensor.spool');
-        self::assertCount(1, $spool->pendingFiles(), 'Der Frame muss im Spool liegen');
+        self::assertCount(1, $spool->waitingFiles(), 'Der Frame muss im Spool liegen');
     }
 
     /**
@@ -150,6 +150,51 @@ final class ResilienceTest extends IntegrationTestCase
         $counters = $services->get('ids_sensor.counters');
         self::assertSame(1, $counters->get(Counters::DROPPED_SPOOL_FULL));
         self::assertSame(0, $counters->get(Counters::SPOOLED));
+    }
+
+    /**
+     * Eine DSN, die kein Transport-Factory unterstützt, darf die Anwendung nicht treffen.
+     *
+     * Der häufigste Auslöser steht in doc/07-betrieb.md als Symptom: `symfony/redis-messenger`
+     * fehlt. Dieses Bundle führt es nur als Entwicklungsabhängigkeit, die Anwendung muss es
+     * also selbst verlangen — tut sie es nicht, wirft
+     * `messenger.transport_factory::createTransport()` beim ERZEUGEN des Dienstes.
+     *
+     * Ohne {@see \ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass}
+     * geschieht das, während der Container den FlushListener baut — also außerhalb jedes
+     * try/catch des Sensors und damit unmittelbar in kernel.terminate der überwachten
+     * Anwendung. Mit dem Pass fällt der Factory-Aufruf auf den ersten `send()` und landet
+     * im abgesicherten Pfad: gezählt als ship_failed, gespoolt statt verloren.
+     */
+    public function testAnUnusableTransportDsnDoesNotReachTheApplication(): void
+    {
+        $kernel = new TestKernel([
+            'application_id' => $this->applicationId,
+            'environment' => 'prod',
+            'session_hash' => ['key' => self::SESSION_KEY],
+            // Kein Factory unterstützt dieses Schema.
+            'transport' => ['dsn' => 'kein-solches-schema://host'],
+            'spool' => ['dir' => $this->spoolDir],
+        ], 'resilience-dsn-kaputt');
+        $kernel->boot();
+
+        $services = $this->services($kernel);
+
+        /** @var EventBuffer $collector */
+        $collector = $services->get('ids_sensor.event_buffer');
+        $collector->append($this->kernelRequest());
+
+        // Die eigentliche Zusage: kein Wurf nach außen.
+        $kernel->terminate(Request::create('/'), new Response());
+
+        /** @var Counters $counters */
+        $counters = $services->get('ids_sensor.counters');
+        self::assertSame(1, $counters->get(Counters::SHIP_FAILED), 'Der Fehlschlag muss gezählt sein');
+        self::assertSame(1, $counters->get(Counters::SPOOLED), 'Und die Events müssen im Spool liegen');
+
+        /** @var FileSpool $spool */
+        $spool = $services->get('ids_sensor.spool');
+        self::assertCount(1, $spool->waitingFiles());
     }
 
     public function testTheSpoolFlushCommandIsRegistered(): void

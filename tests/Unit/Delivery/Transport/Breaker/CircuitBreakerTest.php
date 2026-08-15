@@ -135,6 +135,34 @@ final class CircuitBreakerTest extends TestCase
         self::assertSame(0, $store->writes, 'Der häufigste Pfad soll nichts kosten');
     }
 
+    /**
+     * Ein Uhr-Rücksprung darf den Breaker nicht dauerhaft offen halten.
+     *
+     * `openUntil` ist absolute Wanduhrzeit und überlebt im Dateirückfall Prozess und
+     * Neustart; dort gibt es keine TTL, die einen Rücksprung kappt. Springt die Uhr um
+     * eine Stunde zurück, bliebe der Breaker eine Stunde offen: Der Sensor spoolte
+     * durchgehend, obwohl der Broker längst wieder läuft, und der Heartbeat meldete
+     * `state: open` ohne einen einzigen frischen Fehlschlag.
+     *
+     * Länger als die konfigurierte Offen-Zeit kann der Zustand nie berechtigt sein.
+     */
+    public function testAnImpossiblyDistantOpenUntilIsIgnored(): void
+    {
+        $store = new InMemoryBreakerStore();
+        // Als wäre die Uhr nach dem Öffnen um eine Stunde zurückgesprungen.
+        $store->write(new BreakerState(5, microtime(true) + 3600, 1));
+
+        $breaker = new CircuitBreaker($store, failureThreshold: 3, openForSeconds: 30);
+
+        self::assertFalse(
+            $breaker->isOpen(),
+            'Ein Zielzeitpunkt weit jenseits der Offen-Zeit kann nicht von diesem Sensor stammen',
+        );
+        // `half_open` und nicht `closed`: Die Fehlschläge stehen weiterhin zu Buche, nur
+        // die Sperre gilt nicht mehr. Der nächste Versand ist die Probe.
+        self::assertSame('half_open', $breaker->snapshot()['state']);
+    }
+
     private function breaker(int $threshold = 3, int $openFor = 30): CircuitBreaker
     {
         return new CircuitBreaker(new InMemoryBreakerStore(), $threshold, $openFor);
@@ -164,5 +192,19 @@ final class InMemoryBreakerStore implements BreakerStateStoreInterface
     {
         ++$this->writes;
         $this->state = $state;
+    }
+
+    /**
+     * In einem Prozess ist Unteilbarkeit geschenkt — PHP unterbricht hier nichts.
+     * Die echte Sperre prüft {@see SharedStateStoreTest}.
+     *
+     * @param \Closure(BreakerState): BreakerState $mutator
+     */
+    public function mutate(\Closure $mutator): BreakerState
+    {
+        $state = $mutator($this->state);
+        $this->write($state);
+
+        return $state;
     }
 }

@@ -21,9 +21,26 @@ use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Cleaner;
  */
 final class PayloadSanitizer
 {
-    /** Konzept Abschnitt 3: „maximal zweistufig verschachteltes JSON-Objekt". */
+    /**
+     * Konzept Abschnitt 3: „maximal zweistufig verschachteltes JSON-Objekt".
+     *
+     * DREI GRENZEN, EINE ORDNUNG
+     *
+     * Diese hier bindet das SCHEMA: Was tiefer liegt, wird als JSON-Zeichenkette
+     * erhalten, statt die Zusage zu brechen — der Collector darf sich auf die Tiefe
+     * verlassen. {@see Cleaner::MAX_DEPTH}
+     * liegt mit 4 bewusst höher: Der Cleaner bereinigt `raw`, und raw ist die forensische
+     * Kopie, für die Konzept 2.1.3 ausdrücklich mehr Tiefe vorsieht — es hat kein
+     * Schemaversprechen einzuhalten, nur eine Größengrenze. Und der raw-Pfad des
+     * Business-Payloads übergibt absichtlich den UNBEREINIGTEN Payload: dort ist genau
+     * das Verworfene oft das Interessante.
+     *
+     * Die Grenzen laufen also nicht auseinander, sie sind gestaffelt — von der engsten
+     * (Payload, schemagebunden) zur weitesten (raw, größengebunden).
+     */
     public const MAX_DEPTH = 3;
 
+    /** Die Breite zum {@see self::MAX_DEPTH} — siehe dort für die Staffelung. */
     public const MAX_ELEMENTS = 100;
 
     public const MAX_STRING_LENGTH = 2048;
@@ -36,6 +53,12 @@ final class PayloadSanitizer
      * eine Anwendung solche Vermerke nicht fälschen kann.
      */
     public const RESERVED_PREFIX = '_ids_';
+
+    /**
+     * Vermerk über weggelassene Elemente — dieselbe Zeichenkette wie im
+     * {@see QueryNormalizer}, und aus demselben Grund geschützt.
+     */
+    public const TRUNCATED_MARKER = QueryNormalizer::TRUNCATED_MARKER;
 
     /**
      * Auch der Business-Payload läuft durch die Denylist aus Konzept 4.5.1.
@@ -72,7 +95,7 @@ final class PayloadSanitizer
 
         foreach ($input as $key => $value) {
             if ($count >= self::MAX_ELEMENTS) {
-                $result['__truncated'] = true;
+                $result[self::TRUNCATED_MARKER] = true;
                 break;
             }
 
@@ -80,6 +103,16 @@ final class PayloadSanitizer
 
             // Reservierte Schlüssel entfernen: sonst könnte eine Anwendung die
             // Vermerke des Sensors fälschen.
+            // Auch der Kürzungsvermerk ist reserviert. Er stand hier als Literal und
+            // wurde nicht gefiltert: Eine Anwendung — oder ein Angreifer, der Werte in
+            // ein Domain-Event schleust — konnte `__truncated: true` mitliefern und einen
+            // Vollständigkeitsverlust vortäuschen, den es nie gab. Genau das schließt die
+            // Begründung dieser Klasse für den `_ids_`-Präfix aus; für diesen Marker war
+            // sie nicht eingelöst.
+            if (self::TRUNCATED_MARKER === $stringKey) {
+                continue;
+            }
+
             if (str_starts_with($stringKey, self::RESERVED_PREFIX)) {
                 continue;
             }

@@ -17,7 +17,6 @@ services:
             $budget: '@ids_sensor.capture_budget'
             $options: '@ids_sensor.kernel_options'
             $rawBuilder: '@ids_sensor.raw.builder'
-            $requestStack: '@request_stack'
 
     # WeakMap-basiert: nichts in $request->attributes, und in langlebigen Prozessen wächst
     # nichts unbemerkt.
@@ -98,3 +97,14 @@ services:
     # die tatsächlich gesendet werden.
     ids_sensor.sensor.kernel_response:
         class: ProjektMotor\IdsSensor\Sensor\Kernel\ResponseSensor
+
+    # Rettet den Puffer, wenn der Prozess vor kernel.terminate stirbt. Ohne ihn geht bei
+    # einem Fatal Error alles Erfasste ungezaehlt verloren — genau der stille Ausfall,
+    # den Konzept 4. ausschliesst.
+    ids_sensor.fatal_error_flush_listener:
+        class: ProjektMotor\IdsSensor\Delivery\Dispatch\FatalErrorFlushListener
+        arguments:
+            $flusher: '@ids_sensor.event_flusher'
+            $budgetMs: '%ids_sensor.budget.fatal_dispatch_ms%'
+        tags:
+            - { name: kernel.event_subscriber }

@@ -23,9 +23,29 @@ final class BreakerState
         return new self();
     }
 
-    public function isOpenAt(float $now): bool
+    /**
+     * @param float $maxOpenSeconds Die konfigurierte Offen-Zeit. Ein Zielzeitpunkt, der
+     *                              weiter als das in der Zukunft liegt, kann nicht von
+     *                              diesem Sensor stammen und wird ignoriert.
+     */
+    public function isOpenAt(float $now, float $maxOpenSeconds = 0.0): bool
     {
-        return $this->openUntil > $now;
+        if ($this->openUntil <= $now) {
+            return false;
+        }
+
+        // `openUntil` ist absolute Wanduhrzeit und überlebt im Dateirückfall Prozess und
+        // Neustart — dort gibt es keine TTL, die einen Uhr-Rücksprung kappt. Springt die
+        // Uhr um eine Stunde zurück, bliebe der Breaker eine Stunde offen: Der Sensor
+        // spoolte durchgehend, obwohl der Broker längst wieder läuft, und im Heartbeat
+        // stünde `state: open` ohne einen einzigen frischen Fehlschlag.
+        //
+        // Länger als die konfigurierte Offen-Zeit kann der Zustand nie berechtigt sein.
+        if ($maxOpenSeconds > 0.0 && ($this->openUntil - $now) > $maxOpenSeconds) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

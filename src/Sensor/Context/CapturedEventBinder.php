@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Context;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
+use ProjektMotor\IdsEventData\Event\Actor;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -51,8 +51,12 @@ final class CapturedEventBinder
     /**
      * Der Snapshot zu diesem Request, sofern es einen gibt.
      *
-     * Toleriert null, weil zwei Sensoren über den RequestStack gehen und dort in CLI-,
-     * Worker- und Cron-Läufen kein Request existiert.
+     * Toleriert null aus zwei Gründen: zwei Sensoren gehen über den RequestStack und
+     * finden in CLI-, Worker- und Cron-Läufen keinen Request, und seit
+     * {@see RequestSnapshotRegistry::get()} nicht mehr auf den Haupt-Request zurückfällt
+     * kann es auch zu einem vorhandenen Request keinen Snapshot geben. Beides trennt
+     * `bind()` sauber: ohne Request bleibt der Akteur anonym, ohne Snapshot wird er
+     * weiterhin aus dem Request gebaut — nur die correlation_id fehlt dann.
      */
     public function snapshotFor(?Request $request): ?RequestSnapshot
     {
@@ -64,8 +68,8 @@ final class CapturedEventBinder
      */
     public function bind(CapturedEvent $captured, ?Request $request, ?RequestSnapshot $snapshot): void
     {
-        if (null !== $request && null !== $snapshot) {
-            $captured->setCorrelationId($snapshot->correlationId);
+        if (null !== $request) {
+            $captured->setCorrelationId(null !== $snapshot ? $snapshot->correlationId : '');
             $captured->setActor($this->actorFactory->forRequestWithoutUser($request, $snapshot));
 
             return;
@@ -80,8 +84,8 @@ final class CapturedEventBinder
      */
     public function bindWithUser(CapturedEvent $captured, ?Request $request, ?RequestSnapshot $snapshot): void
     {
-        if (null !== $request && null !== $snapshot) {
-            $captured->setCorrelationId($snapshot->correlationId);
+        if (null !== $request) {
+            $captured->setCorrelationId(null !== $snapshot ? $snapshot->correlationId : '');
             $captured->setActor($this->actorFactory->forRequest($request, $snapshot));
 
             return;

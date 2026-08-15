@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
@@ -185,6 +185,27 @@ final class BundleBootTest extends IntegrationTestCase
      * öffnen, den das Hashen verhindern soll — die überwachte Anwendung kennt
      * APP_SECRET, ein Angreifer mit Codeausführung also auch.
      */
+    /**
+     * Ein zu kurzer HMAC-Schlüssel muss die Kompilierung abbrechen.
+     *
+     * `doc/08:80` nennt `min_key_length` „Untergrenze der Prüfung", `README.md:154`
+     * verspricht „≥ 32 Zeichen" — geprüft wurde bis zuletzt nichts, `key: 'geheim'` lief
+     * durch. Ist der Schlüssel zu kurz, lässt sich aus einer gestohlenen Event-Datenbank
+     * die Session-ID zurückrechnen: genau der Session-Hijacking-Vektor, den das Hashen
+     * nach Konzept 2.2.4 verhindern soll.
+     */
+    public function testATooShortSessionHashKeyIsRejected(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageMatches('/mindestens 32 sind verlangt/');
+
+        (new TestKernel([
+            'application_id' => 'shop-api',
+            'environment' => 'prod',
+            'session_hash' => ['key' => 'geheim'],
+        ], 'kurzer-schluessel'))->boot();
+    }
+
     public function testAppSecretAsKeyIsRejected(): void
     {
         $this->expectException(InvalidConfigurationException::class);
@@ -252,6 +273,170 @@ final class BundleBootTest extends IntegrationTestCase
         );
     }
 
+    /**
+     * Die sieben entfernten Optionen werden abgelehnt, nicht stillschweigend übergangen.
+     *
+     * Sie standen im Baum, waren in `doc/08-konfiguration.md` mit Wirkung dokumentiert und
+     * wurden von niemandem gelesen — `spool.drain` sogar mit vollständiger Validierung
+     * seiner vier Werte. Wer `off` einstellte, bekam trotzdem alles nachgesendet.
+     *
+     * Nach dem Entfernen ist das Verhalten das richtige: Symfonys Config-Komponente lehnt
+     * einen unbekannten Schlüssel ab. Wer eine dieser Optionen in seiner Konfiguration
+     * stehen hat, erfährt es beim nächsten Deploy — statt weiter zu glauben, sie wirke.
+     *
+     * @param array<string, mixed> $konfiguration
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('entfernteOptionen')]
+    public function testARemovedOptionIsRejectedInsteadOfIgnored(array $konfiguration): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+
+        $this->boot(array_merge(self::MINIMAL_CONFIG, $konfiguration), 'entfernt-'.md5(serialize($konfiguration)));
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>}>
+     */
+    public static function entfernteOptionen(): iterable
+    {
+        yield 'spool.drain' => [['spool' => ['drain' => 'off']]];
+        yield 'spool.drain_min_interval_s' => [['spool' => ['drain_min_interval_s' => 5]]];
+        yield 'budget.drain_ms' => [['budget' => ['drain_ms' => 25]]];
+        yield 'flush.batch' => [['flush' => ['batch' => false]]];
+        yield 'circuit_breaker.half_open_probes' => [['circuit_breaker' => ['half_open_probes' => 3]]];
+        yield 'telemetry.profiler_collector' => [['telemetry' => ['profiler_collector' => false]]];
+        yield 'logging.enabled' => [['logging' => ['enabled' => false]]];
+        yield 'budget.max_events_per_process' => [['budget' => ['max_events_per_process' => 500]]];
+    }
+
+    /**
+     * Der konfigurierte Monolog-Kanal kommt an den Diensten an.
+     *
+     * `logging.channel` war dokumentiert und wirkungslos: Der Kanal stand hart in acht
+     * `monolog.logger`-Tags. Der naheliegende Weg — `channel: '%ids_sensor.logging.channel%'`
+     * in der YAML — funktioniert NICHT: `ResolveParameterPlaceHoldersPass` fasst von den
+     * Tags ausschließlich `proxy` an. Monolog bekäme einen Kanal, der wörtlich
+     * `%ids_sensor.logging.channel%` heißt, und niemand merkte es, weil das
+     * Protokollieren weiterläuft.
+     */
+    public function testTheConfiguredLogChannelReachesTheServices(): void
+    {
+        // Über den Container-ABDRUCK: Der kompilierte Container gibt keine Definitionen
+        // mehr her, und genau die Tags sind hier die Frage.
+        $target = sys_get_temp_dir().'/ids-fingerprints/log-kanal.json';
+        @unlink($target);
+
+        (new TestKernel(
+            array_merge(self::MINIMAL_CONFIG, ['logging' => ['channel' => 'eigener_kanal']]),
+            'log-kanal',
+            false,
+            true,
+            null,
+            $target,
+        ))->boot();
+
+        $abdruck = (string) file_get_contents($target);
+
+        self::assertStringContainsString('"channel": "eigener_kanal"', $abdruck);
+        self::assertStringNotContainsString('%ids_sensor.logging.channel%', $abdruck);
+    }
+
+    /**
+     * Die drei Sicherheitsvorgaben des Transports sind nicht überschreibbar.
+     *
+     * Sie standen als Bitte in der Doku („auto_setup muss false bleiben") und als
+     * ausführliche Begründung in `TRANSPORT_DEFAULTS` — durchgesetzt hat sie niemand:
+     * `array_merge` ließ die Optionen der Anwendung gewinnen. `lazy: false` etwa öffnet
+     * die Verbindung beim BAUEN des Dienstes, also außerhalb jedes try/catch des Sensors,
+     * und bricht damit fail-open.
+     *
+     * Der wahrscheinlichste Erstinstallationsfehler `auto_setup: true` wird damit beim
+     * Kompilieren abgelehnt statt erst im Deploy-Check — die stärkere Antwort auf
+     * dieselbe Frage, weil sie früher kommt und sich nicht mit `|| true` abschalten lässt.
+     *
+     * @param array<string, mixed> $optionen
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('geschuetzteTransportOptionen')]
+    public function testProtectedTransportOptionsAreRejected(array $optionen): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+
+        $this->boot(
+            array_merge(self::MINIMAL_CONFIG, [
+                'transport' => ['dsn' => 'redis://127.0.0.1:6379/ids:events/group/consumer', 'options' => $optionen],
+            ]),
+            'transport-'.md5(serialize($optionen)),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>}>
+     */
+    public static function geschuetzteTransportOptionen(): iterable
+    {
+        yield 'auto_setup' => [['auto_setup' => true]];
+        yield 'lazy' => [['lazy' => false]];
+        yield 'serializer' => [['serializer' => 1]];
+    }
+
+    /**
+     * Ein Tippfehler in `raw.severities` darf `raw` nicht lautlos abschalten.
+     *
+     * `['warnings']` oder `['WARNING']` kompilierte anstandslos, und der Gate fand die
+     * Stufe nie in seiner Liste: kein Fehler, keine Meldung, kein Zähler — `raw` reiste
+     * einfach nie mehr mit.
+     */
+    public function testAnUnknownRawSeverityIsRejected(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+
+        $this->boot(
+            array_merge(self::MINIMAL_CONFIG, ['raw' => ['severities' => ['warnings']]]),
+            'raw-tippfehler',
+        );
+    }
+
+    /**
+     * Ein Pfadmuster ohne Trennzeichen wird abgelehnt statt still ignoriert.
+     *
+     * `ignored_paths` sind PCRE-Ausdrücke, und `isIgnored()` prüft sie mit `@preg_match`.
+     * `/health` kompilierte anstandslos und traf dann nie — der Betreiber glaubte, einen
+     * Pfad ausgeschlossen zu haben, und bekam ihn weiter erfasst. Weder Baum noch Doku
+     * erwähnten die Trennzeichenpflicht.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('ungueltigePfadmuster')]
+    public function testAnInvalidIgnoredPathPatternIsRejected(string $muster): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+
+        $this->boot(
+            array_merge(self::MINIMAL_CONFIG, ['layers' => ['kernel' => ['ignored_paths' => [$muster]]]]),
+            'muster-'.md5($muster),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function ungueltigePfadmuster(): iterable
+    {
+        yield 'ohne Trennzeichen' => ['/health'];
+        yield 'unbalancierte Klammer' => ['#^/(health$#'];
+    }
+
+    public function testAValidIgnoredPathPatternIsAccepted(): void
+    {
+        $kernel = $this->boot(
+            array_merge(self::MINIMAL_CONFIG, ['layers' => ['kernel' => ['ignored_paths' => ['#^/health$#']]]]),
+            'muster-gueltig',
+        );
+
+        /** @var list<string> $muster */
+        $muster = $kernel->getContainer()->getParameter('ids_sensor.layers.kernel.ignored_paths');
+
+        self::assertSame(['#^/health$#'], $muster);
+    }
+
     public function testDisabledBundleRegistersNoServices(): void
     {
         $kernel = $this->boot(
@@ -276,6 +461,55 @@ final class BundleBootTest extends IntegrationTestCase
         $config = $kernel->getContainer()->getParameter('ids_sensor.config');
 
         self::assertSame([], $config['layers']['kernel']['ignored_paths']);
+    }
+
+    /**
+     * Eine eigene Redaktionsliste ERGÄNZT die mitgelieferte — sie ersetzt sie nicht.
+     *
+     * `merge_defaults: true` ist die Vorgabe und laut `doc/06` das, was verhindert, dass
+     * eine Anwendung, die nur `x_tenant_secret` hinzufügen will, versehentlich `Cookie`
+     * und `Authorization` freischaltet. Geprüft hat das bislang nichts — und ein Fehler
+     * hier ist unsichtbar: Der Container kompiliert, die Anwendung läuft, und
+     * Zugangsdaten stehen im Klartext im Frame.
+     */
+    public function testAnOwnRuleListExtendsTheBundledOne(): void
+    {
+        $kernel = $this->boot($this->mitEigenerListe(true), 'cleanup-merge');
+
+        /** @var list<string> $header */
+        $header = $kernel->getContainer()->getParameter('ids_sensor.payload_confidentiality_cleanup.headers');
+        /** @var int $version */
+        $version = $kernel->getContainer()->getParameter('ids_sensor.payload_confidentiality_cleanup.version');
+
+        self::assertContains('x-tenant-secret', $header, 'Der eigene Eintrag muss ankommen');
+        self::assertContains('Cookie', $header, 'Und der mitgelieferte darf dabei nicht verschwinden');
+        self::assertSame(99, $version, 'Die Version der Anwendungsliste gewinnt — sie ist die, die der Betreiber pflegt');
+    }
+
+    /**
+     * Wer verkleinern muss, kann es — ausdrücklich und auf eigene Verantwortung.
+     */
+    public function testMergeDefaultsFalseReplacesTheBundledList(): void
+    {
+        $kernel = $this->boot($this->mitEigenerListe(false), 'cleanup-ersetzen');
+
+        /** @var list<string> $header */
+        $header = $kernel->getContainer()->getParameter('ids_sensor.payload_confidentiality_cleanup.headers');
+
+        self::assertSame(['x-tenant-secret'], $header);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mitEigenerListe(bool $mergeDefaults): array
+    {
+        $pfad = sys_get_temp_dir().'/ids-cleanup-'.($mergeDefaults ? 'merge' : 'ersetzen').'.yaml';
+        file_put_contents($pfad, "version: 99\nheaders:\n    - x-tenant-secret\nparameters:\n    - tenant_key\n");
+
+        return array_merge(self::MINIMAL_CONFIG, [
+            'payload_confidentiality_cleanup' => ['config' => $pfad, 'merge_defaults' => $mergeDefaults],
+        ]);
     }
 
     /**

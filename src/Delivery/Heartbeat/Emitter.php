@@ -46,7 +46,7 @@ use Psr\Log\LoggerInterface;
  *
  * @internal
  */
-final class Emitter
+final class Emitter implements EmitterInterface
 {
     public function __construct(
         private readonly PayloadFactory $payloadFactory,

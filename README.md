@@ -172,7 +172,7 @@ attacks. Implement one interface:
 
 ```php
 use ProjektMotor\IdsSensor\Contract\SecurityRelevantBusinessEvent;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 
 final class OrderAmountOverridden implements SecurityRelevantBusinessEvent
 {
@@ -249,14 +249,19 @@ the detection rules — is [`doc/konzept-v1.md`](doc/konzept-v1.md).
 Semantic versioning applies to:
 
 - `ProjektMotor\IdsSensor\Contract\*` — the interfaces your application implements or injects
-- `ProjektMotor\IdsSensor\EventFormat\*` — the wire format: field names, enums, value objects, frame
 - the `IdsSensorBundle` class and **all** `ids_sensor` configuration keys
 - the emitted JSON, versioned via `schema_version`
 
 Everything else, **including all service IDs**, is `@internal` and may change in any
 version. The rule is readable from the directory layout and enforced by
 [`tests/Unit/ArchitectureTest.php`](tests/Unit/ArchitectureTest.php): whatever lives under
-`Contract/` or `EventFormat/` is public, every other file carries `@internal`.
+`Contract/` is public, every other file carries `@internal`.
+
+The wire format itself — field names, enums, value objects, frame — lives in its own
+package, [`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data)
+(`ProjektMotor\IdsEventData\*`), and is versioned there, where semantic versioning covers
+the package in full. The collector side consumes the very same package; that is why it
+depends on nothing at all — not even on Symfony.
 
 Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Heartbeat;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder;
@@ -78,9 +78,12 @@ final class PayloadFactory
             'pid' => $this->counters->pid(),
 
             // Der konfigurierte Modus UND der Weg, über den dieser Heartbeat kam. Beide,
-            // weil sie auseinanderfallen können: bei mode=both und totem cron kommen nur
-            // noch request-getriebene Heartbeats, und genau daran ist der tote cron
-            // erkennbar, bevor der Spool volläuft.
+            // weil sie auseinanderfallen können. Tragfähig ist dabei nur EINE Richtung:
+            // Ein einziger Heartbeat mit `triggered_by: command` beweist, dass der cron
+            // läuft. Der Umkehrschluss gilt nicht — `Mode::Request` deckt auch
+            // console.terminate ab, und der verpflichtende spool:flush-cron kommt der
+            // gemeinsamen Drosselung womöglich stets zuvor. Für die Gegenrichtung ist
+            // `ids:sensor:setup-check` zuständig (siehe IdsSensorBundle::loadHeartbeat()).
             'heartbeat_mode' => $this->mode->value,
             'triggered_by' => $triggeredBy->value,
             'interval_s' => $this->intervalSeconds,
@@ -131,29 +134,21 @@ final class PayloadFactory
             'spooled_frames' => $spool->spooledFrames(),
             'discarded_full' => $spool->discardedFull(),
             'discarded_unwritable' => $spool->discardedUnwritable(),
+            'discarded_unencodable' => $spool->discardedUnencodable(),
         ];
 
-        if (!method_exists($spool, 'pendingFiles')) {
-            return $state;
-        }
-
-        /** @var list<string> $files */
-        $files = $spool->pendingFiles();
-        $state['pending_files'] = \count($files);
-
-        $oldest = null;
-
-        foreach ($files as $file) {
-            $modified = @filemtime($file);
-
-            if (false === $modified) {
-                continue;
-            }
-
-            $oldest = null === $oldest ? $modified : min($oldest, $modified);
-        }
-
-        $state['oldest_pending_age_s'] = null === $oldest ? null : max(0, time() - $oldest);
+        // waitingFiles() und nicht pendingFiles(): Der Betreiber will wissen, ob etwas
+        // herumliegt, nicht ob der Drainer es schon abholen darf. Die aktive Datei eines
+        // Prozesses gehört dazu — sonst meldete der Heartbeat bei geringer Last
+        // dauerhaft „leer", obwohl Frames auf der Platte liegen. Konzept 3.4 nennt genau
+        // diese Zahl als einzige Außenansicht eines nicht laufenden Drains.
+        //
+        // Beides steht am Interface. Hier stand `method_exists($spool, 'waitingFiles')`
+        // — eine Prüfung, die kein Vertrag ist: Sie hätte eine umbenannte Methode
+        // stillschweigend als „gibt es nicht" gelesen und den Heartbeat um genau das
+        // Feld gekürzt, das Konzept 3.4 verlangt.
+        $state['pending_files'] = \count($spool->waitingFiles());
+        $state['oldest_pending_age_s'] = $spool->oldestWaitingAgeSeconds();
 
         return $state;
     }

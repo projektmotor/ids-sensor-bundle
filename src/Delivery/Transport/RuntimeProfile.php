@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Transport;
 
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 
 /**
  * Stellt fest, ob die Antwort vom laufenden Skript abkoppelbar ist.

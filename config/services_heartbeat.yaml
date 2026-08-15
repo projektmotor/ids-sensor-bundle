@@ -9,7 +9,7 @@ services:
         autowire: false
         autoconfigure: true
         bind:
-            $logger: '@?logger'
+            $logger: '@ids_sensor.logger'
             $identityProvider: '@ids_sensor.identity_provider'
             $counters: '@ids_sensor.counters'
             $runtime: '@ids_sensor.runtime_profile'
@@ -46,8 +46,6 @@ services:
         arguments:
             $payloadFactory: '@ids_sensor.heartbeat.payload_factory'
             $shipper: '@ids_sensor.shipper'
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
 
     ids_sensor.command.heartbeat:
         class: ProjektMotor\IdsSensor\Command\HeartbeatCommand

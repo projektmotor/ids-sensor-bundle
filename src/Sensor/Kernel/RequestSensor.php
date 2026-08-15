@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Kernel;
 
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\ActorFactory;
@@ -15,7 +15,6 @@ use ProjektMotor\IdsSensor\Sensor\Context\RequestSnapshotRegistry;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
@@ -62,7 +61,6 @@ final class RequestSensor implements EventSubscriberInterface
         private readonly CorrelationIdFactory $correlationIdFactory,
         private readonly ActorFactory $actorFactory,
         private readonly CaptureBudget $budget,
-        private readonly RequestStack $requestStack,
         private readonly Options $options,
     ) {
     }
@@ -121,7 +119,7 @@ final class RequestSensor implements EventSubscriberInterface
             $captured->setActor($this->actorFactory->forRequestWithoutUser($request, $snapshot));
 
             $snapshot->requestEvent = $captured;
-            $this->buffer->append($captured);
+            $this->buffer->appendMandatory($captured);
         });
     }
 
@@ -173,19 +171,17 @@ final class RequestSensor implements EventSubscriberInterface
     {
         $request = $event->getRequest();
         $isMainRequest = $event->isMainRequest();
-        $parent = $isMainRequest ? null : $this->requestStack->getParentRequest();
 
         return new RequestSnapshot(
             $this->correlationIdFor($event),
             self::startedAt($request),
             $isMainRequest,
-            $request->getMethod(),
+            self::method($request),
             $request->getPathInfo(),
             $request->query->all(),
             self::contentLength($request),
             $request->headers->get('User-Agent'),
             $request->headers->get('Referer'),
-            $parent?->getPathInfo(),
         );
     }
 
@@ -216,6 +212,34 @@ final class RequestSensor implements EventSubscriberInterface
         $value = $request->server->get('REQUEST_TIME_FLOAT');
 
         return is_numeric($value) ? (float) $value : microtime(true);
+    }
+
+    /**
+     * Die HTTP-Methode, ohne dass ein Angreifer die Erfassung damit abschalten kann.
+     *
+     * `Request::getMethod()` liest `X-HTTP-Method-Override` bedingungslos aus und wirft
+     * `SuspiciousOperationException`, sobald der Wert nicht ausschließlich aus
+     * Großbuchstaben besteht. Ein `POST` mit `X-HTTP-Method-Override: fo-o` genügt, und
+     * es braucht dafür keinerlei Konfiguration.
+     *
+     * Ungefangen kostete das den GANZEN Snapshot: `createSnapshot()` läuft vor
+     * `registry->set()`, guardMandatory schluckte den Wurf, und übrig blieben kein
+     * kernel.request-Event, keine correlation_id, kein Zähler und kein Logeintrag. Die
+     * Folge-Events derselben Anfrage fanden anschließend keinen Snapshot. Ein Angreifer
+     * konnte seinen eigenen Verkehr damit gezielt aus der Erfassung nehmen.
+     *
+     * `getRealMethod()` liest stattdessen `REQUEST_METHOD` und wirft nicht. Es liefert
+     * die tatsächlich gesendete Methode und ignoriert die Übersteuerung — für die
+     * Erkennung ist das die ehrlichere Angabe, denn genau diese Übersteuerung war ja der
+     * Angriffsversuch.
+     */
+    private static function method(Request $request): string
+    {
+        try {
+            return $request->getMethod();
+        } catch (\Throwable) {
+            return $request->getRealMethod();
+        }
     }
 
     /**

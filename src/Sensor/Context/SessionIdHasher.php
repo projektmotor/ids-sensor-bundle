@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Sensor\Context;
 
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Bildet actor.session_id_hash nach Konzept 2.2.4 — Bildung der
@@ -33,7 +34,7 @@ use Symfony\Component\HttpFoundation\Request;
  *
  * @internal
  */
-final class SessionIdHasher
+final class SessionIdHasher implements ResetInterface
 {
     /**
      * Session-IDs bestehen bei PHP aus alphanumerischen Zeichen, Komma und
@@ -92,6 +93,26 @@ final class SessionIdHasher
         }
 
         return $value;
+    }
+
+    /**
+     * Wirft die Roh-Session-ID weg, sobald der Request vorbei ist.
+     *
+     * Ohne das überlebte die ID im KLARTEXT in einem Instanzfeld — in einer
+     * Worker-Laufzeit (FrankenPHP, RoadRunner, Swoole) bis zum nächsten Request, der
+     * eine andere ID mitbringt. Genau die Klartext-Speicherung, die Punkt 1 im Docblock
+     * dieser Klasse als „niemals" bezeichnet, nur eine Ebene tiefer. Alle Nachbarn im
+     * Erfassungspfad — {@see CaptureBudget}, {@see EventBuffer},
+     * {@see RequestSnapshotRegistry} — setzen sich längst zurück; diese Klasse hatte es
+     * am nötigsten und tat es als einzige nicht.
+     *
+     * Der Zwischenspeicher ist damit weiterhin auf die ID geschlüsselt (siehe
+     * {@see self::forRequest()}) — er wird nur zusätzlich am Requestende geleert.
+     */
+    public function reset(): void
+    {
+        $this->memoRawId = null;
+        $this->memoHash = null;
     }
 
     public function isEnabled(): bool

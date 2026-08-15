@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.deps }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Untere Grenze des Constraints ^6.4|^7.0. Der Abdruck des Containers
+          # bleibt aussen vor: er bildet Symfonys eigene Dienste mit ab und die
+          # unterscheiden sich zwischen den Zweigen — Begruendung im Docblock von
+          # ContainerFingerprintTest.
+          - php: '8.2'
+            deps: lowest
+            phpunit: '--exclude-group fingerprint'
+          - php: '8.3'
+            deps: highest
+            phpunit: ''
+          # Obere Grenze.
+          - php: '8.4'
+            deps: highest
+            phpunit: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, mbstring, redis, apcu
+          ini-values: apc.enable_cli=1
+          coverage: none
+
+      # Erst nach dem Checkout, weil die ACL-Datei aus dem Repo kommt. Der Sensor
+      # verbindet sich als eingeschraenkter Nutzer — nur XADD, wie in Produktion.
+      - name: Redis mit ACL starten
+        run: |
+          docker run -d --name redis -p 6379:6379 \
+            -v "${{ github.workspace }}/docker/redis/users.acl:/etc/redis/users.acl:ro" \
+            redis:7-alpine \
+            redis-server --appendonly no --aclfile /etc/redis/users.acl
+          for i in $(seq 1 30); do
+            docker exec redis redis-cli ping >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "Redis wurde nicht bereit"; docker logs redis; exit 1
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: ${{ matrix.deps }}
+
+      - name: Unit- und Integrationstests
+        env:
+          SYMFONY_DEPRECATIONS_HELPER: 'max[direct]=0'
+        run: vendor/bin/phpunit --testsuite unit,integration ${{ matrix.phpunit }}
+
+      - name: Tests gegen den echten Broker
+        env:
+          IDS_REDIS_DSN: 'redis://ids_sensor:sensor-geheim@127.0.0.1:6379/ids:events:shop-api/ids-collector/sensor'
+          IDS_REDIS_ADMIN: 'redis://127.0.0.1:6379'
+          SYMFONY_DEPRECATIONS_HELPER: 'max[direct]=0'
+        run: vendor/bin/phpunit --group redis
+
+  static:
+    name: PHPStan und Coding Standards
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          # Eine kanonische Fassung genuegt. Statische Analyse ueber die ganze
+          # Matrix zu fahren meldet Unterschiede zwischen den Symfony-Zweigen als
+          # Fehler im eigenen Code — das waere Rauschen, keine Erkenntnis.
+          php-version: '8.3'
+          extensions: json, mbstring, redis, apcu
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+
+      - run: vendor/bin/phpstan analyse --no-progress
+
+      - run: vendor/bin/php-cs-fixer fix --dry-run --diff
+
+  packaging:
+    name: Installierbarkeit ohne Dev-Abhaengigkeiten
+    runs-on: ubuntu-latest
+
+    # Diese Zusage kann kein Test der Suite pruefen: lokal sind die
+    # Dev-Abhaengigkeiten immer da. Faellt `projektmotor/ids-event-data` je zurueck
+    # nach require-dev, scheitert der Container hier — und nicht beim Konsumenten.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: json, mbstring
+          coverage: none
+
+      - run: composer validate --strict
+
+      - run: composer install --no-dev --no-interaction --no-progress
+
+      - name: Kernel mit dem Bundle booten
+        run: |
+          cat > /tmp/boot.php <<'PHP'
+          <?php
+
+          declare(strict_types=1);
+
+          require __DIR__.'/vendor/autoload.php';
+
+          use ProjektMotor\IdsSensor\IdsSensorBundle;
+          use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
+          use Symfony\Component\Config\Loader\LoaderInterface;
+          use Symfony\Component\DependencyInjection\ContainerBuilder;
+          use Symfony\Component\HttpKernel\Kernel;
+
+          final class PackagingKernel extends Kernel
+          {
+              public function registerBundles(): iterable
+              {
+                  return [new FrameworkBundle(), new IdsSensorBundle()];
+              }
+
+              public function registerContainerConfiguration(LoaderInterface $loader): void
+              {
+                  $loader->load(static function (ContainerBuilder $container): void {
+                      $container->loadFromExtension('framework', [
+                          'secret' => 'ci',
+                          'test' => false,
+                          'http_method_override' => false,
+                      ]);
+                      $container->loadFromExtension('ids_sensor', [
+                          'application_id' => 'ci-app',
+                          'instance_id' => 'ci-1',
+                          'environment' => 'prod',
+                          'session_hash' => ['key' => str_repeat('a', 32)],
+                      ]);
+                  });
+              }
+
+              public function getCacheDir(): string
+              {
+                  return sys_get_temp_dir().'/packaging-cache';
+              }
+
+              public function getLogDir(): string
+              {
+                  return sys_get_temp_dir().'/packaging-log';
+              }
+          }
+
+          (new PackagingKernel('prod', false))->boot();
+          echo "Container kompiliert und gebootet\n";
+          PHP
+          cp /tmp/boot.php boot.php
+          php boot.php
+
+      - name: Dist-Archiv auf Fremdkoerper pruefen
+        run: |
+          git archive --format=tar HEAD > /tmp/dist.tar
+          echo "--- Inhalt des Dist-Archivs ---"
+          tar -tf /tmp/dist.tar
+          for unerwuenscht in tests/ doc/ docker/ Makefile CLAUDE.md phpunit.xml.dist; do
+            if tar -tf /tmp/dist.tar | grep -q "^${unerwuenscht}"; then
+              echo "FEHLER: ${unerwuenscht} wird mit ausgeliefert — export-ignore fehlt in .gitattributes"
+              exit 1
+            fi
+          done

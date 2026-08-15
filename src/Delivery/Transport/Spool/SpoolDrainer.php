@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Transport\Spool;
 
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
+use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -41,20 +42,59 @@ final class SpoolDrainer
         private readonly FileSpool $spool,
         private readonly ShipperInterface $shipper,
         private readonly ?LoggerInterface $logger = null,
+        // Ab wann eine beanspruchte Datei als liegengeblieben gilt. Entspricht
+        // `ids_sensor.spool.stale_after_s` — der Knoten war bis hierher tot.
+        private readonly int $staleAfterSeconds = 300,
+        // Der Drainer hatte keinen Zaehler: Eine verworfene Zeile hinterliess nur einen
+        // Logeintrag, und $logger ist optional. Konzept 4. verlangt aber, dass JEDER
+        // verlorene Event gezaehlt wird — sonst ist der Verlust von "nichts war da"
+        // nicht zu unterscheiden.
+        private readonly ?Counters $counters = null,
     ) {
     }
 
     /**
-     * @param DispatchPath $path Recovered nach einem Broker-Ausfall, Deferred im
-     *                           planmäßigen Spool-First-Betrieb (mod_php)
+     * Holt Dateien zurück, deren Bearbeiter nicht mehr lebt.
      *
-     * @return array{files: int, frames: int, failed: int, skipped: int}
+     * {@see claim()} benennt vor dem Senden auf `.draining` um. Stirbt der Prozess
+     * danach, war die Datei bisher für immer verloren: `pendingFiles()` findet sie
+     * nicht, ihre Bytes zählen aber weiter gegen `spool.max_bytes`. Zusammen ergab das
+     * den Zustand, den Konzept 4. ausschließt — der Spool läuft voll und verwirft, und
+     * jede Auskunft des Sensors über sich selbst sagt „leer".
+     *
+     * Zurückbenannt statt an Ort und Stelle gelesen, damit der reguläre Weg genau einer
+     * bleibt.
      */
-    public function drain(
-        int $maxFiles = 2,
-        DispatchPath $path = DispatchPath::Recovered,
-    ): array {
-        $result = ['files' => 0, 'frames' => 0, 'failed' => 0, 'skipped' => 0];
+    private function reclaimStalled(): void
+    {
+        foreach ($this->spool->stalledFiles($this->staleAfterSeconds) as $file) {
+            // NICHT auf den ursprünglichen Namen zurück: Unter ihm könnte längst ein
+            // anderer Prozess schreiben, und rename() überschreibt wortlos. Ein frischer
+            // Name gehört garantiert niemandem — der Drainer trägt eine eigene Kennung.
+            if (@rename($file, $this->spool->sealedFileName())) {
+                $this->logger?->warning(
+                    'ids_sensor: liegengebliebene Spool-Datei {file} zurückgeholt — ein früherer '
+                    .'Drain-Lauf hat sie beansprucht und nicht beendet.',
+                    ['file' => $file],
+                );
+            }
+        }
+    }
+
+    /**
+     * Der dispatch_path wird NICHT von außen vorgegeben, sondern aus jedem Frame
+     * einzeln abgeleitet — siehe {@see markPath()}. Ein Lauf kann Frames beider Wege
+     * enthalten, und ein einzelner Wert für alle wäre für mindestens einen von beiden
+     * falsch.
+     *
+     * @return array{files: int, frames: int, failed: int, skipped: int, discarded: int}
+     */
+    public function drain(int $maxFiles = 2): array
+    {
+        $result = ['files' => 0, 'frames' => 0, 'failed' => 0, 'skipped' => 0, 'discarded' => 0];
+
+        $this->reclaimStalled();
+        $this->sealIdleFiles();
 
         foreach ($this->spool->pendingFiles() as $file) {
             if ($result['files'] >= $maxFiles) {
@@ -71,9 +111,10 @@ final class SpoolDrainer
             }
 
             ++$result['files'];
-            $outcome = $this->drainFile($claimed, $path);
+            $outcome = $this->drainFile($claimed);
             $result['frames'] += $outcome['sent'];
             $result['failed'] += $outcome['failed'];
+            $result['discarded'] += $outcome['discarded'];
 
             if ($outcome['failed'] > 0) {
                 // Beim ersten Fehlschlag abbrechen: ist der Broker weg, bringt es
@@ -84,6 +125,23 @@ final class SpoolDrainer
         }
 
         return $result;
+    }
+
+    /**
+     * Versiegelt stellvertretend, woran erkennbar niemand mehr schreibt.
+     *
+     * Der Schreiber versiegelt seine Datei erst beim NÄCHSTEN Anhang. Wer einen Frame
+     * erfasst und danach keinen Verkehr mehr bekommt — bei geringer Last der Normalfall —
+     * ließe ihn sonst für immer liegen, und ein abgestürzter Prozess ohnehin.
+     *
+     * Die Frist ist dieselbe wie fürs Beanspruchen: Wer innerhalb davon geschrieben hat,
+     * gilt als aktiv und wird in Ruhe gelassen.
+     */
+    private function sealIdleFiles(): void
+    {
+        foreach ($this->spool->idleActiveFiles($this->staleAfterSeconds) as $file) {
+            @rename($file, $this->spool->sealedFileName());
+        }
     }
 
     /**
@@ -98,20 +156,22 @@ final class SpoolDrainer
     }
 
     /**
-     * @return array{sent: int, failed: int}
+     * @return array{sent: int, failed: int, discarded: int}
      */
-    private function drainFile(string $file, DispatchPath $path): array
+    private function drainFile(string $file): array
     {
         $handle = @fopen($file, 'rb');
 
         if (false === $handle) {
             $this->logger?->error('ids_sensor: Spool-Datei {file} nicht lesbar.', ['file' => $file]);
 
-            return ['sent' => 0, 'failed' => 0];
+            return ['sent' => 0, 'failed' => 0, 'discarded' => 0];
         }
 
         $sent = 0;
         $failed = 0;
+        $discarded = 0;
+        $readUpTo = 0;
         /** @var list<string> $remaining */
         $remaining = [];
 
@@ -130,7 +190,7 @@ final class SpoolDrainer
                     continue;
                 }
 
-                $outcome = $this->sendLine($line, $path);
+                $outcome = $this->sendLine($line);
 
                 if (DrainOutcome::Sent === $outcome) {
                     ++$sent;
@@ -142,15 +202,24 @@ final class SpoolDrainer
                 if (DrainOutcome::Retryable === $outcome) {
                     ++$failed;
                     $remaining[] = $line;
+
+                    continue;
                 }
+
+                // Discarded: die Zeile ist weg und wird nicht aufgehoben — aber gezaehlt.
+                ++$discarded;
+                $this->counters?->increment(Counters::DROPPED_SPOOL_UNREADABLE);
             }
+            // Wie weit wir gekommen sind. Alles darüber hinaus ist NACH dem Lesen
+            // angehängt worden — siehe finish().
+            $readUpTo = (int) ftell($handle);
         } finally {
             fclose($handle);
         }
 
-        $this->finish($file, $remaining);
+        $this->finish($file, $remaining, $readUpTo);
 
-        return ['sent' => $sent, 'failed' => $failed];
+        return ['sent' => $sent, 'failed' => $failed, 'discarded' => $discarded];
     }
 
     /**
@@ -159,7 +228,7 @@ final class SpoolDrainer
      * Die beiden Verwerfen-Fälle sind hier zusammengefasst, weil sie dasselbe bedeuten:
      * ein zweiter Versuch würde an derselben Stelle scheitern.
      */
-    private function sendLine(string $line, DispatchPath $path): DrainOutcome
+    private function sendLine(string $line): DrainOutcome
     {
         $frame = $this->decode($line);
 
@@ -170,7 +239,7 @@ final class SpoolDrainer
         }
 
         try {
-            $this->shipper->ship($this->markPath($frame, $path));
+            $this->shipper->ship($this->markPath($frame));
 
             return DrainOutcome::Sent;
         } catch (UnshippableFrameException $e) {
@@ -193,17 +262,40 @@ final class SpoolDrainer
     /**
      * Setzt dispatch_path und die gemessene Verzögerung.
      *
-     * Die Events selbst bleiben unangetastet. Nur der Umschlag lernt, auf welchem Weg
-     * er gereist ist — der Collector braucht das, um zu entscheiden, ob die Events
-     * noch für die Echtzeit-Regeln taugen.
+     * Die Events selbst bleiben unangetastet. Nur der Umschlag lernt, wie lange er
+     * unterwegs war — der Collector braucht das, um zu entscheiden, ob die Events noch
+     * für die Echtzeit-Regeln taugen.
+     *
+     * HERABSTUFEN, NICHT ÜBERSCHREIBEN
+     *
+     * Hier stand `$frame['dispatch_path'] = $path->value` mit `Recovered` als Vorgabe,
+     * und das war ein stiller Totalausfall für mod_php. Dort schreibt der Sensor jeden
+     * Frame planmäßig als `deferred` in den Spool; der dokumentierte cron-Eintrag lautet
+     * `ids:sensor:spool:flush --quiet`, also ohne weitere Angabe. Jeder Frame kam damit
+     * als `recovered` an — und Konzept 3.3.1 nimmt genau diesen Wert von der
+     * Echtzeit-Auswertung aus. Die Regeln R1–R7 hätten auf einer mod_php-Installation
+     * nie gefeuert.
+     *
+     * Es ist derselbe Fehler, den Konzept 3.3 dem verworfenen „late"-Flag vorwirft: ein
+     * Wert, der planmäßigen Transportweg und Störung nicht unterscheiden kann. Der
+     * Drainer weiß aber, welcher von beiden vorliegt — es steht im Frame:
+     *
+     *  - `deferred` hat der Sensor bewusst gesetzt, weil die Laufzeit die Antwort nicht
+     *    abkoppeln kann. Das bleibt so; wie tolerant der Collector damit umgeht,
+     *    entscheidet er anhand von `spool_delay_ms`.
+     *  - `direct` bedeutet, dass der Versand versucht wurde und fehlschlug. Erst das
+     *    ist Nachlauf nach einer Störung, also `recovered`.
+     *
+     * Damit ist der Wert wieder das, was Konzept 3.3.1 verlangt: „kein Schalter, sondern
+     * ein vom Sensor abgeleiteter Tatsachenwert".
      *
      * @param array<string, mixed> $frame
      *
      * @return array<string, mixed>
      */
-    private function markPath(array $frame, DispatchPath $path): array
+    private function markPath(array $frame): array
     {
-        $frame['dispatch_path'] = $path->value;
+        $frame['dispatch_path'] = self::pathOf($frame)->value;
 
         $flushedAt = $frame['flushed_at'] ?? null;
 
@@ -219,12 +311,75 @@ final class SpoolDrainer
     }
 
     /**
-     * @param list<string> $remaining
+     * Löscht die abgearbeitete Datei — es sei denn, es ist noch etwas dazugekommen.
+     *
+     * Das schließt das letzte verbliebene Verlustfenster. Der Drainer beansprucht auch
+     * Dateien, an die ein lebender Prozess in derselben Sekunde noch anhängt; landet
+     * seine Zeile zwischen unserem EOF und dem `unlink()`, wäre sie sonst weg. Der
+     * Vergleich der Dateilänge mit der gelesenen Position sagt genau das.
+     *
+     * Gerettet wird nur der SCHWANZ, nicht die ganze Datei: Die bereits gesendeten
+     * Zeilen erneut zu schicken wäre zwar durch die at-least-once-Zusage aus Konzept 4.
+     * gedeckt, aber unnötig.
      */
-    private function finish(string $file, array $remaining): void
+    private function discardOrKeepTail(string $file, int $readUpTo): void
+    {
+        $size = @filesize($file);
+
+        if (false === $size || $size <= $readUpTo) {
+            @unlink($file);
+
+            return;
+        }
+
+        $tail = @file_get_contents($file, false, null, $readUpTo);
+
+        if (false === $tail || '' === trim($tail)) {
+            @unlink($file);
+
+            return;
+        }
+
+        $target = $this->spool->sealedFileName();
+
+        if (false !== @file_put_contents($target, $tail)) {
+            @unlink($file);
+
+            return;
+        }
+
+        $this->logger?->error(
+            'ids_sensor: Nachzügler in {file} konnte nicht gesichert werden — die Datei bleibt liegen.',
+            ['file' => $file],
+        );
+    }
+
+    /**
+     * Der Weg, den dieser Frame tatsächlich genommen hat.
+     *
+     * Ein planmäßig gespoolter Frame bleibt `deferred`, alles andere wird `recovered`.
+     * Ein fehlender oder unbekannter Wert gilt als Nachlauf — die vorsichtigere der
+     * beiden Auskünfte, weil sie den Collector höchstens zu wenig auswerten lässt.
+     *
+     * @param array<string, mixed> $frame
+     */
+    private static function pathOf(array $frame): DispatchPath
+    {
+        if (DispatchPath::Deferred->value === ($frame['dispatch_path'] ?? null)) {
+            return DispatchPath::Deferred;
+        }
+
+        return DispatchPath::Recovered;
+    }
+
+    /**
+     * @param list<string> $remaining Zeilen, die erneut versucht werden müssen
+     * @param int          $readUpTo  Dateiposition, bis zu der gelesen wurde
+     */
+    private function finish(string $file, array $remaining, int $readUpTo): void
     {
         if ([] === $remaining) {
-            @unlink($file);
+            $this->discardOrKeepTail($file, $readUpTo);
 
             return;
         }
@@ -232,13 +387,30 @@ final class SpoolDrainer
         // Rest zurückschreiben: über temporäre Datei und rename(), damit bei einem
         // Abbruch keine halbe Datei entsteht. Der Name verliert den
         // .draining-Zusatz, damit der nächste Lauf ihn wieder findet.
-        $target = preg_replace('/'.preg_quote(FileSpool::DRAINING_SUFFIX, '/').'$/', '', $file) ?? $file;
+        // Ein FRISCHER Name, nicht der ursprüngliche. Der alte gehörte einem
+        // schreibenden Prozess; ihn zurückzuschreiben überschrieb alles, was der
+        // während des ganzen Drain-Laufs erfasst hatte — der größte der drei
+        // Verlustwege, und rename() meldet ihn nicht einmal.
+        $target = $this->spool->sealedFileName();
         $temporary = $file.'.tmp';
 
         if (false !== @file_put_contents($temporary, implode("\n", $remaining)."\n")) {
             @rename($temporary, $target);
             @unlink($file);
+
+            return;
         }
+
+        // Schweigen wäre hier das Gefährlichste: Der Rest der Datei bleibt unter
+        // `.draining` liegen, also unsichtbar für Heartbeat und setup-check. Erst
+        // reclaimStalled() holt sie beim nächsten Lauf zurück — dass es dazu kam, gehört
+        // ins Protokoll. Häufigste Ursache ist die volle Platte, und die ist genau dann
+        // wahrscheinlich, wenn ein Spool nachgesendet wird.
+        $this->logger?->error(
+            'ids_sensor: Rest der Spool-Datei {file} konnte nicht zurückgeschrieben werden. Sie '
+            .'bleibt beansprucht liegen und wird nach {stale}s automatisch zurückgeholt.',
+            ['file' => $file, 'stale' => $this->staleAfterSeconds],
+        );
     }
 
     /**

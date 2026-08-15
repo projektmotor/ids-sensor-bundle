@@ -4,8 +4,10 @@
 # Nachlässigkeit, sondern der Zweck: dass ein Request ein Feld `password` mitgebracht hat,
 # ist forensisch relevant; sein Inhalt ist es nicht.
 #
-# Die Liste ist versioniert und nicht hartkodiert (Konzept 4.5.1). `version` wandert in
-# jeden Frame, damit collectorseitig ablesbar ist, nach welcher Fassung redigiert wurde —
+# Die Liste ist versioniert und nicht hartkodiert (Konzept 4.5.1). `version` steht als
+# `cleanup_version` in jedem `raw`-Feld — also bei `warning` und `critical`, den Stufen,
+# die raw überhaupt tragen. Damit ist collectorseitig ablesbar, nach welcher Fassung
+# redigiert wurde —
 # ohne diese Angabe wäre nach einer Erweiterung der Liste nicht mehr feststellbar, ob ein
 # fehlender Wert redigiert oder nie vorhanden war.
 #
@@ -20,7 +22,7 @@
 # ablegen; mit `merge_defaults: true` (Vorgabe) ergänzt sie diese hier, statt sie zu
 # ersetzen.
 
-version: 1
+version: 2
 
 # Vollständiger, unterscheidungsfreier Namensvergleich.
 headers:
@@ -31,6 +33,13 @@ headers:
     - X-API-Key
     - X-Auth-Token
     - X-CSRF-Token
+    # Symfonys ErrorListener legt im Debug-Modus die Exception-MELDUNG in die Antwort —
+    # URL-kodiert und ungefiltert. `raw.response_headers` kopierte sie damit im Klartext,
+    # obwohl dieselbe Meldung in `payload.exception_message` durch die Denylist läuft:
+    # Ein `?password=` im angefragten Pfad stand im Payload redigiert und im raw-Feld
+    # lesbar. Forensisch ist der Header wertlos — die Meldung steht bereits im Payload.
+    - X-Debug-Exception
+    - X-Debug-Exception-File
 
 # Namensmuster: Teilzeichenkette, unterscheidungsfrei. `token` trifft damit auch
 # `_token`, `csrf_token` und `refresh_token`. Über-Redaktion ist die sichere Richtung.

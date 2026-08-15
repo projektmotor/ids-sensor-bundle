@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 
 /**
  * Ein im Request erfasstes, noch NICHT normalisiertes Event.
@@ -77,10 +77,22 @@ final class CapturedEvent
      * Trägt die Benutzerkennung nach — der Nachtrag bei Priorität 7, direkt nach der
      * Firewall. Möglich, weil das Event zu diesem Zeitpunkt noch unversendet im
      * Puffer liegt.
+     *
+     * DIE LEERE ZEICHENKETTE IST HIER `null`
+     *
+     * Konzept 2.2.4 kennt für `actor.user` zwei Zustände: eine Kennung oder „nicht
+     * vorhanden". `''` ist keiner von beiden — für den Collector ist es ein dritter,
+     * der sich in einer Gruppierung wie ein eigener Nutzer verhält. Drei Aufrufstellen
+     * normalisierten das selbst, der {@see Security\AuthenticationSensor} an vier
+     * Stellen nicht: `getUserIdentifier()` gibt bei einem Token ohne Kennung `''`
+     * zurück, und genau die Anmeldefehlschläge sind der Fall, für den das Feld da ist.
+     *
+     * Diese Methode ist der eine Ort, durch den jede Kennung geht — deshalb steht die
+     * Regel hier und nicht siebenmal davor.
      */
     public function setActorUser(?string $user): void
     {
-        $this->actor = $this->actor()->withUser($user);
+        $this->actor = $this->actor()->withUser('' === $user ? null : $user);
     }
 
     public function correlationId(): ?string
@@ -101,11 +113,6 @@ final class CapturedEvent
     public function get(string $key, mixed $default = null): mixed
     {
         return $this->data[$key] ?? $default;
-    }
-
-    public function has(string $key): bool
-    {
-        return \array_key_exists($key, $this->data);
     }
 
     /**

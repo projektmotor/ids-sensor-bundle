@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Functional;
 
 use PHPUnit\Framework\Attributes\Group;
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
@@ -16,6 +17,9 @@ use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Messenger\Bridge\Redis\Transport\RedisTransportFactory;
+use Symfony\Component\Messenger\Envelope;
+use Symfony\Component\Messenger\Exception\TransportException;
 
 /**
  * Der Nachweis gegen echtes Redis — unter der gehärteten ACL, nicht als root.
@@ -242,32 +246,32 @@ final class RedisStreamTest extends IntegrationTestCase
     }
 
     /**
-     * Der wahrscheinlichste Erstinstallationsfehler, als Test festgehalten.
+     * Warum `auto_setup` gesperrt ist — der empirische Beleg, gegen echtes Redis.
      *
      * Mit `auto_setup: true` sendet Messenger beim ersten Zugriff
      * `XGROUP CREATE ... MKSTREAM`. Unter der XADD-only-ACL wird das abgelehnt. Das
      * Tückische: mit unbeschränktem Redis-Nutzer in der Entwicklung funktioniert es,
      * und der Fehler zeigt sich erst beim ersten Versand in Produktion.
+     *
+     * Der Transport wird hier von HAND gebaut und nicht über die Bundle-Konfiguration:
+     * Die lehnt `auto_setup` seit der Sperre in `ConfigurationTree` beim Kompilieren ab,
+     * und das ist die bessere Antwort — sie kommt früher. Der Grund für die Sperre ist
+     * aber genau die Ablehnung hier, und die gehört weiterhin belegt: Ohne diesen Test
+     * bliebe die Sperre eine Behauptung über Redis, die niemand nachgeprüft hat.
      */
     public function testAutoSetupFailsUnderTheHardenedAcl(): void
     {
-        $kernel = $this->bootWithRedis('redis-autosetup', ['auto_setup' => true]);
-        $services = $this->services($kernel);
+        $dsn = $this->redisDsn();
 
-        /** @var EventBuffer $collector */
-        $collector = $services->get('ids_sensor.event_buffer');
-        $collector->append($this->scannerRequest());
-
-        // fail-open: der Fehler darf die Anwendung nicht erreichen.
-        $kernel->terminate(Request::create('/'), new Response());
-
-        /** @var Counters $counters */
-        $counters = $services->get('ids_sensor.counters');
-        self::assertSame(
-            1,
-            $counters->get(Counters::SHIP_FAILED),
-            'auto_setup: true muss unter der XADD-only-ACL scheitern — und der Fehlschlag muss gezählt werden',
+        $transport = (new RedisTransportFactory())->createTransport(
+            $dsn,
+            ['auto_setup' => true, 'stream' => self::STREAM, 'group' => self::GROUP, 'consumer' => 'ids'],
+            new MessageSerializer(),
         );
+
+        $this->expectException(TransportException::class);
+
+        $transport->send(new Envelope(new EventBatch(['v' => 1, 'events' => []])));
     }
 
     private function scannerRequest(): CapturedEvent
@@ -281,15 +285,23 @@ final class RedisStreamTest extends IntegrationTestCase
         return $event;
     }
 
+    private function redisDsn(): string
+    {
+        $dsn = getenv('IDS_REDIS_DSN');
+
+        if (!\is_string($dsn) || '' === $dsn) {
+            self::markTestSkipped('IDS_REDIS_DSN ist nicht gesetzt');
+        }
+
+        return $dsn;
+    }
+
     /**
      * @param array<string, mixed> $transportOptions
      */
     private function bootWithRedis(string $variant, array $transportOptions = []): TestKernel
     {
-        $dsn = getenv('IDS_REDIS_DSN');
-        if (!\is_string($dsn) || '' === $dsn) {
-            self::markTestSkipped('IDS_REDIS_DSN ist nicht gesetzt');
-        }
+        $dsn = $this->redisDsn();
 
         $kernel = new TestKernel([
             'application_id' => 'shop-api',

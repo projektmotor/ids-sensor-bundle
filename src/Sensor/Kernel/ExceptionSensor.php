@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Kernel;
 
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
@@ -75,7 +75,12 @@ final class ExceptionSensor implements EventSubscriberInterface
             $throwable = $event->getThrowable();
             $status = $this->statusResolver->resolve($throwable);
 
-            if (null !== $snapshot && $this->options->isIgnored($snapshot->path)) {
+            // Der Pfad kommt aus dem Snapshot, ersatzweise aus dem Request. Ohne den
+            // Rückfall galt `ignored_paths` NUR mit Snapshot: Fehlt er — weil ein
+            // Listener mit höherer Priorität geantwortet hat —, wurde ein ausdrücklich
+            // ausgeschlossener Pfad trotzdem erfasst. Der RequestSensor prüft seit jeher
+            // immer, die beiden hier taten es nicht.
+            if ($this->options->isIgnored(null !== $snapshot ? $snapshot->path : $request->getPathInfo())) {
                 return;
             }
 
@@ -100,7 +105,7 @@ final class ExceptionSensor implements EventSubscriberInterface
 
             $this->binder->bindWithUser($captured, $request, $snapshot);
 
-            $this->buffer->append($captured);
+            $this->buffer->appendMandatory($captured);
         });
     }
 }

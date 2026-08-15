@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\DependencyInjection;
 
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 
@@ -41,8 +41,15 @@ final class ConfigurationTree
     /** @var list<string> */
     public const CAPTURE_MODES = ['dispatcher', 'recorder', 'configured'];
 
-    /** @var list<string> */
-    public const SPOOL_DRAIN_MODES = ['off', 'command', 'opportunistic', 'both'];
+    /**
+     * Transport-Optionen, die die Anwendung nicht überschreiben darf.
+     *
+     * Jede von ihnen trägt eine Sicherheitsaussage — die Begründungen stehen bei
+     * {@see \ProjektMotor\IdsSensor\IdsSensorBundle::TRANSPORT_DEFAULTS}.
+     *
+     * @var list<string>
+     */
+    public const PROTECTED_TRANSPORT_OPTIONS = ['auto_setup', 'lazy', 'serializer'];
 
     /** @var list<string> */
     public const HEARTBEAT_MODES = ['auto', 'request', 'command', 'off'];
@@ -222,11 +229,28 @@ final class ConfigurationTree
                             ->end()
                         ->end()
                         ->arrayNode('ignored_paths')
-                            ->scalarPrototype()->end()
+                            ->scalarPrototype()
+                                ->validate()
+                                    // Die Einträge sind PCRE-Ausdrücke MIT Trennzeichen,
+                                    // und `@preg_match` verschluckte jede Warnung: `/health`
+                                    // ohne Trennzeichen kompilierte anstandslos und traf
+                                    // dann nie — der Betreiber glaubte, einen Pfad
+                                    // ausgeschlossen zu haben, und bekam ihn weiter erfasst.
+                                    // Umgekehrt genauso still: ein Ausdruck, der nach einem
+                                    // Tippfehler ZU VIEL trifft, schaltet die Kernel-Ebene
+                                    // stumm. Beides ist beim Kompilieren feststellbar.
+                                    ->ifTrue(static fn (mixed $pattern): bool => !\is_string($pattern) || false === @preg_match($pattern, ''))
+                                    ->thenInvalid(
+                                        'Ungültiger regulärer Ausdruck %s. ignored_paths sind PCRE-Muster MIT '
+                                        .'Trennzeichen — also "#^/health$#" statt "/health".'
+                                    )
+                                ->end()
+                            ->end()
                             ->defaultValue([])
                             ->info(
-                                'Absichtlich LEER. Regel R2b lebt davon, Zugriffe auf /_profiler zu sehen — '
-                                .'ein gut gemeinter Default würde genau das Signal löschen.'
+                                'PCRE-Muster MIT Trennzeichen ("#^/health$#"). Absichtlich LEER: Regel R2b lebt '
+                                .'davon, Zugriffe auf /_profiler zu sehen — ein gut gemeinter Default würde genau '
+                                .'das Signal löschen.'
                             )
                         ->end()
                         ->scalarNode('sub_requests')
@@ -244,7 +268,11 @@ final class ConfigurationTree
                         ->end()
                         ->booleanNode('capture_fatal_errors')
                             ->defaultTrue()
-                            ->info('Synthetisiert bei Fatal Errors ein kernel.exception mit Status 500.')
+                            ->info(
+                                'Rettet den Puffer in den Spool, wenn der Prozess vor kernel.terminate '
+                                .'stirbt. Synthetisiert KEIN Ereignis: Gerettet wird, was der Sensor '
+                                .'tatsächlich gesehen hat.'
+                            )
                         ->end()
                     ->end()
                 ->end()
@@ -317,7 +345,17 @@ final class ConfigurationTree
             ->children()
                 ->booleanNode('enabled')->defaultTrue()->end()
                 ->arrayNode('severities')
-                    ->scalarPrototype()->end()
+                    ->scalarPrototype()
+                        ->validate()
+                            // Ohne Prüfung schaltete ein Tippfehler `raw` LAUTLOS ab:
+                            // `['warnings']` oder `['WARNING']` kompilierte anstandslos,
+                            // und der Gate fand die Stufe nie in seiner Liste. Kein
+                            // Fehler, keine Meldung, kein Zähler. Dieselbe Technik wie bei
+                            // environment_fallback zwei Knoten weiter oben.
+                            ->ifNotInArray(self::enumValues(Severity::class))
+                            ->thenInvalid('Ungültige Stufe %s. Erlaubt: info, warning, critical.')
+                        ->end()
+                    ->end()
                     ->defaultValue([Severity::Warning->value, Severity::Critical->value])
                     ->info('Konzept Abschnitt 3: raw nur für warning und critical.')
                 ->end()
@@ -407,14 +445,8 @@ final class ConfigurationTree
                 ->end()
                 ->integerNode('connect_timeout_ms')->defaultValue(20)->min(0)->end()
                 ->integerNode('read_timeout_ms')->defaultValue(30)->min(0)->end()
-                ->integerNode('drain_ms')->defaultValue(25)->min(0)->end()
                 ->integerNode('fatal_dispatch_ms')->defaultValue(15)->min(0)->end()
                 ->integerNode('max_events_per_request')->defaultValue(64)->min(0)->end()
-                ->integerNode('max_events_per_process')
-                    ->defaultValue(200)
-                    ->min(0)
-                    ->info('Greift in langlebigen Prozessen, in denen kein kernel.terminate den Puffer leert.')
-                ->end()
             ->end();
 
         return $node;
@@ -437,10 +469,6 @@ final class ConfigurationTree
                         .'RoadRunner senden direkt, mod_php schreibt in den Spool. Der Default ist auto, '
                         .'weil die Laufzeit eine Eigenschaft des Servers ist und nicht der Anwendung.'
                     )
-                ->end()
-                ->booleanNode('batch')
-                    ->defaultTrue()
-                    ->info('Bündelt alle Events eines Requests zu einem Frame und damit zu einem XADD.')
                 ->end()
                 ->integerNode('max_frame_bytes')->defaultValue(262144)->min(0)->end()
             ->end();
@@ -471,6 +499,33 @@ final class ConfigurationTree
                     ->useAttributeAsKey('name')
                     ->prototype('variable')->end()
                     ->defaultValue([])
+                    ->validate()
+                        // Drei Optionen dürfen NICHT überschrieben werden, und die
+                        // Begründung steht wörtlich in IdsSensorBundle::TRANSPORT_DEFAULTS:
+                        //
+                        //  - auto_setup: false — sonst XGROUP CREATE gegen XADD-only-Rechte
+                        //  - lazy: true — sonst öffnet Connection::__construct() die
+                        //    Verbindung beim BAUEN des Dienstes, „unvereinbar mit fail-open"
+                        //  - serializer: 0 — sonst landet PHP-serialisiertes statt reines
+                        //    JSON im Stream
+                        //
+                        // Bis hierher gewannen die Optionen der Anwendung, und die Doku bat
+                        // nur darum, auto_setup false zu lassen. Eine Bitte ist keine
+                        // Schranke; CLAUDE.md §2.2 verlangt Fail Fast.
+                        ->ifTrue(static fn (array $options): bool => [] !== array_intersect(
+                            array_keys($options),
+                            self::PROTECTED_TRANSPORT_OPTIONS,
+                        ))
+                        ->thenInvalid(
+                            'ids_sensor.transport.options darf auto_setup, lazy und serializer nicht '
+                            .'überschreiben (%s). auto_setup: true sendet XGROUP CREATE, was die '
+                            .'XADD-only-Rechte aus Konzept 2. ablehnen — in der Entwicklung unauffällig, '
+                            .'beim ersten Prod-Versand ein Fehler. lazy: false öffnet die Verbindung '
+                            .'beim Bauen des Dienstes, also außerhalb jedes try/catch des Sensors, und '
+                            .'bricht damit fail-open. serializer ungleich 0 legt PHP-serialisierte Daten '
+                            .'in den Beweisspeicher statt reines JSON.'
+                        )
+                    ->end()
                     ->info(
                         'Wird über die sicheren Vorgaben gemischt. auto_setup MUSS false bleiben: der '
                         .'Default sendet XGROUP CREATE, was die XADD-only-Rechte aus Konzept 2. ablehnen — '
@@ -490,7 +545,8 @@ final class ConfigurationTree
             // KEIN enabled-Knoten. Der Spool ist kein Merkmal, sondern der Puffer, auf dem
             // die fail-open-Zusage aus Konzept 4 steht — und unter mod_php laut 3.3.1 der
             // EINZIGE Transportweg. Ein Schalter dafür hätte dort jede Erfassung lautlos
-            // verworfen. Wer den Spool nicht selbst leeren will, stellt `drain: off`.
+            // verworfen. Wer nicht drainen will, richtet den cron nicht ein — einen Schalter
+            // dafür gab es, er bewirkte nie etwas und ist entfallen.
             ->children()
                 ->scalarNode('dir')
                     ->defaultNull()
@@ -502,21 +558,12 @@ final class ConfigurationTree
                 ->end()
                 ->integerNode('max_bytes')->defaultValue(16777216)->min(0)->end()
                 ->integerNode('max_file_bytes')->defaultValue(4194304)->min(0)->end()
-                ->scalarNode('drain')
-                    ->defaultValue('both')
-                    ->validate()
-                        ->ifNotInArray(self::SPOOL_DRAIN_MODES)
-                        ->thenInvalid('Ungültiger Modus %s. Erlaubt: off, command, opportunistic, both.')
-                    ->end()
-                    ->info('Unter mod_php ist der Command der einzige Transportweg und damit Pflicht.')
-                ->end()
                 ->integerNode('drain_interval_s')
                     ->defaultValue(30)
                     ->min(0)
                     ->info('Nur Dokumentationswert: reist im Heartbeat mit, damit der Collector die normale Verzögerung kennt.')
                 ->end()
                 ->integerNode('drain_max_files_per_run')->defaultValue(2)->min(0)->end()
-                ->integerNode('drain_min_interval_s')->defaultValue(1)->min(0)->end()
                 ->integerNode('stale_after_s')->defaultValue(300)->min(0)->end()
             ->end();
 
@@ -536,7 +583,6 @@ final class ConfigurationTree
                 ->booleanNode('enabled')->defaultTrue()->end()
                 ->integerNode('failure_threshold')->defaultValue(3)->min(0)->end()
                 ->integerNode('open_for_s')->defaultValue(30)->min(0)->end()
-                ->integerNode('half_open_probes')->defaultValue(1)->min(0)->end()
             ->end();
 
         return $node;
@@ -581,7 +627,6 @@ final class ConfigurationTree
                     ->defaultTrue()
                     ->info('Macht die 5-ms-Zusage im laufenden Betrieb überprüfbar, nicht nur im Benchmark.')
                 ->end()
-                ->booleanNode('profiler_collector')->defaultTrue()->end()
             ->end();
 
         return $node;
@@ -593,7 +638,6 @@ final class ConfigurationTree
         $node
             ->addDefaultsIfNotSet()
             ->children()
-                ->booleanNode('enabled')->defaultTrue()->end()
                 ->scalarNode('channel')->defaultValue('ids_sensor')->cannotBeEmpty()->end()
             ->end();
 

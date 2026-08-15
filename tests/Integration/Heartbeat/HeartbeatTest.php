@@ -9,16 +9,17 @@ use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\Heartbeat;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
+use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
 use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
+use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\Messenger\Envelope;
-use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
 /**
  * Der Heartbeat durch den echten Container (Konzept 2.).
@@ -135,7 +136,7 @@ final class HeartbeatTest extends IntegrationTestCase
         self::assertArrayHasKey('spool', $payload);
         self::assertArrayHasKey('oldest_pending_age_s', $payload['spool']);
 
-        self::assertSame(1, $payload['cleanup_version']);
+        self::assertSame(TestCleaner::rules()->version, $payload['cleanup_version']);
     }
 
     /**
@@ -224,9 +225,7 @@ final class HeartbeatTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        /** @var InMemoryTransport $transport */
-        $transport = $services->get('messenger.transport.ids_events');
-        self::assertSame([], $transport->getSent(), 'Kein Versand im Request');
+        self::assertSame([], $this->transport($services)->getSent(), 'Kein Versand im Request');
 
         /** @var Counters $counters */
         $counters = $services->get('ids_sensor.counters');
@@ -235,7 +234,11 @@ final class HeartbeatTest extends IntegrationTestCase
         // Wichtig: NICHT als Fehlschlag gezählt — der Spool ist hier der planmäßige Weg.
         self::assertSame(0, $counters->get(Counters::SHIP_FAILED));
 
-        $files = glob($this->spoolDir.'/*.jsonl') ?: [];
+        // Nicht nur *.jsonl: Frisch Geschriebenes liegt in der AKTIVEN Datei des
+        // Prozesses und trägt FileSpool::ACTIVE_SUFFIX. Versiegelt wird erst nach Größe
+        // oder Alter, bzw. stellvertretend durch den Drainer — genau diese Trennung löst
+        // das Rennen zwischen Schreiber und Drainer auf.
+        $files = glob($this->spoolDir.'/'.FileSpool::FILE_PREFIX.'*') ?: [];
         self::assertNotSame([], $files);
 
         /** @var array<string, mixed> $frame */
@@ -289,12 +292,9 @@ final class HeartbeatTest extends IntegrationTestCase
      */
     private function heartbeats(ContainerInterface $services): array
     {
-        /** @var InMemoryTransport $transport */
-        $transport = $services->get('messenger.transport.ids_events');
-
         $heartbeats = [];
 
-        foreach ($transport->getSent() as $envelope) {
+        foreach ($this->transport($services)->getSent() as $envelope) {
             $message = $envelope->getMessage();
 
             if ($message instanceof Heartbeat) {

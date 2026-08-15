@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Fixtures;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
+use Symfony\Component\VarExporter\LazyObjectInterface;
 
 /**
  * Gemeinsame Basis für Tests, die den TestKernel booten.
@@ -42,5 +45,54 @@ abstract class IntegrationTestCase extends TestCase
         $testContainer = $kernel->getContainer()->get('test.service_container');
 
         return $testContainer;
+    }
+
+    /**
+     * Der Transport des Sensors, ausgepackt aus seinem Lazy-Proxy.
+     *
+     * Seit {@see \ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass}
+     * liefert der Container einen Proxy, der ausschließlich `TransportInterface`
+     * implementiert — in Produktion genau richtig, denn der Shipper ruft nur `send()`.
+     * Die Tests brauchen aber `InMemoryTransport::getSent()`, und das steht nicht im
+     * Interface.
+     *
+     * Auspacken statt den Proxy abschalten: Die Tests sollen denselben Container prüfen,
+     * den die Anwendung bekommt. Ein Transport, der im Test nicht lazy ist, wäre genau
+     * der Unterschied, den ContainerFingerprintTest verhindern soll.
+     */
+    protected function transport(ContainerInterface $services, string $name = 'ids_events'): InMemoryTransport
+    {
+        $transport = $services->get('messenger.transport.'.$name);
+
+        if ($transport instanceof LazyObjectInterface) {
+            $transport = $transport->initializeLazyObject();
+        }
+
+        self::assertInstanceOf(InMemoryTransport::class, $transport);
+
+        return $transport;
+    }
+
+    /**
+     * Die Frames, die tatsächlich auf dem Transport gelandet sind.
+     *
+     * Gezielt nach {@see EventBatch} gefiltert: derselbe Transport befördert auch den
+     * Heartbeat, und der ist ein eigener Nachrichtentyp mit eigenem Payload.
+     *
+     * @return list<EventBatch>
+     */
+    protected function batches(ContainerInterface $services, string $name = 'ids_events'): array
+    {
+        $batches = [];
+
+        foreach ($this->transport($services, $name)->getSent() as $envelope) {
+            $message = $envelope->getMessage();
+
+            if ($message instanceof EventBatch) {
+                $batches[] = $message;
+            }
+        }
+
+        return $batches;
     }
 }

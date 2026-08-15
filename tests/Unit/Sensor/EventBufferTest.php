@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Sensor;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 
@@ -39,6 +39,55 @@ final class EventBufferTest extends TestCase
 
         self::assertSame(2, $collector->count());
         self::assertTrue($collector->isFull());
+        self::assertSame(1, $collector->droppedOverflow());
+    }
+
+    /**
+     * Pflicht-Events müssen auch dann noch hineinpassen, wenn die Obergrenze erreicht ist.
+     *
+     * Die Zusage stammt aus {@see \ProjektMotor\IdsSensor\Sensor\CaptureBudget::guardMandatory()}:
+     * „mit kernel.response ginge der Statuscode verloren — das wichtigste Einzelfeld
+     * überhaupt". Der Puffer kannte diesen Unterschied vorher nicht, und mit den
+     * Vorgabewerten genügte eine Seite mit 64 Rechteprüfungen, um genau dieses Event zu
+     * verlieren: der ResponseSensor läuft bei Priorität −2048 zuletzt.
+     */
+    public function testMandatoryEventsStillFitWhenTheLimitIsReached(): void
+    {
+        $collector = new EventBuffer(maxEvents: 2);
+
+        $collector->append($this->event('security.access_decision'));
+        $collector->append($this->event('security.access_decision'));
+        $collector->append($this->event('security.access_decision'));
+
+        self::assertTrue($collector->isFull());
+        self::assertSame(1, $collector->droppedOverflow());
+
+        $collector->appendMandatory($this->event('kernel.response'));
+
+        self::assertSame(3, $collector->count());
+        self::assertSame(
+            'kernel.response',
+            $collector->all()[2]->eventType,
+            'Das Pflicht-Event muss im Puffer stehen',
+        );
+        self::assertSame(1, $collector->droppedOverflow(), 'Und es darf nichts zusätzlich verwerfen');
+    }
+
+    /**
+     * Die Reserve ist begrenzt — auch Pflicht-Events werden irgendwann verworfen, aber
+     * gezählt. Unbegrenztes Puffern verböte Konzept 4.
+     */
+    public function testTheReserveIsBoundedAndOverflowIsCounted(): void
+    {
+        $collector = new EventBuffer(maxEvents: 1);
+
+        $collector->append($this->event('security.access_decision'));
+
+        for ($i = 0; $i <= EventBuffer::MANDATORY_RESERVE; ++$i) {
+            $collector->appendMandatory($this->event('kernel.response'));
+        }
+
+        self::assertSame(1 + EventBuffer::MANDATORY_RESERVE, $collector->count());
         self::assertSame(1, $collector->droppedOverflow());
     }
 

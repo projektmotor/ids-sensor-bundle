@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Fixtures;
 
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Controller\ControllerReference;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Fragment\FragmentHandler;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
@@ -14,12 +17,59 @@ final class TestController
 {
     public function __construct(
         private readonly ?AuthorizationCheckerInterface $authorizationChecker = null,
+        private readonly ?FragmentHandler $fragmentHandler = null,
     ) {
     }
 
     public function ok(): Response
     {
         return new Response('in Ordnung');
+    }
+
+    /**
+     * Löst einen echten SUB-REQUEST aus — der Fall, den `layers.kernel.sub_requests`
+     * regelt und für den es bislang keinen einzigen Test gab.
+     *
+     * Gerendert wird über den FragmentHandler, weil nur er den Weg nimmt, den auch
+     * Twigs `render()` und ESI nehmen: `Request::duplicate()` im
+     * `InlineFragmentRenderer`, also ein Sub-Request mit einer KOPIE des Elternpfades.
+     * Genau daraus folgt die Vorgabe `exceptions_only` — sechs fast identische
+     * Request-Events je Seite wären die Fehlalarmquelle aus Konzept 2.2.1.
+     */
+    public function mitFragment(): Response
+    {
+        return new Response('Rahmen: '.$this->fragmentHandler?->render(
+            new ControllerReference(self::class.'::fragment'),
+        ));
+    }
+
+    public function fragment(): Response
+    {
+        return new Response('Fragment');
+    }
+
+    /**
+     * Ein Fragment, das wirft.
+     *
+     * `InlineFragmentRenderer` verschluckt die Exception bei `ignore_errors`
+     * vollständig — sie existiert damit in keinem anderen Event. Genau das will ein IDS
+     * sehen, und genau deshalb lässt die Vorgabe Sub-Request-Exceptions durch.
+     */
+    public function fragmentBoom(): Response
+    {
+        throw new \RuntimeException('das Fragment ist kaputt');
+    }
+
+    public function mitKaputtemFragment(): Response
+    {
+        // ignore_errors ausdrücklich: In Produktion ist das die Vorgabe
+        // (`!$this->debug`), und genau dann verschluckt der InlineFragmentRenderer die
+        // Exception vollständig — sie existiert dann in keinem anderen Event.
+        return new Response('Rahmen: '.$this->fragmentHandler?->render(
+            new ControllerReference(self::class.'::fragmentBoom'),
+            'inline',
+            ['ignore_errors' => true],
+        ));
     }
 
     public function boom(): Response
@@ -37,9 +87,12 @@ final class TestController
      * für den HttpStatusResolver existiert: bei unserer Listener-Priorität ist sie
      * noch nicht in eine AccessDeniedHttpException umgewandelt.
      */
-    public function denied(): Response
+    public function denied(Request $request): Response
     {
-        throw new AccessDeniedException('kein Zugriff');
+        // Die Meldung trägt die angefragte URI samt Query — die verbreitetste Form, in
+        // der ein Geheimnis in `payload.exception_message` landet. Das Feld reist bei
+        // JEDER Stufe mit, anders als raw.
+        throw new AccessDeniedException('kein Zugriff auf '.$request->getRequestUri());
     }
 
     /**

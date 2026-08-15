@@ -12,7 +12,7 @@ In allen drei Wegen dieselbe. Sie implementiert `Contract\SecurityRelevantBusine
 
 ```php
 use ProjektMotor\IdsSensor\Contract\SecurityRelevantBusinessEvent;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 
 final class OrderAmountOverridden implements SecurityRelevantBusinessEvent
 {
@@ -40,7 +40,7 @@ final class OrderAmountOverridden implements SecurityRelevantBusinessEvent
 ```
 
 `getSeverityHint()` gibt bewusst `string` zurück und nicht das Enum. So sind Implementierer
-nicht gezwungen, `EventFormat\Vocabulary\Severity` zu importieren, und eine spätere
+nicht gezwungen, `IdsEventData\Vocabulary\Severity` zu importieren, und eine spätere
 Verengung wird kein BC-Bruch. Das Enum ist reiner Komfort:
 `return Severity::Critical->value;`
 
@@ -113,7 +113,20 @@ implementierte Interfaces. Daher die drei Wege statt des einen.
 `warning`.** Nicht zu `info` — ein Tippfehler verschöbe das Event sonst still in die
 kürzere Aufbewahrung. Der Originalwert bleibt in `raw` sichtbar.
 
-**`payload`-Schlüssel mit dem Präfix `_ids_` sind reserviert und werden entfernt.**
+**`payload`-Schlüssel mit dem Präfix `_ids_` sind reserviert und werden entfernt.** Der
+Sensor legt darunter seine eigenen Vermerke ab — sie stehen im Payload und nicht nur im
+Log, damit eine Fehlkonfiguration neben dem Event sichtbar bleibt, das sie betrifft:
+
+| Vermerk | Bedeutung |
+|---|---|
+| `_ids_event_name_raw` | Der Name musste bereinigt werden; hier steht das Original |
+| `_ids_severity_hint_raw` | `getSeverityHint()` war unbrauchbar; hier steht der Originalwert |
+| `_ids_unreadable` | Diese Getter haben **geworfen** — ein Defekt in der Anwendung, nicht ein leerer Wert |
+| `_ids_truncated` | Es wurden Elemente weggelassen |
+
+`_ids_unreadable` ist der Unterschied zwischen „die Anwendung hat ihr Event nicht
+benannt" und „`getEventName()` ist kaputt". Beide ergeben `business.unnamed`; nur einer
+davon ist ein Fehler, den jemand beheben sollte.
 
 ## Der Payload
 
@@ -124,10 +137,16 @@ Stufen:
 | Stufe | Klasse | Was passiert |
 |---|---|---|
 | Form | `Processing\Normalization\PayloadSanitizer` | Objekte, Enums und `DateTime` werden zu Skalaren; Tiefe ≤ 3, ≤ 100 Elemente, Strings ≤ 2048 Zeichen |
-| Vertraulichkeit | `PayloadConfidentialityCleanup\Cleaner` | Werte sensibler Feldnamen werden `[confidential]` |
+| Vertraulichkeit | `PayloadConfidentialityCleanup\Cleaner` | Werte sensibler Feldnamen werden `[confidential]`; Tiefe ≤ 4, ≤ 200 Elemente je Ebene, Strings ≤ 512 Zeichen |
+
+Die Grenzen der beiden Stufen laufen nicht auseinander, sie sind **gestaffelt**: Die
+engeren des Sanitizers binden das Schema aus (*3*), an das sich der Collector halten
+können muss. Die weiteren des Cleaners gelten für `raw` — die forensische Kopie, für die
+(*2.1.3*) ausdrücklich mehr Tiefe vorsieht und die nur eine Größengrenze einzuhalten hat.
+In `raw` steht deshalb absichtlich der **unbereinigte** Payload, nur redigiert.
 
 Auch der Business-Payload läuft also durch dieselbe Denylist wie alles andere — siehe
-[06 — Vertraulichkeit](06-vertraulichkeit.md#vier-eintrittspunkte-eine-liste).
+[06 — Vertraulichkeit](06-vertraulichkeit.md#fünf-eintrittspunkte-eine-liste).
 
 ## Ergänzte Felder
 

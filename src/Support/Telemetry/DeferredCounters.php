@@ -40,6 +40,10 @@ final class DeferredCounters
         private readonly EventBuffer $buffer,
         private readonly CaptureBudget $captureBudget,
         private readonly ?AccessDecisionSensor $accessDecisionSensor = null,
+        // Auch die Latenzmessung wird HIER eingesammelt und nicht in Phase A abgegeben:
+        // dieselbe Begründung wie für die Zähler — im Erfassungspfad soll kein
+        // zusätzlicher Dienst im Weg stehen.
+        private readonly ?LatencyRecorder $latencyRecorder = null,
     ) {
     }
 
@@ -48,6 +52,14 @@ final class DeferredCounters
         $this->counters->raiseTo(Counters::DROPPED_BUFFER_FULL, $this->buffer->droppedOverflow());
         $this->counters->raiseTo(Counters::DROPPED_RESET, $this->buffer->droppedReset());
         $this->counters->raiseTo(Counters::DROPPED_CAPTURE_BUDGET, $this->captureBudget->skipped());
+        $this->counters->raiseTo(Counters::DROPPED_CAPTURE_ERROR, $this->captureBudget->failed());
+
+        // Die 5-ms-Zusage aus Konzept 2.1 wird erst hier überprüfbar. Das Budget misst
+        // seit jeher mit, behielt die Zahl aber für sich: recordCapture() hatte keinen
+        // einzigen Produktionsaufrufer, und `latency.in_request_overhead_us` im Heartbeat
+        // war dauerhaft {count: 0}. Konzept 3.4 nennt genau diese Zahl als eine von drei
+        // Anforderungen, „die sonst unerfüllbar bleiben".
+        $this->latencyRecorder?->recordCapture($this->captureBudget->spentNanoseconds());
 
         // Fehlt, wenn die Security-Ebene oder die Entscheidungserfassung abgeschaltet ist.
         // Dann gibt es die Verlustquelle nicht und der Zähler bleibt bei 0 — richtig, denn

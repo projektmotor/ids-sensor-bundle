@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Delivery\Dispatch;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\CoherentInfoSampler;
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
 
 /**
  * Das Volumen-Stellrad aus Konzept 4.2.3.

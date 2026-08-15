@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use ProjektMotor\IdsSensor\DependencyInjection\Compiler\BusinessCaptureModePass;
+use ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass;
 use ProjektMotor\IdsSensor\DependencyInjection\ConfigurationTree;
 use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
 use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\RulesLoader;
@@ -76,7 +78,8 @@ final class IdsSensorBundle extends AbstractBundle
         // beim Senden.
         //
         // Das ist unvereinbar mit fail-open. Der Shipper ist ein Konstruktorargument des
-        // EventFlusher, und der wird vom FlushListener in kernel.terminate angefordert. Eine
+        // FrameDispatcher, der wiederum eines des EventFlusher ist, und dieser wird vom
+        // FlushListener in kernel.terminate angefordert. Eine
         // Verbindungs-Exception entstünde dort also, WÄHREND der Container den Listener baut
         // — also außerhalb des try/catch im Flusher und damit unmittelbar in der überwachten
         // Anwendung. Genau der Fall, den Konzept 4. ausschließt.
@@ -108,6 +111,7 @@ final class IdsSensorBundle extends AbstractBundle
         parent::build($container);
 
         $container->addCompilerPass(new BusinessCaptureModePass());
+        $container->addCompilerPass(new LazyTransportPass());
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -165,7 +169,17 @@ final class IdsSensorBundle extends AbstractBundle
                 $transport['name'] => [
                     'dsn' => $transport['dsn'],
                     'serializer' => self::SERIALIZER_ID,
-                    'options' => array_merge(self::TRANSPORT_DEFAULTS, $transport['options']),
+                    'options' => array_merge(
+                        self::TRANSPORT_DEFAULTS,
+                        // Die beiden Zeitgrenzen kommen aus der Konfiguration und nicht
+                        // aus TRANSPORT_DEFAULTS. Dort standen sie hartkodiert als 0.02
+                        // und 0.03 — numerisch identisch mit den Vorgaben von
+                        // budget.connect_timeout_ms und read_timeout_ms, die niemand las.
+                        // Wer sie änderte, bekam eine plausible Bestätigung durch
+                        // debug:config und keine Wirkung.
+                        self::rawBrokerTimeouts($builder),
+                        $transport['options'],
+                    ),
                     // Wirkt nur auf Consumer-Seite. Ausdrücklich gesetzt, damit nicht
                     // der Eindruck entsteht, der Sensor würde erneut versuchen — er
                     // spoolt stattdessen.
@@ -175,8 +189,52 @@ final class IdsSensorBundle extends AbstractBundle
         }
 
         if ([] !== $messenger) {
-            $container->extension('framework', ['messenger' => $messenger], true);
+            // Über den ContainerBuilder statt über ContainerConfigurator::extension().
+            // Deren dritter Parameter $prepend gibt es erst ab Symfony 7.0; unter 6.4
+            // verschluckt PHP das Argument stillschweigend, und die Konfiguration
+            // würde angehängt — genau die Rangfolge, die oben ausgeschlossen wird.
+            $builder->prependExtensionConfig('framework', ['messenger' => $messenger]);
         }
+    }
+
+    /**
+     * Die Broker-Zeitgrenzen aus der noch unverarbeiteten Konfiguration, in Sekunden.
+     *
+     * Muss hier gelesen werden und nicht in loadExtension(): Die Transport-Optionen
+     * entstehen beim Vorbereiten der framework-Konfiguration, also bevor irgendeine
+     * Extension geladen ist. Derselbe Grund wie bei {@see rawTransportConfig()}.
+     *
+     * Die Werte standen bis hierher hartkodiert in {@see TRANSPORT_DEFAULTS} — numerisch
+     * identisch mit den Vorgaben von `budget.connect_timeout_ms` und
+     * `budget.read_timeout_ms`, die niemand las. Wer sie änderte, bekam eine plausible
+     * Bestätigung durch `debug:config` und keine Wirkung.
+     *
+     * @return array{timeout: float, read_timeout: float}
+     */
+    private static function rawBrokerTimeouts(ContainerBuilder $builder): array
+    {
+        $verbindung = 20;
+        $antwort = 30;
+
+        foreach ($builder->getExtensionConfig('ids_sensor') as $config) {
+            if (!\is_array($config) || !isset($config['budget']) || !\is_array($config['budget'])) {
+                continue;
+            }
+
+            $verbindung = self::alsMillisekunden($config['budget']['connect_timeout_ms'] ?? null, $verbindung);
+            $antwort = self::alsMillisekunden($config['budget']['read_timeout_ms'] ?? null, $antwort);
+        }
+
+        return ['timeout' => $verbindung / 1000, 'read_timeout' => $antwort / 1000];
+    }
+
+    /**
+     * %env()%-Platzhalter sind hier noch nicht aufgelöst; was nicht numerisch ist,
+     * bleibt beim bisherigen Wert.
+     */
+    private static function alsMillisekunden(mixed $wert, int $rueckfall): int
+    {
+        return is_numeric($wert) ? (int) $wert : $rueckfall;
     }
 
     /**
@@ -247,7 +305,7 @@ final class IdsSensorBundle extends AbstractBundle
             $config['environment_map'],
         ));
         $builder->setParameter('ids_sensor.environment_fallback', $config['environment_fallback']);
-        $builder->setParameter('ids_sensor.schema_version', EventFormat\Event\EventSchema::SCHEMA_VERSION);
+        $builder->setParameter('ids_sensor.schema_version', EventSchema::SCHEMA_VERSION);
 
         // Flache Parameter für die Werte, die die Verdrahtung braucht. Ein
         // verschachteltes Array als einzelner Parameter wäre in der YAML-Verdrahtung nicht
@@ -255,6 +313,20 @@ final class IdsSensorBundle extends AbstractBundle
         // einzelner Schlüssel daraus.
         $builder->setParameter('ids_sensor.budget.capture_us', $config['budget']['capture_us']);
         $builder->setParameter('ids_sensor.budget.max_events_per_request', $config['budget']['max_events_per_request']);
+        // Konzept 4.: „Hartes Timeout von 50 ms; danach Abbruch des Versands, der Request
+        // läuft normal weiter." Durchgesetzt zwischen den Broker-Operationen im
+        // FlushListener — siehe dort, warum das die einzige durchsetzbare Lesart ist.
+        $builder->setParameter('ids_sensor.budget.dispatch_ms', $config['budget']['dispatch_ms']);
+        $builder->setParameter('ids_sensor.logging.channel', $config['logging']['channel']);
+        $builder->setParameter('ids_sensor.budget.fatal_dispatch_ms', $config['budget']['fatal_dispatch_ms']);
+        $builder->setParameter(
+            'ids_sensor.layers.kernel.capture_fatal_errors',
+            $config['layers']['kernel']['enabled'] && $config['layers']['kernel']['capture_fatal_errors'],
+        );
+        // Erscheinen als Messenger-Optionen am Transport, nicht als eigener Dienst —
+        // deshalb stehen sie in der Ausnahmeliste von ConfigurationReachTest.
+        $builder->setParameter('ids_sensor.budget.connect_timeout_ms', $config['budget']['connect_timeout_ms']);
+        $builder->setParameter('ids_sensor.budget.read_timeout_ms', $config['budget']['read_timeout_ms']);
         $builder->setParameter('ids_sensor.telemetry.latency_histogram', $config['telemetry']['latency_histogram']);
 
         $builder->setParameter('ids_sensor.session_hash.enabled', $config['session_hash']['enabled']);
@@ -334,6 +406,12 @@ final class IdsSensorBundle extends AbstractBundle
 
         // Ohne DSN bleibt der NullShipper aus services.yaml stehen.
         $builder->setParameter('ids_sensor.transport.name', $config['transport']['name']);
+        // Ob überhaupt ein Broker erreichbar wäre. Der SpoolFlushCommand verweigert ohne
+        // ihn den Dienst, statt den Spool mit dem NullShipper stillschweigend zu leeren.
+        $builder->setParameter(
+            'ids_sensor.transport.configured',
+            null !== $config['transport']['dsn'] && '' !== $config['transport']['dsn'],
+        );
 
         $spool = $config['spool'];
         $builder->setParameter(
@@ -343,7 +421,10 @@ final class IdsSensorBundle extends AbstractBundle
         $builder->setParameter('ids_sensor.spool.max_bytes', $spool['max_bytes']);
         $builder->setParameter('ids_sensor.spool.max_file_bytes', $spool['max_file_bytes']);
         $builder->setParameter('ids_sensor.spool.drain_max_files_per_run', $spool['drain_max_files_per_run']);
-        $builder->setParameter('ids_sensor.spool.drain', $spool['drain']);
+        // War bis zur Wiederaufnahme liegengebliebener .draining-Dateien ein toter
+        // Knoten: dokumentiert als „ab wann eine Datei als liegengeblieben gilt", aber
+        // von niemandem gelesen.
+        $builder->setParameter('ids_sensor.spool.stale_after_s', $spool['stale_after_s']);
         // Reiner Dokumentationswert: der Sensor kann nicht wissen, wie oft der cron
         // tatsächlich läuft. Er meldet ihn im Heartbeat weiter, damit collectorseitig
         // bekannt ist, welche Verzögerung für diese Instanz normal ist.
@@ -373,6 +454,48 @@ final class IdsSensorBundle extends AbstractBundle
 
             $container->import('../config/services_transport.yaml');
         }
+
+        self::applyLogChannel($builder, $config['logging']['channel']);
+    }
+
+    /**
+     * Setzt den konfigurierten Monolog-Kanal an allen eigenen Diensten.
+     *
+     * WARUM NICHT `channel: '%ids_sensor.logging.channel%'` IN DER YAML
+     *
+     * Weil Symfony das nicht auflöst. `ResolveParameterPlaceHoldersPass` fasst von den
+     * Tags ausschließlich `proxy` an — jedes andere Tag-Attribut bleibt die
+     * Zeichenkette, die dort steht. MonologBundle bekäme also einen Kanal mit dem
+     * Namen `%ids_sensor.logging.channel%`, und niemand würde es merken, weil das
+     * Protokollieren weiterläuft: nur eben in einen Kanal, den keine Konfiguration
+     * kennt.
+     *
+     * Aufgefallen ist das am Container-Abdruck, der den Platzhalter unaufgelöst
+     * zeigte — genau der Zweck dieses Werkzeugs.
+     *
+     * Der Kanal wird nach ALLEN Importen gesetzt, damit auch die bedingt geladenen
+     * Dienste erfasst sind. `ids_sensor.logging.channel` bleibt als Parameter bestehen:
+     * Er macht die Einstellung per `debug:container` sichtbar.
+     */
+    private static function applyLogChannel(ContainerBuilder $builder, string $channel): void
+    {
+        foreach ($builder->getDefinitions() as $id => $definition) {
+            if (!str_starts_with($id, 'ids_sensor.')) {
+                continue;
+            }
+
+            $tags = $definition->getTags();
+
+            if (!isset($tags['monolog.logger'])) {
+                continue;
+            }
+
+            foreach ($tags['monolog.logger'] as $index => $attribute) {
+                $tags['monolog.logger'][$index] = ['channel' => $channel] + $attribute;
+            }
+
+            $definition->setTags($tags);
+        }
     }
 
     /**
@@ -388,8 +511,23 @@ final class IdsSensorBundle extends AbstractBundle
      *
      * `both` ist die einzige Auflösung, die in beiden Fällen etwas liefert: der Request-Pfad
      * wirkt sofort, der Command übernimmt, sobald er eingerichtet ist. Die gemeinsame
-     * Drosselung verhindert doppelte Meldungen. Dass der cron NOCH fehlt, ist am Payload
-     * ablesbar — `triggered_by` steht dann dauerhaft auf `request`.
+     * Drosselung verhindert doppelte Meldungen.
+     *
+     * ZUR AUSSAGEKRAFT VON `triggered_by`
+     *
+     * Konzept 3.4 leitet aus „`mode: both`, aber `triggered_by` dauerhaft `request`" ab,
+     * dass der cron-Eintrag fehlt. Hier stand dieselbe Aussage ohne Vorbehalt — sie hat
+     * einen: `Mode::Request` heißt „durch Anwendungsaktivität ausgelöst" und deckt auch
+     * `console.terminate` ab, also JEDEN Console-Command, einschließlich des
+     * verpflichtenden `ids:sensor:spool:flush`. Läuft der häufiger als
+     * `heartbeat.interval_s`, kommt er der gemeinsamen Drosselung stets zuvor, und der
+     * eigentliche Heartbeat-cron findet dauerhaft „noch nicht fällig" — `triggered_by`
+     * bliebe auf `request`, obwohl der Eintrag existiert.
+     *
+     * Die Richtung, die trägt, ist die andere: Ein einziger Heartbeat mit
+     * `triggered_by: command` beweist, dass der cron läuft. Für die Gegenrichtung ist
+     * `ids:sensor:setup-check` zuständig — der prüft die Konfiguration, statt aus einem
+     * Payload-Feld zu raten.
      *
      * @param array<string, mixed> $config
      */
@@ -582,6 +720,20 @@ final class IdsSensorBundle extends AbstractBundle
                     Bitte einen eigenen, unabhängigen Schlüssel verwenden.
                     TXT);
             }
+        }
+
+        // Zuletzt die dokumentierte Untergrenze. NACH der APP_SECRET-Prüfung, weil deren
+        // Meldung die hilfreichere ist: „du hast APP_SECRET benutzt" nennt die Ursache,
+        // „zu kurz" nur das Symptom — und ein APP_SECRET ist meist ohnehin zu kurz.
+        // doc/08 nennt die Grenze „Untergrenze der Prüfung", und
+        // README.md verspricht „≥ 32 Zeichen". Geprüft wurde bis hierher nichts:
+        // `key: 'geheim'` lief durch, und der HMAC aus Konzept 2.2.4 war entsprechend
+        // schwach. Nur bei literalen Werten möglich; steckt ein %env()%-Platzhalter darin,
+        // übernimmt ids:sensor:setup-check die Prüfung nach der Auflösung.
+        if (!str_contains($sessionHash['key'], '%env(')
+            && mb_strlen($sessionHash['key']) < $sessionHash['min_key_length']
+        ) {
+            throw new InvalidConfigurationException(\sprintf('ids_sensor.session_hash.key ist %d Zeichen lang, mindestens %d sind verlangt '."(ids_sensor.session_hash.min_key_length).\n\n".'Der Schlüssel schützt den Sitzungshash aus Konzept 2.2.4. Ist er zu kurz, lässt sich aus einer gestohlenen Event-Datenbank die Session-ID zurückrechnen — genau der Session-Hijacking-Vektor, den das Hashen verhindern soll.', mb_strlen($sessionHash['key']), $sessionHash['min_key_length']));
         }
     }
 }

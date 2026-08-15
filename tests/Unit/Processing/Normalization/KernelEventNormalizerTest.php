@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Processing\Normalization;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Processing\Normalization\KernelEventNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\QueryNormalizer;
@@ -233,7 +233,7 @@ final class KernelEventNormalizerTest extends TestCase
     /**
      * @param array<string, mixed> $data
      */
-    private function normalize(string $eventType, array $data): \ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent
+    private function normalize(string $eventType, array $data): \ProjektMotor\IdsEventData\Event\NormalizedEvent
     {
         $captured = CapturedEvent::now(Layer::Kernel, $eventType, $data);
         $captured->setCorrelationId('req-1');
@@ -247,6 +247,7 @@ final class KernelEventNormalizerTest extends TestCase
             new EventFactory(new SequentialEventIdGenerator()),
             new SeverityResolver(),
             new QueryNormalizer(TestCleaner::default()),
+            TestCleaner::default(),
         );
     }
 

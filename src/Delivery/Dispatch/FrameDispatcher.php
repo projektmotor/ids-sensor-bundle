@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Dispatch;
 
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Frame\Frame;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
-use ProjektMotor\IdsSensor\EventFormat\Frame\Frame;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 
@@ -46,7 +46,13 @@ final class FrameDispatcher
         // einzige Schranke vor dem Netzwerk unter mod_php. Ein fehlendes Argument
         // bedeutete „sende direkt" — also die gefährliche Richtung.
         private readonly RuntimeProfile $runtime,
-        private readonly ?SpoolInterface $spool = null,
+        // Ebenfalls nicht nullable, und aus demselben Grund wie $runtime: der Spool ist
+        // die letzte Stelle, an der ein Verlust noch gezählt werden kann. Ein fehlendes
+        // Argument hätte bedeutet, dass Events lautlos verschwinden — genau das, was der
+        // Docblock von spool() ausschließt.
+        private readonly SpoolInterface $spool,
+        // Obergrenze je Sendung. 0 hebt sie auf.
+        private readonly int $maxFrameBytes = 262144,
         private readonly ?CircuitBreaker $breaker = null,
         private readonly ?LoggerInterface $logger = null,
     ) {
@@ -85,9 +91,62 @@ final class FrameDispatcher
         return $this->ship($frame);
     }
 
+    /**
+     * Baut den Frame und legt ihn OHNE Broker-Versuch in den Spool.
+     *
+     * Für den Shutdown-Pfad nach einem Fatal Error. Dort ist ein Netzwerkzugriff die
+     * falsche Wahl: Der Prozess stirbt gerade, der Zustand ist unzuverlässig, und ein
+     * Verbindungsversuch mit 20 ms Timeout überschreitet das Shutdown-Budget von
+     * `budget.fatal_dispatch_ms` (15 ms) schon für sich genommen.
+     *
+     * Der Frame trägt `deferred` und nicht `recovered`: Der Weg über den Spool ist hier
+     * planmäßig, und die Verzögerung ist auf ein Drain-Intervall begrenzt — genau die
+     * Unterscheidung, die Konzept 3.3.1 verlangt.
+     *
+     * @param list<NormalizedEvent> $events
+     *
+     * @return int Anzahl der gespoolten Events
+     */
+    public function dispatchToSpool(SensorIdentity $identity, array $events): int
+    {
+        $frame = new Frame(
+            $identity,
+            $events,
+            new \DateTimeImmutable('now', new \DateTimeZone('UTC')),
+            DispatchPath::Deferred,
+            0,
+            $this->counters->all(),
+            $this->counters->processEpoch(),
+            $this->counters->pid(),
+        );
+
+        $this->spool($frame->toArray(), $frame->count(), 'Shutdown nach Fatal Error');
+
+        return $frame->count();
+    }
+
     private function ship(Frame $frame): int
     {
         $payload = $frame->toArray();
+
+        if ($this->tooLarge($payload)) {
+            // NICHT spoolen: Der Drainer schickte denselben Frame später an denselben
+            // Broker und liefe in denselben Fehler — die Zeile blockierte den Spool, bis
+            // er voll ist. Genau das Head-of-Line-Blocking, gegen das es
+            // UnshippableFrameException gibt.
+            //
+            // Also verwerfen und zählen. Konzept 4.: „Jeder verworfene oder verlorene
+            // Event wird gezählt", weil ein stiller Ausfall gefährlicher ist als ein
+            // sichtbarer.
+            $this->counters->increment(Counters::DROPPED_FRAME_TOO_LARGE, $frame->count());
+            $this->logger?->error(
+                'ids_sensor: Frame mit {count} Events überschreitet {max} Byte und wurde verworfen. '
+                .'Ursache ist fast immer ein einzelnes übergroßes raw-Feld — siehe raw.max_bytes.',
+                ['count' => $frame->count(), 'max' => $this->maxFrameBytes],
+            );
+
+            return 0;
+        }
 
         // Die Verzweigung, auf der die mod_php-Unterstützung beruht: hier findet
         // NACHWEISLICH kein Verbindungsversuch statt. Nicht „mit kurzem Timeout", nicht
@@ -126,6 +185,31 @@ final class FrameDispatcher
     }
 
     /**
+     * Ob die Sendung die Größengrenze überschreitet.
+     *
+     * Ein Broker-Schutz, keine Konzeptzusage: Redis lehnt eine Nachricht oberhalb von
+     * `proto-max-bulk-len` ab, und der Frame käme aus sich heraus nie durch. Ohne diese
+     * Prüfung landete er im Spool und blockierte ihn dort bei jedem Lauf erneut.
+     *
+     * Gemessen wird der kodierte Umfang, nicht geschätzt. Das kostet ein zweites
+     * `json_encode` — aber erst NACH dem Absenden der Antwort, und nur wenn eine Grenze
+     * gesetzt ist. Schlägt das Kodieren fehl, gilt der Frame als zu groß: Was sich nicht
+     * kodieren lässt, lässt sich auch nicht versenden.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function tooLarge(array $payload): bool
+    {
+        if ($this->maxFrameBytes <= 0) {
+            return false;
+        }
+
+        $encoded = json_encode($payload, \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return false === $encoded || \strlen($encoded) > $this->maxFrameBytes;
+    }
+
+    /**
      * Letzte Zuflucht: auf die Platte, damit ein zweiter Prozess es später nachsendet.
      *
      * Ist auch das nicht möglich (Spool voll oder nicht beschreibbar), ist der Verlust
@@ -137,10 +221,6 @@ final class FrameDispatcher
      */
     private function spool(array $payload, int $eventCount, string $reason): int
     {
-        if (null === $this->spool) {
-            return 0;
-        }
-
         if ($this->spool->append($payload)) {
             $this->counters->increment(Counters::SPOOLED, $eventCount);
             $this->logger?->info(

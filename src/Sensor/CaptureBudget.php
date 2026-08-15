@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
@@ -32,8 +33,12 @@ final class CaptureBudget implements ResetInterface
 
     private int $skipped = 0;
 
-    public function __construct(int $limitMicroseconds = 1500)
-    {
+    private int $failed = 0;
+
+    public function __construct(
+        int $limitMicroseconds = 1500,
+        private readonly ?LoggerInterface $logger = null,
+    ) {
         $this->limitNs = max(0, $limitMicroseconds) * 1000;
     }
 
@@ -56,7 +61,7 @@ final class CaptureBudget implements ResetInterface
      *
      * @param callable():void $capture
      */
-    public function guard(callable $capture, ?\Closure $onError = null): void
+    public function guard(callable $capture): void
     {
         if ($this->isExhausted()) {
             ++$this->skipped;
@@ -64,7 +69,7 @@ final class CaptureBudget implements ResetInterface
             return;
         }
 
-        $this->run($capture, $onError);
+        $this->run($capture);
     }
 
     /**
@@ -88,27 +93,46 @@ final class CaptureBudget implements ResetInterface
      *
      * @param callable():void $capture
      */
-    public function guardMandatory(callable $capture, ?\Closure $onError = null): void
+    public function guardMandatory(callable $capture): void
     {
-        $this->run($capture, $onError);
+        $this->run($capture);
     }
 
     /**
      * @param callable():void $capture
      */
-    private function run(callable $capture, ?\Closure $onError): void
+    private function run(callable $capture): void
     {
         $started = hrtime(true);
 
         try {
             $capture();
         } catch (\Throwable $e) {
-            if (null !== $onError) {
-                try {
-                    $onError($e);
-                } catch (\Throwable) {
-                    // Auch das Fehler-Logging darf nicht nach außen wirken.
-                }
+            // GEZÄHLT, nicht bloß geschluckt.
+            //
+            // Hier stand ein optionaler `$onError`-Rückruf, und KEINE der acht
+            // Aufrufstellen übergab ihn — der Zweig war toter Produktionscode. Ein im
+            // Sensor geworfener Fehler verschwand damit spurlos: kein Zähler, kein
+            // Logeintrag, von „nichts passiert" nicht zu unterscheiden. Das widersprach
+            // der Zusage aus Konzept 4. („Jeder verworfene oder verlorene Event wird
+            // gezählt") und wörtlich dem Docblock von CapturingEventDispatcher: „Der
+            // Sensor selbst protokolliert seine Fehler."
+            //
+            // Als Rückruf war die Zusage opt-in: Sie galt nur, wenn jede Aufrufstelle
+            // daran dachte. Eine Zusage, die jede Aufrufstelle einzeln einhalten muss,
+            // ist keine — deshalb zählt und protokolliert das Budget selbst.
+            ++$this->failed;
+
+            try {
+                $this->logger?->error('ids_sensor: Erfassung fehlgeschlagen: {message}', [
+                    'message' => $e->getMessage(),
+                    'exception' => $e,
+                ]);
+            } catch (\Throwable) {
+                // Der Fehlerpfad ist die empfindlichste Stelle: Wirft der Logger hier —
+                // ein Monolog-Handler auf voller Platte genügt —, entwiche die Exception
+                // ausgerechnet beim Behandeln eines Fehlers, und zwar mitten im
+                // Request-Pfad. Der Zähler steht dann trotzdem.
             }
         } finally {
             // Auch verpflichtende Erfassungen werden angerechnet: die Messung soll
@@ -127,14 +151,22 @@ final class CaptureBudget implements ResetInterface
         return 0 !== $this->limitNs && $this->spentNs >= $this->limitNs;
     }
 
+    /**
+     * Die gemessene Erfassungszeit dieses Durchlaufs in Nanosekunden.
+     *
+     * Wird beim Flush an den {@see \ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder}
+     * gereicht. Ohne diesen Weg maß das Budget zwar mit, behielt die Zahl aber für sich:
+     * `heartbeat.latency.in_request_overhead_us` war dauerhaft leer, obwohl Konzept 3.4
+     * genau daran die 5-ms-Zusage aus 2.1 überprüfbar macht.
+     */
+    public function spentNanoseconds(): int
+    {
+        return $this->spentNs;
+    }
+
     public function spentMicroseconds(): float
     {
         return $this->spentNs / 1000;
-    }
-
-    public function limitMicroseconds(): float
-    {
-        return $this->limitNs / 1000;
     }
 
     /**
@@ -146,6 +178,17 @@ final class CaptureBudget implements ResetInterface
     public function skipped(): int
     {
         return $this->skipped;
+    }
+
+    /**
+     * Wie viele Erfassungen mit einem Fehler endeten.
+     *
+     * Wandert als `dropped_capture_error` in die Zählerstände. Ohne ihn war ein Defekt im
+     * Sensor von einem ruhigen Request nicht zu unterscheiden.
+     */
+    public function failed(): int
+    {
+        return $this->failed;
     }
 
     /**

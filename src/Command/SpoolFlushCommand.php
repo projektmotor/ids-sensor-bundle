@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Command;
 
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -42,41 +41,59 @@ final class SpoolFlushCommand extends Command
     public function __construct(
         private readonly SpoolDrainer $drainer,
         private readonly int $defaultMaxFiles = 2,
+        // Ohne DSN bleibt `ids_sensor.shipper` der NullShipper — auch für den Drainer.
+        // Der wirft nie, also galt JEDE Zeile als versendet und `finish()` löschte die
+        // Datei: der cron leerte den Spool stillschweigend und meldete Erfolg. Unter
+        // mod_php mit vergessener DSN war das der lautlose Totalverlust.
+        private readonly bool $deliveryConfigured = true,
     ) {
         parent::__construct();
     }
 
+    /**
+     * KEIN Schalter für den dispatch_path.
+     *
+     * Hier stand `--deferred`, und es war zweimal falsch. Erstens sachlich: Konzept
+     * 3.3.1 nennt den Wert ausdrücklich „kein Schalter, sondern ein vom Sensor
+     * abgeleiteter Tatsachenwert; die Anwendung kann ihn nicht setzen" — ein CLI-Flag
+     * ließ genau das zu, und zwar in die günstige Richtung. Zweitens praktisch: Ohne
+     * das Flag markierte der Drainer JEDEN Frame als `recovered`, auch die unter mod_php
+     * planmäßig gespoolten. Der dokumentierte cron-Eintrag setzt es nicht, also war die
+     * Echtzeit-Erkennung dort dauerhaft aus.
+     *
+     * Der Drainer leitet den Wert jetzt je Frame aus dem Frame selbst ab.
+     */
     protected function configure(): void
     {
-        $this
-            ->addOption(
-                'max-files',
-                null,
-                InputOption::VALUE_REQUIRED,
-                'Höchstzahl der Spool-Dateien pro Lauf',
-                (string) $this->defaultMaxFiles,
-            )
-            ->addOption(
-                'deferred',
-                null,
-                InputOption::VALUE_NONE,
-                'Markiert die Frames als planmäßig verzögert (mod_php) statt als Nachlauf nach einem Ausfall. '
-                .'Der Unterschied entscheidet, ob der Collector sie noch für die Echtzeit-Regeln verwendet.',
-            );
+        $this->addOption(
+            'max-files',
+            null,
+            InputOption::VALUE_REQUIRED,
+            'Höchstzahl der Spool-Dateien pro Lauf',
+            (string) $this->defaultMaxFiles,
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
 
+        if (!$this->deliveryConfigured) {
+            $io->error(
+                'Es ist kein Broker konfiguriert (ids_sensor.transport.dsn fehlt). Ein Drain-Lauf '
+                .'würde den Spool leeren, ohne dass ein einziger Frame ankommt — deshalb passiert '
+                .'hier nichts. Unter mod_php ist dieser Command der einzige Transportweg; ohne DSN '
+                .'sammelt der Spool, bis er voll ist, und verwirft dann gezählt.'
+            );
+
+            return Command::FAILURE;
+        }
+
         $maxFiles = (int) $input->getOption('max-files');
-        $path = true === $input->getOption('deferred')
-            ? DispatchPath::Deferred
-            : DispatchPath::Recovered;
 
-        $result = $this->drainer->drain(max(1, $maxFiles), $path);
+        $result = $this->drainer->drain(max(1, $maxFiles));
 
-        if (0 === $result['frames'] && 0 === $result['failed']) {
+        if (0 === $result['frames'] && 0 === $result['failed'] && 0 === $result['discarded']) {
             $io->success('Nichts nachzusenden.');
 
             return Command::SUCCESS;
@@ -87,7 +104,10 @@ final class SpoolFlushCommand extends Command
             ['Frames gesendet' => (string) $result['frames']],
             ['Fehlgeschlagen' => (string) $result['failed']],
             ['Übersprungen' => (string) $result['skipped']],
-            ['dispatch_path' => $path->value],
+            // Verworfene Zeilen gehören sichtbar in die Ausgabe: Ohne sie meldete der
+            // Command „Nichts nachzusenden", nachdem er eine ganze Datei restlos
+            // verworfen hatte.
+            ['Verworfen' => (string) $result['discarded']],
         );
 
         if ($result['failed'] > 0) {
@@ -97,6 +117,14 @@ final class SpoolFlushCommand extends Command
             );
 
             return Command::FAILURE;
+        }
+
+        if ($result['discarded'] > 0) {
+            $io->warning(\sprintf(
+                '%d Zeile(n) wurden verworfen — unlesbar oder dauerhaft unversendbar. Sie sind '
+                .'als dropped_spool_unreadable gezählt und reisen im nächsten Heartbeat mit.',
+                $result['discarded'],
+            ));
         }
 
         $io->success(\sprintf('%d Frames nachgesendet.', $result['frames']));

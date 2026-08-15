@@ -7,7 +7,7 @@ und landeten dort in Queues, Logs und Spool-Dateien.
 Die Feldnamen bleiben erhalten: dass eine Anfrage ein Feld `password` mitbrachte, ist
 forensisch relevant; sein Inhalt nicht.
 
-## Vier Eintrittspunkte, eine Liste
+## Fünf Eintrittspunkte, eine Liste
 
 ```mermaid
 flowchart LR
@@ -17,6 +17,7 @@ flowchart LR
         q["payload.query"]
         f["Formularfelder<br/>in raw"]
         b["Business-Payload"]
+        m["payload.exception_message<br/>und payload.referer"]
     end
 
     subgraph chain["Support/PayloadConfidentialityCleanup/"]
@@ -30,6 +31,7 @@ flowchart LR
     f -->|"RawPayload\\Builder"| cleaner
     q -->|"QueryNormalizer"| cleaner
     b -->|"PayloadSanitizer"| cleaner
+    m -->|"KernelEventNormalizer"| cleaner
 
     cleaner --> out["Frame<br/><small>kein Klartext mehr</small>"]
 
@@ -39,14 +41,14 @@ flowchart LR
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
     classDef data fill:#EEEDFE,stroke:#534AB7,color:#332C7A
-    class h,q,f,b data
+    class h,q,f,b,m data
     class rules,cleaner,loader transport
     class out capture
     style inputs fill:#FCFCFF,stroke:#534AB7,color:#332C7A
     style chain fill:#FBFBF9,stroke:#5F5E5A,color:#3A3936
 ```
 
-Vier verschiedene Wege führen in **denselben** `Cleaner` mit **derselben** Liste. Das ist
+Fünf verschiedene Wege führen in **denselben** `Cleaner` mit **derselben** Liste. Das ist
 Absicht: eine zweite Liste wäre eine zweite Gelegenheit, sie unvollständig zu halten.
 
 Die Liste wird zur **Container-Compile-Zeit** gelesen, nicht pro Request — eine YAML-Datei
@@ -102,6 +104,64 @@ ausschließen will.
 Aus demselben Grund wird die Session-ID nie übertragen, sondern nur ihr HMAC. Der
 Schlüssel dafür ist ausdrücklich **nicht** `APP_SECRET`: die überwachte Anwendung kennt
 `APP_SECRET` und könnte aus einer gestohlenen Event-Datenbank die Hashes nachrechnen.
+
+## URLs sind ein eigener Eintrittspunkt
+
+`Referer`, `Location` und `Content-Location` tragen als Wert eine **vollständige URL** —
+und damit sensible Werte in einem Feld, dessen *Name* unauffällig ist. Die Denylist
+greift über Namen und läuft hier ins Leere.
+
+Praktisch wichtig ist der Referer: Wer `https://app.example/reset?token=…` öffnet und
+dort einen Link anklickt, schickt das Token im `Referer` mit. Dieselbe Klasse:
+`?signature=`, OAuth-`?code=`, Magic-Links. Betroffen sind **zwei** Felder —
+`payload.referer` (reist bei jeder Stufe mit, also auch bei `info`) und
+`raw.request_headers.referer`.
+
+Diese Header werden deshalb weder durchgereicht noch vollständig ersetzt: ihr
+Query-String läuft durch dieselbe Parameter-Denylist wie `payload.query`, Herkunft und
+Pfad bleiben stehen. Die Herkunft eines Zugriffs ist bei jeder Scanning- und
+Rechteausweitungsregel eine Auskunft; vollständig zu ersetzen wäre zu viel. Zugangsdaten
+in der URL (`https://nutzer:geheim@host/`) werden weggelassen — sie sind nie eine
+Auskunft, aber immer ein Geheimnis. Eine nicht zerlegbare Zeichenkette wird vollständig
+ersetzt: was der Sensor nicht versteht, kann er auch nicht redigieren.
+
+## Exception-Meldungen: redigiert, aber nur in Query-Schreibweise
+
+`payload.exception_message` ist der dritte Eintrittspunkt derselben Klasse. Die Meldung
+ist angreiferbeeinflusst — das Konzept nennt selbst „No route found for GET
+/wp-admin/setup-config.php" —, und sie trägt oft die angefragte URI **samt Query**. Wie
+`payload.referer` reist sie bei **jeder** Stufe mit, nicht nur bei `warning`/`critical`
+wie `raw`.
+
+Redigiert wird darin die Query-Schreibweise `name=wert`, abgegrenzt durch `?`, `&`,
+Leerraum oder Zeilenanfang — also genau die Form, in der URLs und Formulardaten in
+Meldungen landen. Der Name entscheidet über dieselbe Denylist wie überall sonst.
+
+**Nicht** erfasst wird ein Geheimnis, das in Prosa oder in fremder Syntax steht — etwa
+`WHERE password = 'geheim'` in einer `PDOException`. Das ist eine Entscheidung, kein
+Versehen: Dafür bräuchte es eine Grammatik je Quellsprache, und ein Muster, das jedes
+Wort neben einem Denylist-Namen schwärzt, machte die Meldung als Erkennungsgrundlage
+wertlos. Wer Datenbank-Exceptions mit Parameterwerten erwartet, schaltet sie in der
+Anwendung ab (`PDO::ATTR_ERRMODE` bzw. Doctrines Fehlerbehandlung) — dort, wo sie
+entstehen.
+
+Die Meldungen der **inneren** Exceptions einer Kette stehen ohnehin nirgends: `raw`
+führt die Kette nur als Klassennamen mit Ort. Die äußerste Meldung ist die einzige
+Ausnahme, weil Konzept 3.1.1 sie im Payload verlangt.
+
+## Symfonys Debug-Header
+
+`X-Debug-Exception` und `X-Debug-Exception-File` setzt Symfonys `ErrorListener` im
+Debug-Modus in die **Antwort** — und der erste trägt die vollständige, URL-kodierte
+Exception-Meldung. `raw.response_headers` kopierte sie damit im Klartext, während
+dieselbe Meldung in `payload.exception_message` durch die Denylist läuft: Ein
+`?password=` im angefragten Pfad stand im Payload redigiert und im `raw`-Feld lesbar.
+
+Beide stehen deshalb seit Fassung **2** der Liste in der Denylist. Forensisch kostet das
+nichts — die Meldung steht bereits im Payload.
+
+Aufgefallen ist das unter Symfony 6.4, der unteren Grenze der Abhängigkeiten dieses
+Pakets. Der reguläre Testlauf sieht sie nicht; `make test-lowest` schon.
 
 ## Was das nicht leistet
 

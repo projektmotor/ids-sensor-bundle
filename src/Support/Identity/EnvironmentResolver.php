@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Support\Identity;
 
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -120,11 +120,21 @@ final class EnvironmentResolver
         }
 
         $this->warned = true;
-        $this->logger?->critical(
-            'ids_sensor: environment "{configured}" ist nicht auf prod|staging|dev abbildbar, '
-            .'es wird "{fallback}" verwendet. Bitte ids_sensor.environment_map ergänzen — '
-            .'sonst sind alle Events dieser Instanz falsch zugeordnet.',
-            ['configured' => $raw, 'fallback' => $this->fallback->value],
-        );
+
+        // Der Logger im eigenen try: `resolve()` läuft im Request-Pfad, und fail-open
+        // gilt ohne Ausnahme (Konzept 4.). Ein Monolog-Handler, der auf ein volles
+        // Dateisystem schreibt, ist der realistische Fall — er darf die Umgebung nicht
+        // kosten, deren Auflösung ohnehin schon einen Rückfall benutzt. Derselbe Fehler
+        // steckte im CaptureBudget und im EventFlusher.
+        try {
+            $this->logger?->critical(
+                'ids_sensor: environment "{configured}" ist nicht auf prod|staging|dev abbildbar, '
+                .'es wird "{fallback}" verwendet. Bitte ids_sensor.environment_map ergänzen — '
+                .'sonst sind alle Events dieser Instanz falsch zugeordnet.',
+                ['configured' => $raw, 'fallback' => $this->fallback->value],
+            );
+        } catch (\Throwable) {
+            // Nicht einmal ein zweiter Logversuch: Wer hier scheitert, scheitert auch dort.
+        }
     }
 }

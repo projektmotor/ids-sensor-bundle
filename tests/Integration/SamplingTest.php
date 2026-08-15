@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
-use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
 use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
@@ -14,7 +13,6 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\Messenger\Envelope;
-use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
 /**
  * Sampling durch den echten Container (Konzept 4.2.3).
@@ -120,27 +118,6 @@ final class SamplingTest extends IntegrationTestCase
 
         self::assertNotNull($gefunden, 'Bei Rate 0,9 muss innerhalb von 50 Versuchen ein Request überleben');
         self::assertSame(0.9, $gefunden['sampling_rate']);
-    }
-
-    /**
-     * @return list<EventBatch>
-     */
-    private function batches(ContainerInterface $services): array
-    {
-        /** @var InMemoryTransport $transport */
-        $transport = $services->get('messenger.transport.ids_events');
-
-        $batches = [];
-
-        foreach ($transport->getSent() as $envelope) {
-            $message = $envelope->getMessage();
-
-            if ($message instanceof EventBatch) {
-                $batches[] = $message;
-            }
-        }
-
-        return $batches;
     }
 
     private function wireBody(ContainerInterface $services): string

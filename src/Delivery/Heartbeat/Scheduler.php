@@ -64,7 +64,25 @@ final class Scheduler
         $now ??= time();
         $last = $this->lastSentAt();
 
-        return null === $last || ($now - $last) >= $this->intervalSeconds;
+        if (null === $last) {
+            return true;
+        }
+
+        // Ein Stempel aus der ZUKUNFT heißt: die Uhr ist zurückgesprungen (NTP-Korrektur),
+        // oder der Stempel stammt von einem anderen Host auf einem geteilten Volume — was
+        // die Doku als Fehlkonfiguration ausdrücklich erwartet. Ohne diese Zeile wurde die
+        // Differenz negativ und der Heartbeat blieb aus, bis die Wanduhr aufgeholt hatte.
+        // Der Collector meldete dann `ids.sensor_silent` für einen gesunden Sensor —
+        // genau der Falschalarm, den der Heartbeat verhindern soll.
+        //
+        // Die Nachbarmethode secondsSinceLastSend() klemmt mit max(0, …) und meldete
+        // deshalb 0, während isDue() denselben Sachverhalt als „noch lange nicht fällig"
+        // las. Die beiden widersprachen sich.
+        if ($last > $now) {
+            return true;
+        }
+
+        return ($now - $last) >= $this->intervalSeconds;
     }
 
     /**

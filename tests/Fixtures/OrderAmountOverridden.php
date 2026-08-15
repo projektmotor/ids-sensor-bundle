@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Fixtures;
 
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Contract\SecurityRelevantBusinessEvent;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
 
 /**
  * Ein Business-Event nach Vorgangsklasse V4 aus Konzept 2.1.3: wertverändernder

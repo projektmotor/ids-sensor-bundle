@@ -41,6 +41,19 @@ final class RequestSnapshot
     public ?string $clientFingerprint = null;
 
     /**
+     * Ob {@see ActorFactory} den Fingerabdruck
+     * schon berechnet hat.
+     *
+     * Ein eigenes Feld, weil `null` beim Fingerabdruck ein GÜLTIGES Ergebnis ist: ein
+     * Client ohne die betrachteten Header bekommt keinen, und mit
+     * `fingerprint.enabled: false` bekommt ihn niemand. `??=` konnte den Fall nicht von
+     * „noch nicht gerechnet" unterscheiden und rechnete deshalb bei jeder der bis zu 200
+     * Autorisierungsentscheidungen neu — ausgerechnet bei header-losen Clients, also bei
+     * Bots und Scannern.
+     */
+    public bool $clientFingerprintComputed = false;
+
+    /**
      * @param array<array-key, mixed> $query
      */
     public function __construct(
@@ -53,7 +66,6 @@ final class RequestSnapshot
         public readonly int $contentLength = 0,
         public readonly ?string $userAgent = null,
         public readonly ?string $referer = null,
-        public readonly ?string $parentPath = null,
     ) {
     }
 

@@ -9,10 +9,6 @@ Normalisierung, Redaktion (4.5.1), Versand an den Broker"*.
 
 | Namespace | Konzept | Wann läuft das? |
 |---|---|---|
-| `EventFormat/Frame/` | 3.3 + 3.3.1 | gar nicht — reine Daten und Konstanten |
-| `EventFormat/Event/` | Abschnitt 3 | gar nicht |
-| `EventFormat/Payload/` | 3.1.1 + 3.1.2 | gar nicht |
-| `EventFormat/Vocabulary/` | 2.1 + 2.2.1 | gar nicht |
 | `Contract/` | 2.1.3 | in der überwachten Anwendung |
 | `Sensor/` | 2.1 Sensorik | **Phase A** — im Request, unter dem 5-ms-Budget |
 | `Processing/Normalization/` | 2.2 + 3.1 | **Phase B** — nach `Response::send()` |
@@ -28,23 +24,39 @@ Normalisierung, Redaktion (4.5.1), Versand an den Broker"*.
 | `Exception/` | 4. fail-open | die eine Klasse, an der eine Entscheidung hängt |
 | `IdsSensorBundle.php` | — | beim Kompilieren und beim Booten |
 
-## Die beiden öffentlichen Namespaces
+## Der öffentliche Namespace
 
-`Contract/` und `EventFormat/` sind die Semver-Fläche. Alles andere trägt `@internal`.
-Die Regel ist nicht Prosa, sondern Test: `tests/Unit/ArchitectureTest.php` prüft, dass
-`@internal` genau außerhalb dieser beiden Verzeichnisse steht.
+`Contract/` ist die Semver-Fläche des Bundles. Alles andere trägt `@internal`. Die Regel
+ist nicht Prosa, sondern Test: `tests/Unit/ArchitectureTest.php` prüft, dass `@internal`
+genau außerhalb dieses Verzeichnisses steht.
 
-Beide stehen bewusst **oben** und nicht in einer der drei Gruppen. Es sind die einzigen
-zwei Namensräume, die ein Nutzer je tippt; jede Ebene darüber verlängert die einzigen
-Namen, die nach außen zählen.
+Es steht bewusst **oben** und nicht in einer der drei Gruppen. Es ist der einzige
+Namensraum dieses Bundles, den ein Nutzer je tippt; jede Ebene darüber verlängert die
+einzigen Namen, die nach außen zählen.
 
 **`Contract/`** — die drei Interfaces, die die überwachte Anwendung anfasst:
 `SecurityRelevantBusinessEvent` (implementieren), `BusinessEventRecorderInterface`
 (injizieren), `IdsResourceIdentifier` (optional implementieren).
 
-**`EventFormat/`** — der Vertrag mit dem Collector. Die vier Untergruppen spiegeln die
-Verschachtelung des Drahtformats; von oben nach unten gelesen ist das das JSON von außen
-nach innen:
+## Das Ereignisformat ist ein eigenes Paket
+
+Der zweite Vertrag — der mit dem Collector — liegt nicht mehr in diesem Repository. Er
+ist [`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data),
+Namensraum `ProjektMotor\IdsEventData\`.
+
+Bis dahin lag er als `src/EventFormat/` hier und importierte per Test **nichts Fremdes** —
+weder aus dem Bundle noch aus Symfony, in `use`-Zeilen wie in Docblocks. Genau das war die
+Bedingung dafür, dass die Ausgliederung ein Verzeichnis-Move plus `composer.json` bleibt
+und keine Entflechtung wird. Sie hat gehalten; der Umbau war ein `git mv` und eine
+Namensraum-Ersetzung.
+
+Der Grund für den Umzug: das Format ist der Vertrag zwischen **zwei** Paketen. Das
+IdsBackendBundle liest, was dieses Bundle schreibt. Läge es weiter hier, müsste das
+Backend Symfony Messenger, HttpFoundation und Redis mitziehen, nur um drei Enums zu
+kennen.
+
+Die vier Untergruppen dort spiegeln die Verschachtelung des Drahtformats; von oben nach
+unten gelesen ist das das JSON von außen nach innen:
 
 ```
 Frame/        Frame  DispatchPath              3.3   — was auf der Leitung liegt
@@ -54,41 +66,15 @@ Payload/      KernelPayload  SecurityPayload   3.1   — was im Event liegt
 Vocabulary/   Layer  Severity  Environment           — die geschlossenen Wertelisten
 ```
 
-`EventFormat/` importiert **nichts Fremdes** — weder aus dem Bundle noch aus Symfony;
-untereinander greifen die vier Gruppen sechsmal, und das ist erlaubt. Das ist Absicht und
-wird getestet, in `use`-Zeilen wie in Docblocks: der Namespace soll als eigenes Paket
-ausgelöst werden, das IdsSensorBundle und IdsBackendBundle gemeinsam konsumieren. Solange
-die Bedingung hält, ist die Auslösung ein Verzeichnis-Move plus `composer.json` — und
-genau deshalb liegt über ihm keine `Api/`-Ebene, die dabei wieder verschwinden müsste.
+Was dieses Repository noch prüft, ist die Gegenrichtung: dass das Format nicht
+zurückkommt. Eine zweite Fassung des Drahtformats hier wäre eine stille Abspaltung, die
+erst beim Collector auffiele — `ArchitectureTest::testTheEventFormatStaysInItsOwnPackage()`
+schließt das aus.
 
-Die Probe dafür ist ein Einzeiler und steht so auch im Test:
-
-```bash
-grep -rn 'ProjektMotor\\IdsSensor\\' src/EventFormat/ | grep -v 'EventFormat\\'
-```
-
-### Was in `Vocabulary/` gehört — und was nicht
-
-> Ein neuer Fall in `Vocabulary/` ist eine Migration am collectorseitigen ENUM-Typ
-> (Konzept 4.2.1 Tabellenschema). Was das nicht auslöst, gehört nicht hierher.
-
-`Layer`, `Severity` und `Environment` erfüllen das: ihre Docblocks sagen alle denselben
-Satz, jeder von ihnen hat drei Werte, für immer. Zwei Klassen, bei denen die Frage
-naheliegt und die das Kriterium abweist:
-
-- **`DispatchPath`** liegt in `Frame/`. Drei feste Werte hat es zwar, aber es ist eine
-  Eigenschaft der Sendung und laut eigenem Docblock eine „Ergänzung zum Konzept" — kein
-  ENUM-Typ auf der Gegenseite.
-- **`SensorIdentity`** liegt in `Event/`. `application_id` und `instance_id` haben gar
-  keine geschlossene Wertemenge; der Betreiber wählt sie frei, und `isValidId()`
-  beschränkt nur ihre Form. Strukturell ist sie ohnehin das Geschwister von `Actor` —
-  beides Feldgruppen auf derselben Ebene, `Actor` sagt *wer*, `SensorIdentity` sagt *wo
-  beobachtet*.
-
-`EventSchema` liegt in `Event/`, weil es die Schemadefinition des Events ist. Dass der
-`Frame` von dort vier Konstanten liest, ist die einzige Stelle, an der eine äußere Ebene
-in eine innere greift — und sie ist richtig: der Frame wiederholt die Identitätsfelder
-des Events auf seiner eigenen Ebene (Konzept 3.3).
+Die Begründungen für die Zuordnung der einzelnen Klassen — warum `DispatchPath` in
+`Frame/` liegt und nicht in `Vocabulary/`, warum `SensorIdentity` das Geschwister von
+`Actor` ist — sind mit den Klassen gewandert und stehen in deren Docblocks sowie im
+README des Pakets.
 
 ## Die Phasengrenze
 
@@ -110,7 +96,7 @@ Sensor/                                    Processing/     →     Delivery/
 ```
 
 `Sensor/` importiert `Processing/` nicht — auch das ist getestet. Möglich wird das
-dadurch, dass die gemeinsamen Schlüssel im `EventFormat/` liegen und nicht in den
+dadurch, dass die gemeinsamen Schlüssel im Ereignisformat-Paket liegen und nicht in den
 Normalisierern: beide Seiten sind Leser desselben Vertrags, keine hängt an der anderen.
 
 Die Gegenrichtung ist erlaubt und richtig: `Processing/` liest `Sensor\CapturedEvent`.
@@ -163,20 +149,25 @@ Struktur. Nur dieser Ordner stellt Vertraulichkeit her.
 ## Abhängigkeitsrichtung
 
 ```
-Rang 0   EventFormat/Vocabulary, EventFormat/Payload, Contract, Exception
-                                               (importieren nichts aus dem Bundle)
-Rang 1   EventFormat/Event                     → Vocabulary
-         Support/PayloadConfidentialityCleanup, Support/Identity  → EventFormat
-Rang 2   EventFormat/Frame                     → Event
-         Support/RawPayload                    → Cleanup, EventFormat
-Rang 3   Sensor                                → EventFormat, Contract, RawPayload
+         ids-event-data                        (eigenes Paket, importiert nichts)
+
+Rang 0   Contract, Exception                   (importieren nichts aus dem Bundle)
+Rang 1   Support/PayloadConfidentialityCleanup, Support/Identity
+Rang 2   Support/RawPayload                    → Cleanup
+Rang 3   Sensor                                → Contract, RawPayload
 Rang 4   Support/Telemetry                     → Sensor
-Rang 5   Processing/Normalization              → EventFormat, Sensor, Cleanup, RawPayload
-Rang 6   Delivery/Transport                    → EventFormat, Exception
-Rang 7   Delivery/Heartbeat                    → Transport, Telemetry, Identity, EventFormat
+Rang 5   Processing/Normalization              → Sensor, Cleanup, RawPayload
+Rang 6   Delivery/Transport                    → Exception
+Rang 7   Delivery/Heartbeat                    → Transport, Telemetry, Identity
 Rang 8   Delivery/Dispatch                     → alles darüber
 Rang 9   Command, DependencyInjection, IdsSensorBundle
 ```
+
+Das Ereignisformat steht über der Tabelle und nicht in ihr: es ist ein Fremdpaket, und
+`ArchitectureTest` betrachtet nur den eigenen Wurzel-Namensraum. Praktisch liegt es unter
+Rang 0 — es importiert seinerseits nichts, ein Zyklus über die Paketgrenze ist also
+ausgeschlossen. Fast jeder Rang liest daraus; das ist der Normalfall und keine
+Besonderheit einzelner Ordner.
 
 Zyklenfrei, und seit `ArchitectureTest::testGroupsFormALayering()` nicht mehr nur als
 Momentaufnahme: jeder Import muss auf gleichen oder kleineren Rang zeigen.
@@ -185,7 +176,8 @@ Die Tabelle ist feiner als der Verzeichnisbaum, und das ist kein Versehen. Die O
 beantworten „welcher Phase gehört das?", die Ränge beantworten „wer darf wen kennen?".
 Am deutlichsten an `Support/`, dessen vier Mitglieder sich über drei Ränge verteilen:
 
-- `PayloadConfidentialityCleanup/` und `Identity/` lesen nur aus dem `EventFormat/`.
+- `PayloadConfidentialityCleanup/` und `Identity/` lesen nur aus dem Ereignisformat-Paket
+  und aus nichts sonst.
 - `RawPayload/` liegt darüber, weil der `Builder` den `Cleaner` benutzt — redigiert wird
   beim **Aufbau**, damit ein unredigierter Wert zu keinem Zeitpunkt in einer
   serialisierbaren Struktur existiert.

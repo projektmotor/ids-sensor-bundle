@@ -124,6 +124,44 @@ final class CleanerTest extends TestCase
 
     public function testTheListVersionCanBeQueried(): void
     {
-        self::assertSame(1, $this->cleaner->rulesVersion());
+        self::assertSame(TestCleaner::rules()->version, $this->cleaner->rulesVersion());
+    }
+
+    /**
+     * Die Breite war als einzige Größe dieser Klasse angreifergesteuert.
+     *
+     * `MAX_DEPTH` begrenzte die Verschachtelung, die Zahl der Elemente je Ebene nichts.
+     * Gebremst wurde erst `RawPayload\Builder::capped()` — durch VERWERFEN des ganzen
+     * `payload`-Zweiges. Wer 5000 Formularfelder schickte, bekam damit genau das, was er
+     * wollte: ein leeres raw.
+     */
+    public function testTooManyParametersAreCappedInsteadOfWalked(): void
+    {
+        $viele = [];
+
+        for ($i = 0; $i < Cleaner::MAX_PARAMETERS + 50; ++$i) {
+            $viele['feld'.$i] = 'wert';
+        }
+
+        $bereinigt = $this->cleaner->cleanParameters($viele);
+
+        self::assertCount(Cleaner::MAX_PARAMETERS + 1, $bereinigt, 'Die Kappung plus ihr Vermerk');
+        self::assertTrue($bereinigt[Cleaner::TRUNCATED_MARKER], 'Ohne Vermerk entstünde der Eindruck von Vollständigkeit');
+        self::assertSame('wert', $bereinigt['feld0'], 'Der Anfang bleibt erhalten — raw behält seinen Wert');
+    }
+
+    /**
+     * Der Vermerk darf nicht von außen kommen — sonst ist ein Vollständigkeitsverlust
+     * behauptbar, den es nie gab.
+     */
+    public function testTheTruncationMarkerCannotBeForged(): void
+    {
+        $bereinigt = $this->cleaner->cleanParameters([
+            Cleaner::TRUNCATED_MARKER => true,
+            'echt' => 'sichtbar',
+        ]);
+
+        self::assertArrayNotHasKey(Cleaner::TRUNCATED_MARKER, $bereinigt);
+        self::assertSame('sichtbar', $bereinigt['echt']);
     }
 }

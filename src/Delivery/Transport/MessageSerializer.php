@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Transport;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\Heartbeat;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;

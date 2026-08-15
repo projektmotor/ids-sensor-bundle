@@ -50,31 +50,40 @@ final class RequestSnapshotRegistry implements ResetInterface
     }
 
     /**
-     * Liefert den Snapshot des Requests, mit Rückfall auf den Haupt-Request.
+     * Liefert den Snapshot GENAU DIESES Requests — oder null.
      *
-     * Der Rückfall ist nötig, weil eine Exception auch auf einem Request auftreten
-     * kann, den wir nie gesehen haben — etwa wenn ein Listener mit noch höherer
-     * Priorität als unserer abbricht. Ohne Rückfall hätte das Folge-Event dann keinen
-     * Pfad, und die Feldredundanz aus Konzept 3.2 wäre gerade im Fehlerfall
-     * unvollständig.
+     * KEIN RÜCKFALL AUF DEN HAUPT-REQUEST
+     *
+     * Hier stand einer, mit der Begründung, ein Folge-Event hätte sonst keinen Pfad.
+     * Er bewertete fehlende Daten als schlimmer als falsche, und das ist für ein
+     * Beweissystem die falsche Richtung: Wer den Snapshot eines FREMDEN Requests
+     * bekommt, erbt dessen `correlationId`, `path`, `route`, `contentLength` und
+     * `startedAt`. Die Folgen sind einzeln nachweisbar — `elapsedMs()` rechnet gegen
+     * eine fremde Startzeit, und die Events zweier verschiedener Anfragen hängen an
+     * derselben Spur. Genau die Verkettung, auf der die Regeln X1–X4 aus Konzept 4.3.3
+     * aufbauen, wäre damit still verfälscht.
+     *
+     * Die Sensoren kommen ohne Snapshot aus: {@see \ProjektMotor\IdsSensor\Sensor\Kernel\ResponseSensor}
+     * und {@see \ProjektMotor\IdsSensor\Sensor\Kernel\ExceptionSensor} lesen den Pfad
+     * dann unmittelbar aus dem Request, und {@see CapturedEventBinder} baut den Akteur
+     * weiterhin aus dem Request. Verloren geht nur, was ohne Snapshot tatsächlich
+     * unbekannt ist.
+     *
+     * Für den einen Fall, in dem der Haupt-Request wirklich gemeint ist — die
+     * Vererbung der correlation_id an Sub-Requests —, gibt es {@see mainSnapshot()}.
      */
     public function get(?Request $request): ?RequestSnapshot
     {
-        if (null !== $request && isset($this->snapshots[$request])) {
-            return $this->snapshots[$request];
+        if (null === $request) {
+            return null;
         }
 
-        return $this->mainSnapshot;
+        return $this->snapshots[$request] ?? null;
     }
 
     public function mainSnapshot(): ?RequestSnapshot
     {
         return $this->mainSnapshot;
-    }
-
-    public function has(Request $request): bool
-    {
-        return isset($this->snapshots[$request]);
     }
 
     /**

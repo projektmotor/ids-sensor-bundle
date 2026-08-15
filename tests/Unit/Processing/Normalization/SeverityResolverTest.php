@@ -6,7 +6,7 @@ namespace ProjektMotor\IdsSensor\Tests\Unit\Processing\Normalization;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 
 /**

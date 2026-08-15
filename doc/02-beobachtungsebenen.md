@@ -68,9 +68,13 @@ Zwei Voreinstellungen, die überraschen können und Absicht sind:
 
 - **`layers.kernel.ignored_paths` ist leer.** Regel R2b lebt davon, Zugriffe auf
   `/_profiler` zu sehen; ein gut gemeinter Standardwert würde genau dieses Signal löschen.
+  Die Einträge sind reguläre Ausdrücke **mit Trennzeichen** — `#^/health$#`, nicht
+  `/health`. Ein Muster ohne Trennzeichen wurde stillschweigend nie angewandt; heute
+  wird es beim Kompilieren abgelehnt.
 - **Sub-Requests erzeugen nur Exception-Events** (`sub_requests: exceptions_only`). Ihr
   Pfad ist meist eine Kopie des Elternpfades, was jede Schwellwertregel doppelt zählen
   ließe. Exceptions dagegen verschluckt `ignore_errors` und wären sonst nirgends sichtbar.
+
 
 ## Security-Ebene (*2.1.2*)
 

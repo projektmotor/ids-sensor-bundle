@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration\PayloadConfidentialityCleanup;
 
-use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
 use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Cleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
+use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\Messenger\Envelope;
-use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
 /**
  * DIE Abnahmeprüfung für Konzept 4.5.1.
@@ -66,6 +65,21 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         'body-cvv' => 'cvv-wert-737-nicht-uebertragen',
         'body-iban' => 'DE89370400440532013000',
         'body-secret' => 'client_secret_1a2b3c_geheim',
+        // Der Referer ist eine FREMDE vollständige URL samt Query. Er lief bis zuletzt
+        // nur durch eine Kürzung, nicht durch die Denylist — und payload.referer reist
+        // laut Konzept 3.1.1 bei JEDER Stufe mit, also auch bei info.
+        'referer-token' => 'reset_token_referer_3e7d_geheim',
+        // Ein sensibler Teil des Schlüsselnamens JENSEITS von Zeichen 64: Der
+        // QueryNormalizer kürzte den Schlüssel auf 64 Zeichen und gab den GEKÜRZTEN an
+        // die Denylist, die per str_contains sucht — `token` lag dahinter und wurde nicht
+        // gefunden. Im raw-Pfad ging der volle Schlüssel an den Cleaner: zwei Ergebnisse
+        // für dieselben Daten.
+        'query-langer-schluessel' => 'wert_hinter_langem_schluessel_9c4e_geheim',
+        // `payload.exception_message` lief an der Denylist vorbei — sanitizeMessage()
+        // strich nur Steuerzeichen und kürzte. Die Meldung ist angreiferbeeinflusst und
+        // trägt oft die angefragte URI samt Query; das Feld reist laut Konzept 3.1.1 bei
+        // JEDER Stufe mit, nicht nur bei warning/critical wie raw.
+        'exception-message-token' => 'exception_msg_token_6b0d_geheim',
     ];
 
     /** Diese Werte MÜSSEN durchkommen — sonst redigiert der Test alles und beweist nichts. */
@@ -218,7 +232,7 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         foreach ($withRaw as $event) {
             /** @var array<string, mixed> $raw */
             $raw = $event['raw'];
-            self::assertSame(1, $raw['cleanup_version']);
+            self::assertSame(TestCleaner::rules()->version, $raw['cleanup_version']);
         }
     }
 
@@ -290,6 +304,8 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
             'password' => self::SECRETS['query-password'],
             'reset_token' => self::SECRETS['query-reset-token'],
             'apikey' => self::SECRETS['query-apikey'],
+            'msg_token' => self::SECRETS['exception-message-token'],
+            str_repeat('x', 70).'_token' => self::SECRETS['query-langer-schluessel'],
             'harmless' => self::HARMLESS['query-plain'],
         ];
 
@@ -311,6 +327,10 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         $request->headers->set('X-API-Key', self::SECRETS['x-api-key']);
         $request->headers->set('X-Auth-Token', self::SECRETS['x-auth-token']);
         $request->headers->set('X-CSRF-Token', self::SECRETS['x-csrf-token']);
+        $request->headers->set(
+            'Referer',
+            'https://app.example/passwort-neu?reset_token='.self::SECRETS['referer-token'],
+        );
         $request->cookies->set('PHPSESSID', self::SECRETS['cookie-header']);
         $request->cookies->set('REMEMBERME', self::SECRETS['cookie-remember']);
         // Der Cookie-HEADER getrennt gesetzt: Request::create leitet ihn nicht aus
@@ -332,20 +352,7 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         $response = $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true);
         $kernel->terminate($request, $response);
 
-        /** @var InMemoryTransport $transport */
-        $transport = $services->get('messenger.transport.ids_events');
-
-        // Gezielt nach dem Frame filtern: derselbe Transport befördert auch den Heartbeat,
-        // und der ist ein eigener Nachrichtentyp mit eigenem Payload.
-        $batches = [];
-
-        foreach ($transport->getSent() as $envelope) {
-            $candidate = $envelope->getMessage();
-
-            if ($candidate instanceof EventBatch) {
-                $batches[] = $candidate;
-            }
-        }
+        $batches = $this->batches($services);
 
         self::assertCount(1, $batches, 'Ein Request ergibt genau einen Frame');
 
@@ -368,7 +375,7 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
 
         /** @var FileSpool $spool */
         $spool = $services->get('ids_sensor.spool');
-        $files = $spool->pendingFiles();
+        $files = $spool->waitingFiles();
 
         self::assertNotSame([], $files, 'Ohne erreichbaren Broker muss gespoolt werden');
 

@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration\Security;
 
-use ProjektMotor\IdsSensor\EventFormat\Payload\SecurityPayload;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Payload\SecurityPayload;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Sensor\Security\AccessDecisionSensor;
@@ -172,6 +173,43 @@ final class AccessDecisionSensorTest extends IntegrationTestCase
 
         self::assertCount(1, $this->decisions($collector->all()));
         self::assertGreaterThan(0, $sensor->overflowCount(), 'Der Verlust muss zählbar sein');
+    }
+
+    /**
+     * Viele Rechteprüfungen dürfen den Statuscode nicht verdrängen.
+     *
+     * Die Vorgaben stehen in einem Verhältnis, das genau das erlaubte:
+     * `budget.max_events_per_request` ist 64, `max_decisions_per_request` aber 200. Eine
+     * Übersichtsseite mit einem Voter pro Zeile füllt den Puffer also, bevor der
+     * ResponseSensor bei Priorität −2048 überhaupt läuft — und `kernel.response` trägt
+     * den `http_status`, an dem laut Konzept 2.2.1 die Severity-Ableitung und die
+     * Scanning-Erkennung über gehäufte 403/404 hängen.
+     *
+     * Hier mit einem kleinen Puffer nachgestellt: der Effekt ist derselbe wie mit 64 und
+     * 200, nur ohne 64 Voter-Aufrufe im Test.
+     */
+    public function testManyDecisionsDoNotDisplaceTheResponseEvent(): void
+    {
+        $kernel = $this->boot(
+            'puffer-eng',
+            SecurityConfig::basic(),
+            ['budget' => ['max_events_per_request' => 2]],
+        );
+
+        $request = $this->authenticated('/entscheide');
+        $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true);
+
+        /** @var EventBuffer $collector */
+        $collector = $this->services($kernel)->get('ids_sensor.event_buffer');
+        $typen = array_map(static fn (CapturedEvent $e): string => $e->eventType, $collector->all());
+
+        self::assertContains(
+            KernelPayload::EVENT_RESPONSE,
+            $typen,
+            'kernel.response muss auch bei vollem Puffer erfasst sein',
+        );
+        self::assertContains(KernelPayload::EVENT_REQUEST, $typen);
+        self::assertGreaterThan(0, $collector->droppedOverflow(), 'Der Verlust bleibt zählbar');
     }
 
     /**

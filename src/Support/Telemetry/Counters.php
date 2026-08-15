@@ -18,9 +18,14 @@ use Symfony\Component\Uid\Uuid;
  * Der Schlüssel ist (instance_id, process_epoch, pid). process_epoch wird einmal pro
  * Prozess erzeugt, damit ein Neustart nicht als Rückwärtssprung erscheint.
  *
- * Diese Umsetzung hält die Werte nur im Prozessspeicher. Die dateibasierte
- * Materialisierung — nötig, weil die CLI das APCu-Segment des Webservers nicht sieht
- * und Zähler einen Broker-Ausfall überleben müssen — folgt mit dem Spool.
+ * Diese Umsetzung hält die Werte nur im Prozessspeicher, und dabei bleibt es vorerst.
+ * Eine dateibasierte Materialisierung stand hier als „folgt mit dem Spool" — der Spool
+ * ist längst da, sie nicht. Sie ist auch keine offene Baustelle, sondern eine
+ * Entscheidung: Der Prozess-Schlüssel (instance_id, process_epoch, pid) macht die
+ * Stände collectorseitig zusammensetzbar, ohne dass Prozesse einen gemeinsamen Zustand
+ * brauchen. Was ein CLI-Prozess zählt, reist in SEINEN Frames mit; was ein FPM-Kind
+ * zählt, in seinen. Erst wenn ein Zähler einen Prozesstod überleben müsste — bisher
+ * muss das keiner —, wird die Materialisierung nötig.
  *
  * @internal
  */
@@ -40,6 +45,15 @@ final class Counters
 
     /** Verworfen, weil das Erfassungsbudget im Request erschöpft war. */
     public const DROPPED_CAPTURE_BUDGET = 'dropped_capture_budget';
+
+    /**
+     * Verworfen, weil die Erfassung selbst einen Fehler geworfen hat.
+     *
+     * Eigener Zähler und nicht DROPPED_CAPTURE_BUDGET: Der eine sagt „die Zeit war alle",
+     * der andere „der Sensor ist defekt". Die erste Auskunft führt zu einer
+     * Latenzuntersuchung, die zweite zu einem Fehlerbericht.
+     */
+    public const DROPPED_CAPTURE_ERROR = 'dropped_capture_error';
 
     /** Verworfen, weil der Puffer beim Service-Reset noch gefüllt war. */
     public const DROPPED_RESET = 'dropped_reset';
@@ -62,6 +76,25 @@ final class Counters
 
     /** Verworfen, weil die Normalisierung selbst fehlgeschlagen ist. */
     public const DROPPED_NORMALIZE_ERROR = 'dropped_normalize_error';
+
+    /**
+     * Verworfen, weil der Frame die Größengrenze überschreitet.
+     *
+     * Eigener Zähler und nicht DROPPED_SPOOL_FULL: Der eine sagt „die Platte ist voll",
+     * der andere „diese eine Sendung ist zu groß". Die erste Auskunft führt zu mehr
+     * Plattenplatz, die zweite zu einer Untersuchung des Payloads — dieselbe Zahl für
+     * beides ließe nicht erkennen, welche der beiden Maßnahmen greift.
+     */
+    public const DROPPED_FRAME_TOO_LARGE = 'dropped_frame_too_large';
+
+    /**
+     * Beim Nachsenden verworfen: unlesbare Zeile oder dauerhaft unversendbarer Frame.
+     *
+     * Beides bedeutet dasselbe — ein zweiter Versuch scheitert an derselben Stelle. Der
+     * Zaehler unterscheidet sich von DROPPED_SPOOL_FULL darin, dass hier nicht der Platz
+     * fehlte, sondern der Inhalt unbrauchbar war.
+     */
+    public const DROPPED_SPOOL_UNREADABLE = 'dropped_spool_unreadable';
 
     /** Verworfen, weil auch der Spool nichts mehr aufnehmen konnte. */
     public const DROPPED_SPOOL_FULL = 'dropped_spool_full';

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Dispatch;
 
-use ProjektMotor\IdsSensor\Delivery\Heartbeat\Emitter;
+use ProjektMotor\IdsSensor\Delivery\Heartbeat\EmitterInterface;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use Symfony\Component\Console\ConsoleEvents;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -36,7 +36,10 @@ final class FlushListener implements EventSubscriberInterface
 {
     public function __construct(
         private readonly EventFlusher $flusher,
-        private readonly ?Emitter $heartbeat = null,
+        private readonly ?EmitterInterface $heartbeat = null,
+        // Konzept 4.: „Hartes Timeout von 50 ms; danach Abbruch des Versands, der Request
+        // läuft normal weiter." 0 hebt die Frist auf.
+        private readonly int $dispatchBudgetMs = 50,
     ) {
     }
 
@@ -98,10 +101,34 @@ final class FlushListener implements EventSubscriberInterface
      * auch console.terminate und die Worker-Ereignisse ab. Der Gegenbegriff ist nicht
      * „HTTP", sondern der eigens dafür eingerichtete Command: nur der liefert auch dann,
      * wenn die Anwendung gar nichts tut.
+     *
+     * BEIDE AUFRUFE SIND GEFASST
+     *
+     * Dass der Flusher selbst jedes Throwable fängt, genügt nicht: sein `finally`-Zweig
+     * ruft den LatencyRecorder und sein `catch`-Zweig den Logger. Wirft eines von beidem
+     * — ein Monolog-Handler auf voller Platte genügt —, verlässt die Exception `flush()`
+     * und landet unmittelbar in kernel.terminate der überwachten Anwendung. Genau der
+     * Fall, den Konzept 4. ausschließt.
+     *
+     * NICHT abgedeckt ist der Wurf beim ERZEUGEN des Flushers: sein Dienstgraph reicht
+     * bis zum Messenger-Transport, und dessen Factory wirft bei unbrauchbarer DSN. Das
+     * passiert, bevor diese Methode läuft. Dagegen hilft nur, den Transport lazy zu
+     * bauen — {@see \ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass}.
      */
     private function flushAndBeat(): void
     {
-        $this->flusher->flush();
+        $begonnen = hrtime(true);
+
+        try {
+            $this->flusher->flush();
+        } catch (\Throwable) {
+            // bewusst still und ohne Zähler: wer hier ankommt, hat entweder keinen
+            // Zähler mehr (der Dienstgraph steht nicht) oder ihn beim Loggen verloren.
+        }
+
+        if ($this->budgetSpent($begonnen)) {
+            return;
+        }
 
         // Der Emitter fängt selbst jedes Throwable. Der zweite Schutz hier ist trotzdem
         // richtig: dieser Listener läuft in kernel.terminate der überwachten Anwendung, und
@@ -112,5 +139,32 @@ final class FlushListener implements EventSubscriberInterface
             // bewusst still — ein Lebenszeichen ist keine Aufgabe, für die eine fremde
             // Anwendung einen Fehler sehen darf.
         }
+    }
+
+    /**
+     * Ob das Versandbudget aus Konzept 4. aufgebraucht ist.
+     *
+     * „Hartes Timeout von 50 ms; danach Abbruch des Versands, der Request läuft normal
+     * weiter." Durchsetzbar ist das nur ZWISCHEN Broker-Operationen — PHP kann einen
+     * laufenden Syscall nicht abbrechen, und genau so steht es auch in
+     * doc/08-konfiguration.md.
+     *
+     * Im Request-Pfad gibt es genau eine solche Naht: zwischen dem Frame und dem
+     * Lebenszeichen. Hat der Frame das Budget schon verbraucht — ein Broker, der
+     * schleppend antwortet, statt sauber zu scheitern —, entfällt der Heartbeat. Er ist
+     * die verzichtbare der beiden Sendungen: Er wiederholt sich im nächsten Intervall
+     * von selbst, während die Events dieses Requests einmalig sind.
+     *
+     * Dass die Grenze damit nicht scharf ist, steht schon im Konzept. Sie begrenzt, was
+     * der Sensor OBENDRAUF legt, nicht die Dauer eines einzelnen Syscalls; dafür sind die
+     * Broker-Timeouts in `TRANSPORT_DEFAULTS` zuständig.
+     */
+    private function budgetSpent(float|int $begonnen): bool
+    {
+        if ($this->dispatchBudgetMs <= 0) {
+            return false;
+        }
+
+        return (hrtime(true) - $begonnen) > $this->dispatchBudgetMs * 1_000_000;
     }
 }

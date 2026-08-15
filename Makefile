@@ -12,6 +12,10 @@ help: ## Zeigt diese Übersicht
 build: ## Baut das PHP-Image
 	$(DC) build php
 
+.PHONY: update
+update: ## composer update im Container
+	$(RUN) composer update
+
 .PHONY: install
 install: ## composer install im Container
 	$(RUN) composer install
@@ -44,6 +48,10 @@ cs-fix: ## Coding Standards korrigieren
 .PHONY: lowest
 lowest: ## Niedrigste erlaubte Abhängigkeitsversionen
 	$(RUN) composer update --prefer-lowest --prefer-stable
+
+.PHONY: test-lowest
+test-lowest: lowest ## Tests auf der Untergrenze (ohne Container-Abdruck)
+	$(RUN) vendor/bin/phpunit --testsuite unit,integration --exclude-group fingerprint
 
 .PHONY: sh
 sh: ## Shell im Container

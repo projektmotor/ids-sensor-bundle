@@ -64,9 +64,15 @@ final class HeartbeatCommand extends Command
                 Oder als systemd-Timer mit OnUnitActiveSec=30s. Der Command respektiert
                 heartbeat.interval_s, ein häufigerer Lauf sendet also nicht häufiger.
 
-                Rückgabewert 0 heißt „gesendet oder noch nicht fällig". Nur ein
-                FEHLGESCHLAGENER Versand ergibt 1 — damit ein cron-Fehlerbericht auch einen
-                echten Befund bedeutet und nicht bei jedem gedrosselten Lauf feuert.
+                Rückgabewert 0 heißt „gesendet, noch nicht fällig oder in dieser Betriebsart
+                nicht zuständig". Nur ein FEHLGESCHLAGENER Versand ergibt 1 — damit ein
+                cron-Fehlerbericht auch einen echten Befund bedeutet und nicht bei jedem
+                gedrosselten Lauf feuert.
+
+                Bei heartbeat.mode = "request" ist dieser Command wirkungslos. Das ist eine
+                Fehlkonfiguration, aber keine Störung: Der Request-Pfad sendet weiter. Sie
+                erscheint deshalb als Warnung mit Rückgabewert 0 und als Befund in
+                "ids:sensor:setup-check" — nicht als minütlicher cron-Fehlerbericht.
                 HELP)
         ;
     }
@@ -96,15 +102,22 @@ final class HeartbeatCommand extends Command
         }
 
         // Nicht gesendet, obwohl fällig: entweder ist der Modus auf `request` gestellt —
-        // dann ist dieser cron-Eintrag überflüssig und das soll auffallen — oder der
-        // Versand ist gescheitert.
+        // dann ist dieser cron-Eintrag überflüssig — oder der Versand ist gescheitert.
+        //
+        // Der Modus `request` ergibt SUCCESS, und zwar entgegen der ersten Fassung. Sie
+        // gab hier FAILURE, und damit feuerte der cron-Fehlerbericht bei JEDEM Lauf,
+        // dauerhaft — genau das, was der Hilfetext eine Zeile weiter oben ausschließt
+        // („nicht bei jedem gedrosselten Lauf"). Ein Fehlerkanal, der ununterbrochen
+        // meldet, meldet nichts mehr. Und die Lage ist keine Störung: Der Request-Pfad
+        // sendet weiter, es fehlt kein Lebenszeichen. Sichtbar bleibt sie als Warnung
+        // hier und als Befund im Deploy-Check, der nicht minütlich läuft.
         if ('request' === $this->configuredMode) {
             $io->warning(
                 'heartbeat.mode ist "request": dieser Command ist wirkungslos. '
                 .'Für cron-Betrieb auf "command" oder "both" stellen.',
             );
 
-            return Command::FAILURE;
+            return Command::SUCCESS;
         }
 
         $io->error('Heartbeat konnte nicht gesendet werden — Broker nicht erreichbar oder Circuit Breaker offen.');

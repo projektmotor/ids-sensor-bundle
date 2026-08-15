@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Contract\BusinessEventRecorderInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\PayloadSanitizer;
 use ProjektMotor\IdsSensor\Sensor\Business\CapturingEventDispatcher;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
@@ -15,7 +15,9 @@ use ProjektMotor\IdsSensor\Tests\Fixtures\BrokenBusinessEvent;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\OddBusinessEvent;
 use ProjektMotor\IdsSensor\Tests\Fixtures\OrderAmountOverridden;
+use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
+use ProjektMotor\IdsSensor\Tests\Fixtures\UnnamedBusinessEvent;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -194,6 +196,47 @@ final class BusinessLayerTest extends IntegrationTestCase
     }
 
     /**
+     * Ein kaputter Getter ist im Frame von einem leeren Rückgabewert unterscheidbar.
+     *
+     * Vorher nicht: `getEventName()`, das wirft, ergab denselben Ersatzwert wie
+     * `getEventName()`, das `''` liefert — im Frame stand `business.unnamed` und ein
+     * Vermerk mit LEEREM Originalnamen. Das las sich wie „die Anwendung hat ihr Event
+     * nicht benannt" und war in Wahrheit ein Defekt in der überwachten Anwendung, den
+     * niemand je erfuhr. Die Fixture konnte das seit jeher (`breakName`,
+     * `breakPayload`) — benutzt hat es kein Test.
+     */
+    public function testABrokenGetterIsNamedInTheFrame(): void
+    {
+        $event = $this->normalizeThrough(
+            'business-dispatcher',
+            new BrokenBusinessEvent(breakName: true, breakActor: false, breakPayload: true),
+        );
+
+        $payload = $event[EventSchema::FIELD_PAYLOAD];
+
+        self::assertSame('business.unnamed', $event[EventSchema::FIELD_EVENT_TYPE]);
+        self::assertSame(
+            ['event_name', 'payload'],
+            $payload[PayloadSanitizer::RESERVED_PREFIX.'unreadable'],
+            'Genau die beiden Getter, die geworfen haben — und keiner mehr',
+        );
+    }
+
+    /**
+     * Und umgekehrt: ein wirklich leerer Name erzeugt KEINEN solchen Vermerk.
+     */
+    public function testAnEmptyNameIsNotReportedAsBroken(): void
+    {
+        $event = $this->normalizeThrough('business-dispatcher', new UnnamedBusinessEvent());
+
+        self::assertSame('business.unnamed', $event[EventSchema::FIELD_EVENT_TYPE]);
+        self::assertArrayNotHasKey(
+            PayloadSanitizer::RESERVED_PREFIX.'unreadable',
+            $event[EventSchema::FIELD_PAYLOAD],
+        );
+    }
+
+    /**
      * Ein unbrauchbarer Hint wird auf warning eingestuft — nicht auf info.
      *
      * Nicht info, weil ein Tippfehler der Anwendung das Event sonst still in die
@@ -287,6 +330,32 @@ final class BusinessLayerTest extends IntegrationTestCase
         $identity = $services->get('ids_sensor.identity_provider');
 
         return $normalizer->normalize($captured[0], $identity->get())->toArray();
+    }
+
+    /**
+     * Der Kürzungsvermerk darf nicht fälschbar sein.
+     *
+     * `PayloadSanitizer` schrieb `__truncated` als Literal und filterte nur `_ids_`. Eine
+     * Anwendung — oder ein Angreifer, der Werte in ein Domain-Event schleust — konnte den
+     * Schlüssel mitliefern und einen Vollständigkeitsverlust vortäuschen, den es nie gab.
+     * Genau das schließt die Begründung des `_ids_`-Präfixes aus; für diesen Marker war
+     * sie nicht eingelöst.
+     */
+    public function testTheTruncationMarkerCannotBeForged(): void
+    {
+        $sanitizer = new PayloadSanitizer(TestCleaner::default());
+
+        $bereinigt = $sanitizer->sanitize([
+            PayloadSanitizer::TRUNCATED_MARKER => true,
+            'echt' => 'sichtbar',
+        ]);
+
+        self::assertArrayNotHasKey(
+            PayloadSanitizer::TRUNCATED_MARKER,
+            $bereinigt,
+            'Eine vorgetäuschte Kürzung darf nicht durchkommen',
+        );
+        self::assertSame('sichtbar', $bereinigt['echt'], 'Der Rest bleibt unangetastet');
     }
 
     private function collector(ContainerInterface $services): EventBuffer

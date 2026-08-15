@@ -43,7 +43,7 @@ final class CircuitBreaker
             return false;
         }
 
-        return $this->store->read()->isOpenAt(microtime(true));
+        return $this->store->read()->isOpenAt(microtime(true), (float) $this->openForSeconds);
     }
 
     /**
@@ -61,13 +61,18 @@ final class CircuitBreaker
             return;
         }
 
+        // Erst lesen, dann erst sperren: Im Normalbetrieb ist nichts zu tun, und dieser
+        // Pfad läuft nach JEDEM erfolgreichen Versand. Ihn eine Sperre kosten zu lassen
+        // wäre die teuerste Stelle für die seltenste Änderung.
         $state = $this->store->read();
 
-        // Nur schreiben, wenn sich etwas ändert — im Normalbetrieb ist das der
-        // häufigste Pfad und soll nichts kosten.
-        if (0 !== $state->failures || 0.0 !== $state->openUntil) {
-            $this->store->write(new BreakerState(0, 0.0, $state->openCount));
+        if (0 === $state->failures && 0.0 === $state->openUntil) {
+            return;
         }
+
+        $this->store->mutate(
+            static fn (BreakerState $current): BreakerState => new BreakerState(0, 0.0, $current->openCount),
+        );
     }
 
     public function recordFailure(): void
@@ -76,20 +81,24 @@ final class CircuitBreaker
             return;
         }
 
-        $state = $this->store->read();
-        $failures = $state->failures + 1;
+        // Unteilbar: Lesen, Hochzählen und Schreiben in einem Zug. Als getrenntes
+        // read()/write() war es ein Lost Update — n gleichzeitig scheiternde FPM-Kinder
+        // lasen alle 0 und schrieben alle 1, sodass die Schwelle im ungünstigen Fall nie
+        // erreicht wurde. Ausgerechnet unter Last, also genau dort, wofür es den Breaker
+        // gibt.
+        $this->store->mutate(function (BreakerState $current): BreakerState {
+            $failures = $current->failures + 1;
 
-        if ($failures >= $this->failureThreshold) {
-            $this->store->write(new BreakerState(
+            if ($failures < $this->failureThreshold) {
+                return new BreakerState($failures, 0.0, $current->openCount);
+            }
+
+            return new BreakerState(
                 $failures,
                 microtime(true) + $this->openForSeconds,
-                $state->openCount + 1,
-            ));
-
-            return;
-        }
-
-        $this->store->write(new BreakerState($failures, 0.0, $state->openCount));
+                $current->openCount + 1,
+            );
+        });
     }
 
     /**
@@ -102,7 +111,7 @@ final class CircuitBreaker
     {
         $state = $this->store->read();
         $now = microtime(true);
-        $open = $state->isOpenAt($now);
+        $open = $state->isOpenAt($now, (float) $this->openForSeconds);
 
         return [
             'state' => $open ? 'open' : (0 === $state->failures ? 'closed' : 'half_open'),

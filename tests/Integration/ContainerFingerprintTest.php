@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\ContainerVariants;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
@@ -30,6 +31,21 @@ use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
  * Der erzeugte Unterschied gehört dann in die Codeprüfung — er ist die vollständige,
  * maschinell erzeugte Liste dessen, was der Umbau am Container verändert hat. Der Test ist
  * damit kein Hindernis, sondern das Protokoll.
+ *
+ * WARUM DIE GRUPPE "fingerprint"
+ *
+ * Der Abdruck hält den GESAMTEN Container fest, also auch die Dienste, die Symfony selbst
+ * beisteuert. Die unterscheiden sich zwischen den Zweigen: unter 6.4 tragen die
+ * `console.command`-Tags andere Attribute, und den Closure-Voter der Security gibt es erst
+ * ab 7. Die Referenzdateien bilden deshalb zwangsläufig einen Symfony-Zweig ab — den
+ * oberen, auf dem entwickelt wird.
+ *
+ * Ein Abdruck je Zweig würde die 15 Referenzdateien verdoppeln und bei jeder Änderung
+ * doppelt gepflegt werden müssen — für eine Zusage, die von der eigenen Verdrahtung handelt
+ * und nicht von Symfonys. Die Gruppe erlaubt es der Matrix stattdessen, diesen einen Test
+ * auf dem unteren Zweig auszulassen (`--exclude-group fingerprint`), ohne dass im Testcode
+ * eine Versionsabfrage steht. Dass die Verdrahtung auch unter 6.4 trägt, sichern die
+ * übrigen Integrationstests ab, die dort unverändert laufen.
  */
 final class ContainerFingerprintTest extends TestCase
 {
@@ -40,6 +56,7 @@ final class ContainerFingerprintTest extends TestCase
      * @param array<string, mixed>|null $securityConfig
      */
     #[DataProvider('variants')]
+    #[Group('fingerprint')]
     public function testTheContainerMatchesTheFingerprint(
         string $variant,
         array $sensorConfig,

@@ -10,7 +10,7 @@ services:
         autowire: false
         autoconfigure: true
         bind:
-            $logger: '@?logger'
+            $logger: '@ids_sensor.logger'
             $directory: '%ids_sensor.spool.dir%'
 
     # Zustand prozessübergreifend (APCu, sonst Datei): ein Zähler im Prozessspeicher finge
@@ -37,16 +37,18 @@ services:
         arguments:
             $maxBytes: '%ids_sensor.spool.max_bytes%'
             $maxFileBytes: '%ids_sensor.spool.max_file_bytes%'
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
+            # Nach dieser Zeit versiegelt der Schreiber seine Datei, auch wenn sie klein ist.
+            # Erst dann darf der Drainer sie abholen — unter mod_php ist das der Taktgeber
+            # dafuer, dass ueberhaupt etwas abfliesst.
+            $sealAfterSeconds: '%ids_sensor.spool.drain_interval_s%'
 
     ids_sensor.spool_drainer:
         class: ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer
         arguments:
             $spool: '@ids_sensor.spool'
             $shipper: '@ids_sensor.shipper'
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
+            $staleAfterSeconds: '%ids_sensor.spool.stale_after_s%'
+            $counters: '@ids_sensor.counters'
 
     # Unter mod_php ist dieser Command der einzige Transportweg und damit Pflicht.
     ids_sensor.command.spool_flush:
@@ -54,3 +56,4 @@ services:
         arguments:
             $drainer: '@ids_sensor.spool_drainer'
             $defaultMaxFiles: '%ids_sensor.spool.drain_max_files_per_run%'
+            $deliveryConfigured: '%ids_sensor.transport.configured%'

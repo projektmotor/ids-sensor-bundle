@@ -49,6 +49,34 @@ final class SchedulerTest extends TestCase
     }
 
     /**
+     * Ein Uhr-Rücksprung darf den Heartbeat nicht stilllegen.
+     *
+     * Der Stempel ist absolute Wanduhrzeit. Springt die Uhr zurück — NTP-Korrektur, oder
+     * ein Stempel von einem anderen Host auf einem geteilten Volume, was die Doku als
+     * Fehlkonfiguration ausdrücklich erwartet —, liegt er in der Zukunft. Ohne
+     * Behandlung wurde die Differenz negativ und der Heartbeat blieb aus, bis die Uhr
+     * aufgeholt hatte: Der Collector meldete `ids.sensor_silent` für einen gesunden
+     * Sensor, also genau den Falschalarm, den der Heartbeat verhindern soll.
+     *
+     * `secondsSinceLastSend()` klemmte denselben Fall schon immer mit `max(0, …)` — die
+     * beiden Methoden widersprachen sich.
+     */
+    public function testAStampFromTheFutureCountsAsDue(): void
+    {
+        $scheduler = $this->scheduler(60);
+        $jetzt = 1_800_000_000;
+
+        // Die Uhr stand eine Stunde weiter, als der Stempel gesetzt wurde.
+        $scheduler->markSent($jetzt + 3600);
+
+        self::assertTrue(
+            $scheduler->isDue($jetzt),
+            'Ein Stempel aus der Zukunft darf den Heartbeat nicht bis zum Aufholen aussetzen',
+        );
+        self::assertSame(0, $scheduler->secondsSinceLastSend($jetzt), 'Und beide Methoden sagen dasselbe');
+    }
+
+    /**
      * Intervall 0 heißt „nie" — der ausdrückliche Weg, den Heartbeat abzuschalten, ohne
      * die Dienste zu entfernen.
      */
@@ -89,7 +117,7 @@ final class SchedulerTest extends TestCase
         return new SensorIdentityProvider(
             $application,
             new InstanceIdProvider('web-03'),
-            new EnvironmentResolver('prod', EnvironmentResolver::DEFAULT_MAP, \ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment::Prod),
+            new EnvironmentResolver('prod', EnvironmentResolver::DEFAULT_MAP, \ProjektMotor\IdsEventData\Vocabulary\Environment::Prod),
         );
     }
 }

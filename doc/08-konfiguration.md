@@ -126,9 +126,9 @@ die `correlation_id` eines Opfers übernehmen und die forensische Zuordnung verg
 |---|---|---|
 | `enabled` | `true` | |
 | `events.request` / `.response` / `.exception` | `true` | einzelne Hooks |
-| `ignored_paths` | `[]` | **absichtlich leer** — Regel R2b lebt davon, Zugriffe auf `/_profiler` zu sehen |
+| `ignored_paths` | `[]` | PCRE-Muster **mit Trennzeichen** (`#^/health$#`); **absichtlich leer** — Regel R2b lebt davon, Zugriffe auf `/_profiler` zu sehen |
 | `sub_requests` | `exceptions_only` | `none` · `exceptions_only` · `all` |
-| `capture_fatal_errors` | `true` | synthetisiert bei Fatal Errors ein `kernel.exception` mit Status 500 |
+| `capture_fatal_errors` | `true` | rettet den Puffer in den Spool, wenn der Prozess vor `kernel.terminate` stirbt |
 
 ### `layers.security`
 
@@ -155,7 +155,7 @@ die `correlation_id` eines Opfers übernehmen und die forensische Zuordnung verg
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `enabled` | `true` | `false` lässt das Feld ganz weg |
-| `severities` | `warning`, `critical` | lässt sich nur **verkleinern**, nicht erweitern |
+| `severities` | `warning`, `critical` | lässt sich nur **verkleinern**, nicht erweitern; unbekannte Stufen werden beim Kompilieren abgelehnt |
 | `max_bytes` | `32768` | Kappungsgrenze je `raw` |
 | `include_request_body` | `true` | der sensibelste Teil, deshalb ein eigener Schalter |
 | `skip_multipart` | `true` | Datei-Uploads würden den Frame sprengen |
@@ -187,20 +187,27 @@ Details in [04 — Request-Lebenszyklus](04-request-lebenszyklus.md#sampling-ein
 | `dispatch_ms` | `50` | Versandbudget nach dem Absenden der Antwort |
 | `connect_timeout_ms` | `20` | Broker-Verbindungsaufbau |
 | `read_timeout_ms` | `30` | Broker-Antwort |
-| `drain_ms` | `25` | Zeitfenster je Drain-Lauf |
-| `fatal_dispatch_ms` | `15` | Versandfenster im Shutdown-Pfad |
-| `max_events_per_request` | `64` | Puffergrenze pro Durchlauf |
-| `max_events_per_process` | `200` | Puffergrenze für langlebige Prozesse |
+| `fatal_dispatch_ms` | `15` | Zeitrahmen für die Rettung im Shutdown; Überschreitung wird protokolliert, nicht abgebrochen |
+| `max_events_per_request` | `64` | Puffergrenze pro Durchlauf; Pflicht-Events haben acht Plätze darüber hinaus |
 
 `dispatch_ms` wird als Frist **zwischen** Broker-Operationen geprüft — PHP kann einen
 laufenden Syscall nicht abbrechen.
+
+**Warum Pflicht-Events eine eigene Reserve haben.** `max_events_per_request` begrenzt,
+was eine Übersichtsseite mit einem Voter pro Zeile an Autorisierungsentscheidungen
+erzeugen darf. `kernel.request`, `kernel.response`, `kernel.exception` und die
+Anmeldeereignisse sind konstruktionsbedingt begrenzt und zählen gegen ein eigenes,
+kleines Kontingent oberhalb dieser Grenze. Ohne das hätte eine Seite mit 64
+Rechteprüfungen den `kernel.response` verdrängt — und damit `http_status`, an dem die
+Severity-Ableitung und die Scanning-Erkennung über gehäufte 403/404 hängen. Auch die
+Reserve ist endlich; was darüber hinausgeht, wird verworfen und als
+`dropped_buffer_full` gezählt.
 
 ## `flush`
 
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `policy` | `auto` | `auto` · `direct` · `spool` |
-| `batch` | `true` | bündelt alle Events eines Requests zu einem Frame und damit zu einem `XADD` |
 | `max_frame_bytes` | `262144` | Obergrenze je Frame |
 
 `auto` erkennt, ob die Antwort abkoppelbar ist. Warum das die Vorgabe ist und was `direct`
@@ -214,9 +221,19 @@ auf einer mod_php-Installation anrichtet, steht in
 | `name` | `ids_events` | Name des Messenger-Transports |
 | `dsn` | `null` | `null` bedeutet: die Anwendung konfiguriert ihn selbst |
 | `register_transport` | `true` | `false` überlässt die Registrierung der Anwendung |
-| `options` | `[]` | wird über die sicheren Vorgaben gemischt |
+| `options` | `[]` | wird über die sicheren Vorgaben gemischt; `auto_setup`, `lazy` und `serializer` sind gesperrt |
 
-**`auto_setup` muss `false` bleiben** — siehe [07 — Betrieb](07-betrieb.md#broker-rechte-nur-schreiben).
+**`auto_setup`, `lazy` und `serializer` lassen sich nicht überschreiben.** Sie standen
+hier als Bitte und wurden von `array_merge` überstimmt. Wer einen von ihnen in
+`options` setzt, bekommt jetzt einen Fehler beim Kompilieren:
+
+- `auto_setup: true` sendet `XGROUP CREATE … MKSTREAM`, was die XADD-only-Rechte aus
+  [07 — Betrieb](07-betrieb.md#broker-rechte-nur-schreiben) mit `NOPERM` ablehnen. In der
+  Entwicklung mit weiten Rechten fällt das nicht auf, in Produktion beim ersten Versand.
+- `lazy: false` öffnet die Verbindung beim **Bauen** des Dienstes, also außerhalb jedes
+  `try/catch` des Sensors — ein Bruch von fail-open (Konzept 4.).
+- `serializer` ist der `MessageSerializer`; ein anderer schriebe ein anderes Drahtformat
+  als das aus Konzept Abschnitt 3, oder — bei `PhpSerializer` — `unserialize()`-Daten.
 
 ## `spool`
 
@@ -225,10 +242,8 @@ auf einer mod_php-Installation anrichtet, steht in
 | `dir` | `null` | `null` nutzt `%kernel.project_dir%/var/ids-spool`; **muss node-lokal sein** |
 | `max_bytes` | `16777216` | Gesamtgrenze; Überlauf zählt `dropped_spool_full` |
 | `max_file_bytes` | `4194304` | Grenze je Datei |
-| `drain` | `both` | `off` · `command` · `opportunistic` · `both` |
 | `drain_interval_s` | `30` | reiner Dokumentationswert — reist im Heartbeat mit, damit der Collector die normale Verzögerung kennt |
 | `drain_max_files_per_run` | `2` | |
-| `drain_min_interval_s` | `1` | |
 | `stale_after_s` | `300` | ab wann eine Datei als liegengeblieben gilt |
 
 Es gibt **keinen** `spool.enabled`-Schalter, und das ist Absicht — Begründung in
@@ -239,9 +254,12 @@ Es gibt **keinen** `spool.enabled`-Schalter, und das ist Absicht — Begründung
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `enabled` | `true` | |
-| `failure_threshold` | `3` | Fehler bis zum Öffnen |
-| `open_for_s` | `30` | Offenzeit |
-| `half_open_probes` | `1` | Proben nach Ablauf der Offenzeit |
+| `failure_threshold` | `3` | Fehler bis zum Öffnen; `0` öffnet beim **ersten** |
+| `open_for_s` | `30` | Offenzeit; **`0` macht den Breaker wirkungslos** |
+
+`open_for_s: 0` zählt Fehlschläge, meldet `half_open` und sperrt nie — jeder Request
+zahlt bei einem Broker-Ausfall weiterhin die vollen Timeouts. `ids:sensor:setup-check`
+meldet das als Befund.
 
 Die Zustandsübergänge stehen in
 [05 — Versandweg](05-versandweg.md#schranke-2-der-circuit-breaker).
@@ -262,8 +280,6 @@ Details in [07 — Betrieb](07-betrieb.md#der-heartbeat-ist-nicht-optional).
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `telemetry.latency_histogram` | `true` | macht die 5-ms-Zusage im laufenden Betrieb überprüfbar |
-| `telemetry.profiler_collector` | `true` | Panel im Symfony-Profiler |
-| `logging.enabled` | `true` | |
 | `logging.channel` | `ids_sensor` | Monolog-Kanal |
 
 ## Zwei Eigenheiten des Baums

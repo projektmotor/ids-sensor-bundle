@@ -4,24 +4,29 @@ Das Format ist die Paketgrenze. Sensor und Collector kennen voneinander nichts a
 diesem JSON — keine gemeinsame Bibliothek, keine PHP-Serialisierung, keine Klassennamen
 auf der Leitung. Verbindlich festgelegt in (*3.*).
 
-Im Code lebt es unter `EventFormat/`. Dieser Namensraum importiert **nichts Fremdes**,
-weder aus dem Bundle noch aus Symfony, und ist darauf angelegt, als eigenes Paket
-herausgelöst zu werden, das künftig auch das IdsBackendBundle konsumiert.
+Im Code lebt es in einem eigenen Paket:
+[`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data),
+Namensraum `ProjektMotor\IdsEventData\`. Es importiert **nichts Fremdes**, weder aus
+diesem Bundle noch aus Symfony — deshalb kann das IdsBackendBundle dasselbe Paket lesen,
+ohne den Sensor mitzuziehen.
+
+Diese Seite beschreibt das Format so, wie der Sensor es füllt. Der Formatvertrag selbst,
+mit allen Feldern und Bump-Regeln, steht im README des Pakets.
 
 ## Drei Ebenen der Verschachtelung
 
 ```mermaid
 flowchart TB
-    subgraph frame["`**Frame** — die Sendung (3.3)`"]
+    subgraph frame["Frame — die Sendung (3.3)"]
         direction TB
         fmeta["identity · flushed_at<br/>dispatch_path · counters<br/>process_epoch · pid"]
 
-        subgraph event["`**Event** — die Beobachtung (3.)`"]
+        subgraph event["Event — die Beobachtung (3.)"]
             direction TB
             emeta["schema_version · event_id · timestamp<br/>layer · event_type · correlation_id<br/>event_severity · application_id<br/>instance_id · environment"]
-            actor["`**actor** — wer<br/><small>user · ip · session_id_hash<br/>client_fingerprint</small>`"]
-            payload["`**payload** — was (3.1)<br/><small>Struktur je event_type</small>`"]
-            raw["`**raw** — der Rohbeleg<br/><small>nur bei warning/critical</small>`"]
+            actor["actor — wer<br/>user · ip · session_id_hash<br/>client_fingerprint"]
+            payload["payload — was (3.1)<br/>Struktur je event_type"]
+            raw["raw — der Rohbeleg<br/>nur bei warning/critical"]
         end
     end
 
@@ -38,9 +43,9 @@ den Rohbeleg. Der Frame ist **kein** Event und ändert das Event-Schema nicht �
 liegen `dispatch_path` und die Zählerstände dort und nicht im Event: sie sind
 Eigenschaften der *Sendung*, nicht einer *Beobachtung*.
 
-Die Verzeichnisse unter `EventFormat/` spiegeln genau diese Verschachtelung:
+Die Verzeichnisse des Formatpakets spiegeln genau diese Verschachtelung:
 `Frame/`, `Event/`, `Payload/` und `Vocabulary/`. Siehe
-[struktur.md](struktur.md#die-beiden-öffentlichen-namespaces).
+[struktur.md](struktur.md#das-ereignisformat-ist-ein-eigenes-paket).
 
 ## Ein Event, wie es ankommt
 
@@ -83,9 +88,9 @@ Migration auf der Gegenseite**, nicht ein lokales Hinzufügen.
 
 | Feld | Werte | Klasse |
 |---|---|---|
-| `layer` | `kernel` · `security` · `business` | `EventFormat\Vocabulary\Layer` |
-| `event_severity` | `info` · `warning` · `critical` | `EventFormat\Vocabulary\Severity` |
-| `environment` | `prod` · `staging` · `dev` | `EventFormat\Vocabulary\Environment` |
+| `layer` | `kernel` · `security` · `business` | `IdsEventData\Vocabulary\Layer` |
+| `event_severity` | `info` · `warning` · `critical` | `IdsEventData\Vocabulary\Severity` |
+| `environment` | `prod` · `staging` · `dev` | `IdsEventData\Vocabulary\Environment` |
 
 `environment` ist der Wert, den man am leichtesten falsch setzt und dessen Fehler völlig
 lautlos bleibt: kommt beim Collector etwas anderes als diese drei an, scheitert das
@@ -99,16 +104,16 @@ Der variable Teil. Immer ein flaches oder maximal zweistufig verschachteltes Obj
 
 | `layer` | Feldnamen definiert in | Beispiele |
 |---|---|---|
-| `kernel` | `EventFormat\Payload\KernelPayload` | `method`, `path`, `route`, `http_status`, `exception_class` |
-| `security` | `EventFormat\Payload\SecurityPayload` | `firewall`, `authenticator`, `attribute`, `resource`, `decision` |
+| `kernel` | `IdsEventData\Payload\KernelPayload` | `method`, `path`, `route`, `http_status`, `exception_class` |
+| `security` | `IdsEventData\Payload\SecurityPayload` | `firewall`, `authenticator`, `attribute`, `resource`, `decision` |
 | `business` | — | frei; die Anwendung liefert ihn über `getPayload()` |
 
 Für die Business-Ebene gibt es bewusst **keine** feste Struktur (*3.1.3*) — was ein
 Vorfall bedeutet, weiß nur die Anwendung. Reservierte Schlüssel mit dem Präfix `_ids_`
 werden entfernt.
 
-Dass diese Konstanten im `EventFormat/` liegen und nicht im Normalisierer, ist kein
-Zufall: die Sensoren lasen sie sonst aus Phase B, und Phase A hinge an Phase B — genau die
+Dass diese Konstanten im Formatpaket liegen und nicht im Normalisierer, ist kein Zufall:
+die Sensoren lasen sie sonst aus Phase B, und Phase A hinge an Phase B — genau die
 Richtung, die das Latenzbudget verbietet.
 
 ## Das `raw`-Feld

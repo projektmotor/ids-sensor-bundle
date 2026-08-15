@@ -4,20 +4,18 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
-use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
 /**
  * Prüft Bus, Serializer und Routing durch den echten Container.
@@ -225,14 +223,6 @@ final class TransportTest extends IntegrationTestCase
             \ProjektMotor\IdsSensor\Delivery\Transport\Shipper\NullShipper::class,
             $services->get('ids_sensor.shipper'),
         );
-    }
-
-    private function transport(ContainerInterface $services): InMemoryTransport
-    {
-        /** @var InMemoryTransport $transport */
-        $transport = $services->get('messenger.transport.ids_events');
-
-        return $transport;
     }
 
     private function kernelRequest(): CapturedEvent

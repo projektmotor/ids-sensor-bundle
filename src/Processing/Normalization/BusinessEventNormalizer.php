@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Processing\Normalization;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Sensor\Business\EventSensor;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Support\RawPayload\Builder;
@@ -66,6 +66,14 @@ final class BusinessEventNormalizer implements EventNormalizerInterface
         // Vermerke des Sensors: sie stehen im Payload, damit eine Fehlkonfiguration in
         // den DATEN sichtbar bleibt und nicht nur im Log — dort geht sie unter.
         $payload = array_merge($payload, self::markers($rawName, $eventType, $hint, $severity));
+
+        // Ein Getter, der wirft, ist ein Defekt in der überwachten Anwendung — und ohne
+        // diesen Vermerk von einem leeren Rückgabewert nicht zu unterscheiden.
+        $unreadable = $captured->get(EventSensor::FIELD_UNREADABLE);
+
+        if (\is_array($unreadable) && [] !== $unreadable) {
+            $payload[PayloadSanitizer::RESERVED_PREFIX.'unreadable'] = array_values(array_map('strval', $unreadable));
+        }
 
         // raw trägt hier den UNBEREINIGTEN Payload, redigiert: der Sanitizer kürzt,
         // flacht ab und verwirft ab 100 Elementen. Für die Nachanalyse eines

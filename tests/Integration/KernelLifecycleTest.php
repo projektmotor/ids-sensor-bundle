@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Sensor\Kernel\RequestSensor;
@@ -219,6 +219,118 @@ final class KernelLifecycleTest extends IntegrationTestCase
         }
 
         self::fail(\sprintf('Kein Event vom Typ "%s" erfasst', $eventType));
+    }
+
+    /**
+     * Ein Angreifer darf sich nicht selbst unsichtbar machen können.
+     *
+     * `X-HTTP-Method-Override` wird von `Request::getMethod()` bedingungslos gelesen; ein
+     * Wert, der nicht nur aus Großbuchstaben besteht, wirft `SuspiciousOperationException`.
+     * Der Aufruf steht im Snapshot-Bau, und der läuft vor `registry->set()` — ungefangen
+     * kostete ein einziger Header damit die gesamte Erfassung dieser Anfrage: kein
+     * kernel.request, kein Snapshot für die Folge-Events, kein Zähler, kein Log.
+     */
+    public function testAnInvalidMethodOverrideDoesNotSilenceTheCapture(): void
+    {
+        $request = Request::create('/ok', 'POST');
+        $request->headers->set('X-HTTP-Method-Override', 'fo-o');
+
+        $events = $this->handle($request, catchExceptions: true);
+
+        $captured = $this->firstOfType($events, KernelPayload::EVENT_REQUEST);
+
+        self::assertNotNull($captured->correlationId(), 'Die Anfrage muss eine Korrelation bekommen');
+        self::assertSame(
+            'POST',
+            $captured->get(KernelPayload::FIELD_METHOD),
+            'Erfasst wird die tatsächlich gesendete Methode, nicht die versuchte Übersteuerung',
+        );
+    }
+
+    /**
+     * Und die Folge-Events derselben Anfrage bleiben verkettet.
+     */
+    public function testTheOverrideAttemptStillYieldsAChainedResponseEvent(): void
+    {
+        $request = Request::create('/ok', 'POST');
+        $request->headers->set('X-HTTP-Method-Override', 'fo-o');
+
+        $events = $this->handle($request, catchExceptions: true);
+        $ids = array_unique(array_map(static fn (CapturedEvent $e): ?string => $e->correlationId(), $events));
+
+        self::assertCount(1, $ids, 'Alle Events der Anfrage teilen eine correlation_id');
+        self::assertNotSame([''], $ids, 'Und die ist nicht leer');
+    }
+
+    /**
+     * Widersprüchliche Proxy-Header dürfen kein Event kosten.
+     *
+     * `Request::getClientIps()` wirft `ConflictingHeadersException`, wenn ein
+     * `Forwarded`- einem `X-Forwarded-For`-Header widerspricht und beide von einem
+     * vertrauten Proxy kommen. Beide Header darf der Client schicken. Der Aufruf steht im
+     * Akteursaufbau, und der läuft vor `buffer->append()` — ungefangen verschwanden
+     * kernel.request UND kernel.response ungezählt.
+     */
+    public function testConflictingProxyHeadersDoNotCostTheEvents(): void
+    {
+        Request::setTrustedProxies(['127.0.0.1'], Request::HEADER_X_FORWARDED_FOR | Request::HEADER_FORWARDED);
+
+        try {
+            $request = Request::create('/ok', 'GET', [], [], [], ['REMOTE_ADDR' => '127.0.0.1']);
+            $request->headers->set('X-Forwarded-For', '203.0.113.9');
+            $request->headers->set('Forwarded', 'for=198.51.100.7');
+
+            $events = $this->handle($request, catchExceptions: true);
+
+            self::assertSame(
+                [KernelPayload::EVENT_REQUEST, KernelPayload::EVENT_RESPONSE],
+                array_map(static fn (CapturedEvent $e): string => $e->eventType, $events),
+                'Beide Events müssen trotz widersprüchlicher Header erfasst sein',
+            );
+            self::assertSame(
+                '127.0.0.1',
+                $this->firstOfType($events, KernelPayload::EVENT_REQUEST)->actor()->ip,
+                'Der Rückfall ist die tatsächliche Gegenstelle, nie ein geratener Wert',
+            );
+        } finally {
+            Request::setTrustedProxies([], 0);
+        }
+    }
+
+    /**
+     * `ignored_paths` gilt auch dann, wenn kernel.request unseren Sensor nie erreicht.
+     *
+     * `ResponseSensor` und `ExceptionSensor` fragten den Filter NUR mit Snapshot. Fehlt
+     * er — weil ein Listener mit höherer Priorität als 1024 bereits geantwortet hat —,
+     * wurde ein ausdrücklich ausgeschlossener Pfad trotzdem erfasst. Ausgerechnet
+     * Gesundheitsprüfungen laufen oft über genau solche Kurzschluss-Listener; wer sie
+     * ausschließt, will sie in keinem Fall erfassen. Der `RequestSensor` prüfte seit
+     * jeher immer.
+     */
+    public function testAnIgnoredPathStaysIgnoredWithoutASnapshot(): void
+    {
+        $kernel = new TestKernel(
+            array_merge(self::CONFIG, ['layers' => ['kernel' => ['ignored_paths' => ['#^/ok$#']]]]),
+            'ignored-paths',
+        );
+        $kernel->boot();
+
+        /** @var \Symfony\Component\EventDispatcher\EventDispatcherInterface $dispatcher */
+        $dispatcher = $this->services($kernel)->get('event_dispatcher');
+        $dispatcher->addListener(
+            \Symfony\Component\HttpKernel\KernelEvents::REQUEST,
+            static function (\Symfony\Component\HttpKernel\Event\RequestEvent $event): void {
+                $event->setResponse(new \Symfony\Component\HttpFoundation\Response('kurzgeschlossen'));
+            },
+            RequestSensor::PRIORITY_CAPTURE + 1,
+        );
+
+        $kernel->handle(Request::create('/ok'), HttpKernelInterface::MAIN_REQUEST, false);
+
+        /** @var EventBuffer $buffer */
+        $buffer = $this->services($kernel)->get('ids_sensor.event_buffer');
+
+        self::assertSame([], $buffer->all(), 'Der ausgeschlossene Pfad darf kein Event erzeugen');
     }
 
     /**

@@ -6,6 +6,7 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Shipper;
 
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\Heartbeat;
+use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Transport\TransportInterface;
 
@@ -34,8 +35,8 @@ use Symfony\Component\Messenger\Transport\TransportInterface;
  * genügt — er kennt die DSN, die Verbindung und den Serializer. Damit entfällt jede Berührung
  * mit der Messenger-Konfiguration der Anwendung, nicht nur dieser eine Fall.
  *
- * Fängt bewusst KEINE Fehler. Der {@see \ProjektMotor\IdsSensor\Delivery\Dispatch\EventFlusher} fängt
- * jedes Throwable und entscheidet über Spool und Circuit Breaker. Würde dieser Shipper
+ * Fängt bewusst KEINE Fehler. Der {@see \ProjektMotor\IdsSensor\Delivery\Dispatch\FrameDispatcher}
+ * fängt jedes Throwable und entscheidet über Spool und Circuit Breaker. Würde dieser Shipper
  * Fehler selbst verschlucken, nähme er ihm genau diese Entscheidung — und der Verlust bliebe
  * unsichtbar, statt gezählt zu werden.
  *
@@ -50,10 +51,33 @@ final class MessengerShipper implements ShipperInterface
 
     /**
      * @param array<string, mixed> $frame
+     *
+     * @throws UnshippableFrameException wenn der Frame keine Events trägt
      */
     public function ship(array $frame): void
     {
-        if ([] === ($frame['events'] ?? [])) {
+        $events = $frame['events'] ?? null;
+
+        if (!\is_array($events)) {
+            // Hier stand ein stilles `return`. Das war die schlechteste der drei
+            // möglichen Antworten: Im Direktpfad zählte FrameDispatcher den Frame
+            // anschließend als `sent`, obwohl nichts gesendet wurde, und im Drain-Pfad
+            // wertete SpoolDrainer den Rücksprung als Erfolg und LÖSCHTE die Zeile.
+            // Beides verletzt Konzept 4. („Jeder verworfene oder verlorene Event wird
+            // gezählt") an genau der Stelle, an der man es am wenigsten bemerkt.
+            //
+            // Ein Wurf ist richtig und billig: Der Drainer unterscheidet
+            // UnshippableFrameException schon immer vom Broker-Ausfall und verwirft die
+            // Zeile, statt sie ewig zu wiederholen; der FrameDispatcher fängt sie und
+            // zählt `ship_failed`. Ein Frame ohne `events` ist genau das, was die
+            // Exception meint: ein zweiter Versuch heilt ihn nicht.
+            throw new UnshippableFrameException('Der Frame trägt kein "events"-Feld — vermutlich beim Schreiben in den Spool abgeschnitten.');
+        }
+
+        if ([] === $events) {
+            // Ein leerer Frame ist kein Fehler: Der Flusher erzeugt ihn nicht, aber ein
+            // vollständig weggesampelter Durchlauf könnte es. Nichts zu senden ist dann
+            // die richtige Antwort — und kein Verlust, denn es gibt nichts zu verlieren.
             return;
         }
 

@@ -14,7 +14,20 @@ services:
         autowire: false
         autoconfigure: true
         bind:
-            $logger: '@?logger'
+            # NICHT '@?logger': Ein werfender Logger — voller Plattenplatz, weggebrochener
+            # Syslog-Socket — entwiche sonst in die überwachte Anwendung, und an zwei
+            # Stellen (FrameDispatcher-catch, FileSpool::append) übersprünge er dabei die
+            # Rettung des Frames. Der Dekorator gilt einmal statt an 19 Aufrufstellen.
+            $logger: '@ids_sensor.logger'
+
+    # Trägt das Kanal-Tag stellvertretend für alle: Sie bekommen den Logger über ihn,
+    # also entscheidet SEIN Kanal. IdsSensorBundle::applyLogChannel() setzt ihn.
+    ids_sensor.logger:
+        class: ProjektMotor\IdsSensor\Support\Telemetry\FailSafeLogger
+        arguments:
+            $inner: '@?logger'
+        tags:
+            - { name: monolog.logger, channel: ids_sensor }
 
     ids_sensor.instance_id_provider:
         class: ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider
@@ -27,11 +40,9 @@ services:
             $configuredEnvironment: '%ids_sensor.environment%'
             $map: '%ids_sensor.environment_map%'
             $fallback: !service
-                class: ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment
-                factory: ['ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment', 'from']
+                class: ProjektMotor\IdsEventData\Vocabulary\Environment
+                factory: ['ProjektMotor\IdsEventData\Vocabulary\Environment', 'from']
                 arguments: ['%ids_sensor.environment_fallback%']
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
 
     ids_sensor.identity_provider:
         class: ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider
@@ -39,8 +50,6 @@ services:
             $applicationId: '%ids_sensor.application_id%'
             $instanceIdProvider: '@ids_sensor.instance_id_provider'
             $environmentResolver: '@ids_sensor.environment_resolver'
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
 
     ids_sensor.event_id_generator:
         class: ProjektMotor\IdsSensor\Processing\Normalization\UuidV7EventIdGenerator
@@ -85,6 +94,7 @@ services:
             $buffer: '@ids_sensor.event_buffer'
             $captureBudget: '@ids_sensor.capture_budget'
             $accessDecisionSensor: '@?ids_sensor.sensor.access_decision'
+            $latencyRecorder: '@ids_sensor.latency_recorder'
 
     # Redigiert mit: ein `?token=…` landet in payload.query und damit — anders als raw — in
     # JEDEM Event, auch bei info. Konzept 4.5.1 nennt die Liste nur für raw; sie hier
@@ -96,8 +106,6 @@ services:
 
     ids_sensor.severity_resolver:
         class: ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
 
     ids_sensor.http_status_resolver:
         class: ProjektMotor\IdsSensor\Sensor\Kernel\HttpStatusResolver
@@ -116,6 +124,9 @@ services:
             $eventFactory: '@ids_sensor.event_factory'
             $severityResolver: '@ids_sensor.severity_resolver'
             $queryNormalizer: '@ids_sensor.query_normalizer'
+            # Für die exception_message: sie trägt bei JEDER Stufe den angefragten Pfad
+            # samt Query, und die Denylist aus Konzept 4.5.1 sah dieses Feld bis dahin nie.
+            $cleaner: '@ids_sensor.payload_confidentiality_cleanup.cleaner'
         tags:
             - { name: ids_sensor.event_normalizer }
 
@@ -144,7 +155,7 @@ services:
             $environmentResolver: '@ids_sensor.environment_resolver'
             $runtime: '@ids_sensor.runtime_profile'
             $config: '%ids_sensor.config%'
-            $spool: '@?ids_sensor.spool'
+            $spool: '@ids_sensor.spool'
             $heartbeatScheduler: '@?ids_sensor.heartbeat.scheduler'
 
     # Volumen-Stellrad aus Konzept 4.2.3. Bei der Vorgabe 1.0 wird nicht einmal gezogen.
@@ -166,9 +177,8 @@ services:
             $counters: '@ids_sensor.counters'
             $runtime: '@ids_sensor.runtime_profile'
             $spool: '@ids_sensor.spool'
+            $maxFrameBytes: '%ids_sensor.flush.max_frame_bytes%'
             $breaker: '@ids_sensor.circuit_breaker'
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
 
     ids_sensor.event_flusher:
         class: ProjektMotor\IdsSensor\Delivery\Dispatch\EventFlusher
@@ -181,8 +191,6 @@ services:
             $deferredCounters: '@ids_sensor.deferred_counters'
             $latencyRecorder: '@ids_sensor.latency_recorder'
             $sampler: '@ids_sensor.sampler'
-        tags:
-            - { name: monolog.logger, channel: ids_sensor }
 
     # Flush auf kernel.terminate — NACH dem Absenden der Antwort. Zusätzlich auf
     # console.terminate und nach jeder Worker-Nachricht, weil dort kein terminate feuert.
@@ -191,3 +199,7 @@ services:
         arguments:
             $flusher: '@ids_sensor.event_flusher'
             $heartbeat: '@?ids_sensor.heartbeat.emitter'
+            # Konzept 4.: hartes Timeout von 50 ms fuer den Versand. Durchgesetzt wird es
+            # zwischen Frame und Lebenszeichen — die einzige Naht, an der PHP eine Frist
+            # ueberhaupt pruefen kann.
+            $dispatchBudgetMs: '%ids_sensor.budget.dispatch_ms%'

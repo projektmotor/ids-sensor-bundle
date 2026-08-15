@@ -12,17 +12,18 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Shipper;
  * es unverändert weitergeschickt — nicht erneut normalisiert oder redigiert. Ein
  * zweiter Redaktionsdurchlauf wäre eine zweite Gelegenheit, es falsch zu machen.
  *
- * Implementierungen DÜRFEN werfen — der EventFlusher fängt jedes Throwable und
- * entscheidet über Spool und Circuit Breaker. Ein Shipper, der Fehler selbst
- * verschluckt, nähme dem Flusher genau diese Entscheidung und machte den Verlust
- * unsichtbar.
+ * Implementierungen DÜRFEN werfen — der
+ * {@see \ProjektMotor\IdsSensor\Delivery\Dispatch\FrameDispatcher} fängt jedes
+ * Throwable und entscheidet über Spool und Circuit Breaker. Ein Shipper, der Fehler
+ * selbst verschluckt, nähme dem Dispatcher genau diese Entscheidung und machte den
+ * Verlust unsichtbar.
  *
  * @internal
  */
 interface ShipperInterface
 {
     /**
-     * @param array<string, mixed> $frame Ergebnis von {@see \ProjektMotor\IdsSensor\EventFormat\Frame\Frame::toArray()}
+     * @param array<string, mixed> $frame Ergebnis von {@see \ProjektMotor\IdsEventData\Frame\Frame::toArray()}
      *
      * @throws \Throwable wenn der Frame nicht übergeben werden konnte
      */

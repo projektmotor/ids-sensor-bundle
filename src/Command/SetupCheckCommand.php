@@ -6,8 +6,9 @@ namespace ProjektMotor\IdsSensor\Command;
 
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
-use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
+use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
 use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
+use ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -66,7 +67,14 @@ final class SetupCheckCommand extends Command
         private readonly EnvironmentResolver $environmentResolver,
         private readonly RuntimeProfile $runtime,
         private readonly array $config,
-        private readonly ?SpoolInterface $spool = null,
+        // Konkret und nicht nullbar, aus zwei Gründen. Erstens ist er nie null: der
+        // Spool wird in services_resilience.yaml unbedingt registriert und von drei
+        // Diensten referenziert — der Zweig „Kein Spool konfiguriert" war unerreichbar.
+        // Zweitens braucht dieser Command die LESESEITE (Verzeichnis, liegengebliebene
+        // Dateien), und die verbirgt SpoolInterface absichtlich; die Prüfung lief
+        // deshalb über method_exists(). Dieselbe Begründung wie bei
+        // {@see \ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer}.
+        private readonly FileSpool $spool,
         private readonly ?Scheduler $heartbeatScheduler = null,
     ) {
         parent::__construct();
@@ -102,6 +110,7 @@ final class SetupCheckCommand extends Command
         $this->checkRuntime($io);
         $this->checkSpool($io);
         $this->checkHeartbeat($io);
+        $this->checkCircuitBreaker($io);
         $this->checkLayers($io);
         $this->checkExtensions($io);
 
@@ -147,7 +156,14 @@ final class SetupCheckCommand extends Command
 
         // Ein zur Compile-Zeit eingebackener Hostname wäre in allen Replicas derselbe und
         // bräche die Aggregationsregel aus Konzept 2.2.1 — jede Instanz sähe aus wie eine.
-        if ($identity->instanceId === gethostname()) {
+        //
+        // Der Vergleich liegt in InstanceIdProvider, weil dort die Bereinigung liegt.
+        // Hier stand `=== gethostname()` gegen die bereits bereinigte Kennung — auf
+        // jedem Host, dessen Name gekürzt werden muss (FQDN über 64 Zeichen), ein
+        // Falsch-Positiv, mit `--strict` ein Exit 1 für eine richtige Konfiguration.
+        $hostname = (string) gethostname();
+
+        if (InstanceIdProvider::matchesHostname($identity->instanceId, $hostname)) {
             return;
         }
 
@@ -156,7 +172,7 @@ final class SetupCheckCommand extends Command
             .'bewusst gesetzt wurde — bei mehreren Replicas MUSS sie aber je Instanz unterschiedlich '
             .'sein, sonst sind alle Instanzen in den Auswertungen eine (Konzept 2.2.1).',
             $identity->instanceId,
-            (string) gethostname(),
+            $hostname,
         );
     }
 
@@ -208,18 +224,10 @@ final class SetupCheckCommand extends Command
 
         $io->definitionList(['transport' => preg_replace('#://[^@/]*@#', '://***@', $dsn) ?? $dsn]);
 
-        // Der wahrscheinlichste Erstinstallationsfehler: auto_setup sendet
-        // XGROUP CREATE ... MKSTREAM, was die XADD-only-Rechte aus Konzept 2. ablehnen.
-        // In der Entwicklung mit root-Zugang funktioniert es, in Produktion nicht.
-        $autoSetup = $transport['options']['auto_setup'] ?? false;
-
-        if (false !== $autoSetup && 0 !== $autoSetup && '0' !== $autoSetup) {
-            $this->findings[] =
-                'transport.options.auto_setup ist nicht false. Der Transport sendet dann '
-                .'XGROUP CREATE ... MKSTREAM, und die XADD-only-Rechte des Sensors (Konzept 2.) lehnen '
-                .'das mit NOPERM ab. In der Entwicklung mit weiten Rechten fällt das nicht auf — beim '
-                .'ersten Versand in Produktion schon. Die Consumer-Gruppe erzeugt der Collector.';
-        }
+        // KEINE auto_setup-Prüfung mehr. Sie stand hier, weil `transport.options` den
+        // Wert überschreiben konnte — das lehnt der Konfigurationsbaum jetzt ab, und zwar
+        // beim Kompilieren. Ein Befund im Deploy-Check wäre die schwächere Antwort auf
+        // dieselbe Frage: Er käme später und ließe sich mit `|| true` abschalten.
     }
 
     /**
@@ -263,29 +271,35 @@ final class SetupCheckCommand extends Command
 
     private function checkSpool(SymfonyStyle $io): void
     {
-        if (null === $this->spool) {
-            $this->hints[] =
-                'Kein Spool konfiguriert. Ein Broker-Ausfall bedeutet dann Datenverlust statt '
-                .'Nachlieferung — und unter mod_php käme überhaupt nichts an.';
-
-            return;
-        }
-
-        /** @var array{dir: string, drain: string, drain_interval_s: int} $spoolConfig */
+        /** @var array{dir: string|null, drain_interval_s: int} $spoolConfig */
         $spoolConfig = $this->config['spool'];
-        $directory = $spoolConfig['dir'];
+
+        // Den AUFGELÖSTEN Pfad, nicht den konfigurierten. `spool.dir` ist per Vorgabe
+        // null — erst IdsSensorBundle setzt daraus %kernel.project_dir%/var/ids-spool.
+        // Hier stand `$this->config['spool']['dir']`, und weil diese Datei
+        // declare(strict_types=1) trägt, warf `is_dir(null)` einen TypeError: der
+        // Command, der laut doc/07-betrieb.md im Deploy Pflicht ist und ausdrücklich
+        // nicht mit `|| true` entschärft werden soll, brach auf der dokumentierten
+        // Mindestkonfiguration ab. Das falsche `@var` in Zeile darüber hatte PHPStan
+        // davon abgehalten, es zu sehen.
+        $directory = $this->spool->directory();
 
         if (!is_dir($directory)) {
-            // Nicht vorhanden ist in Ordnung — er wird beim ersten Schreiben angelegt.
-            // Nicht beschreibbar ist dagegen ein Befund.
-            $parent = \dirname($directory);
+            // Nicht vorhanden ist in Ordnung — FileSpool legt ihn beim ersten Schreiben
+            // mitsamt fehlender Zwischenebenen an. Geprüft wird deshalb der nächste
+            // VORHANDENE Vorfahre und nicht das unmittelbare Elternverzeichnis: bei der
+            // Vorgabe %kernel.project_dir%/var/ids-spool fehlt in einer frischen
+            // Installation regelmäßig auch var/ selbst, und die Prüfung meldete dann
+            // einen Befund für einen völlig gesunden Zustand — mit --strict einen
+            // Rückgabewert 1 im Deploy.
+            $ancestor = self::nearestExistingAncestor($directory);
 
-            if (!is_writable($parent)) {
+            if (!is_writable($ancestor)) {
                 $this->findings[] = \sprintf(
                     'Das Spool-Verzeichnis "%s" existiert nicht und "%s" ist nicht beschreibbar. '
                     .'Damit gibt es keinen Rückfall bei einem Broker-Ausfall.',
                     $directory,
-                    $parent,
+                    $ancestor,
                 );
             }
         } elseif (!is_writable($directory)) {
@@ -302,16 +316,32 @@ final class SetupCheckCommand extends Command
      * niemand drainiert, der Spool läuft voll und verwirft. Deshalb ist ein zu altes
      * Spool-Element hier ein BEFUND und kein Hinweis.
      */
-    private function checkSpoolAge(SymfonyStyle $io, string $directory, int $drainInterval): void
+    /**
+     * Der nächste Vorfahre, den es tatsächlich gibt.
+     *
+     * Bricht spätestens an der Wurzel ab: `dirname('/')` ist wieder `/`, und für relative
+     * Pfade endet die Kette bei `.`.
+     */
+    private static function nearestExistingAncestor(string $directory): string
     {
-        $spool = $this->spool;
+        $candidate = $directory;
 
-        if (null === $spool || !method_exists($spool, 'pendingFiles')) {
-            return;
+        while (!is_dir($candidate)) {
+            $parent = \dirname($candidate);
+
+            if ($parent === $candidate) {
+                return $candidate;
+            }
+
+            $candidate = $parent;
         }
 
-        /** @var list<string> $files */
-        $files = $spool->pendingFiles();
+        return $candidate;
+    }
+
+    private function checkSpoolAge(SymfonyStyle $io, string $directory, int $drainInterval): void
+    {
+        $files = $this->spool->waitingFiles();
 
         if ([] === $files) {
             $io->definitionList(['Spool' => 'leer']);
@@ -319,17 +349,10 @@ final class SetupCheckCommand extends Command
             return;
         }
 
-        $oldest = null;
-
-        foreach ($files as $file) {
-            $modified = @filemtime($file);
-
-            if (false !== $modified) {
-                $oldest = null === $oldest ? $modified : min($oldest, $modified);
-            }
-        }
-
-        $age = null === $oldest ? 0 : max(0, time() - $oldest);
+        // Das Alter rechnet der Spool aus, nicht dieser Command: Dieselbe Schleife stand
+        // ein zweites Mal in der Heartbeat-PayloadFactory, und zwei Fassungen derselben
+        // Zahl sind zwei Gelegenheiten, sie unterschiedlich zu machen (CLAUDE.md §1.9).
+        $age = $this->spool->oldestWaitingAgeSeconds() ?? 0;
         $io->definitionList(['Spool' => \sprintf('%d Datei(en), älteste %d s', \count($files), $age)]);
 
         // Das Dreifache des Intervalls: ein einzelner verpasster Lauf ist noch kein Befund,
@@ -345,6 +368,58 @@ final class SetupCheckCommand extends Command
                 $age,
                 $limit,
             );
+        }
+    }
+
+    /**
+     * Zwei Nullen, die den Breaker still wirkungslos machen.
+     *
+     * Der Konfigurationsbaum lässt bei jeder Zahl die 0 zu — der Typ-Platzhalter für
+     * `int` ist 0, und `->min(1)` würde ihn zurückweisen. Die fachliche Untergrenze
+     * prüft laut seinem eigenen Docblock „der verbrauchende Service"; für den Breaker
+     * tat das niemand. `open_for_s: 0` ist dabei die stillste denkbare
+     * Fehlkonfiguration: Fehlschläge werden gezählt, der Zustand meldet `half_open`,
+     * und gesperrt wird nie — der Betreiber glaubt, einen Schutz zu haben.
+     */
+    /**
+     * `auto` ist kein Modus, sondern eine Auflösungsregel — siehe
+     * {@see \ProjektMotor\IdsSensor\IdsSensorBundle} für die Begründung von `both`.
+     */
+    private static function wirksamerModus(string $konfiguriert): string
+    {
+        return 'auto' === $konfiguriert ? 'both (aus auto)' : $konfiguriert;
+    }
+
+    private function checkCircuitBreaker(SymfonyStyle $io): void
+    {
+        /** @var array{enabled: bool, failure_threshold: int, open_for_s: int} $breaker */
+        $breaker = $this->config['circuit_breaker'];
+
+        if (!$breaker['enabled']) {
+            $io->definitionList(['Circuit Breaker' => 'abgeschaltet']);
+
+            return;
+        }
+
+        $io->definitionList([
+            'Circuit Breaker' => \sprintf(
+                'failure_threshold=%d, open_for_s=%d',
+                $breaker['failure_threshold'],
+                $breaker['open_for_s'],
+            ),
+        ]);
+
+        if (0 === $breaker['open_for_s']) {
+            $this->findings[] =
+                'circuit_breaker.open_for_s ist 0. Der Breaker zählt dann Fehlschläge, sperrt aber '
+                .'nie — jeder Request zahlt bei einem Broker-Ausfall weiterhin die vollen Timeouts. '
+                .'Genau der Fall, für den es den Breaker gibt, ist damit ungeschützt.';
+        }
+
+        if (0 === $breaker['failure_threshold']) {
+            $this->hints[] =
+                'circuit_breaker.failure_threshold ist 0: der Breaker öffnet beim ERSTEN Fehlschlag. '
+                .'Das ist zulässig und gelegentlich gewollt, aber selten Absicht.';
         }
     }
 
@@ -366,11 +441,32 @@ final class SetupCheckCommand extends Command
         $io->definitionList([
             'Heartbeat' => \sprintf(
                 'mode=%s, interval=%d s, letzter Versand %s',
-                $heartbeat['mode'],
+                // Der WIRKSAME Modus, nicht der konfigurierte: `auto` wird zur
+                // Compile-Zeit auf `both` aufgelöst. Hier stand der konfigurierte Wert —
+                // der Deploy-Check zeigte also `auto`, während im Heartbeat `both` steht
+                // und ein Betreiber, der beides vergleicht, einen Widerspruch sieht, den
+                // es nicht gibt.
+                self::wirksamerModus($heartbeat['mode']),
                 $heartbeat['interval_s'],
                 null === $age ? 'nie' : $age.' s',
             ),
         ]);
+
+        // `request` unter einer Laufzeit ohne abkoppelbare Antwort heißt: gar kein
+        // Lebenszeichen. Der Emitter lässt den Request-Pfad dort nicht ans Netz (ein
+        // TLS-Handschlag wäre echte Antwortzeit), und der Command ist in diesem Modus
+        // nicht zuständig — der Collector meldet dauerhaft ids.sensor_silent, obwohl der
+        // Sensor arbeitet. Der Command selbst kann das nicht melden: Er läuft per cron
+        // und würde minütlich einen Fehlerbericht erzeugen.
+        if ('request' === $heartbeat['mode'] && !$this->runtime->shipsDirectly()) {
+            $this->findings[] = \sprintf(
+                'heartbeat.mode ist "request", aber diese Laufzeit (%s) kann die Antwort nicht '
+                .'abkoppeln. Der Request-Pfad sendet dort bewusst nichts, und der cron-Command ist '
+                .'in diesem Modus nicht zuständig — es entsteht ÜBERHAUPT kein Lebenszeichen. '
+                .'Auf "command" oder "both" stellen.',
+                $this->runtime->sapi(),
+            );
+        }
 
         if (null === $age) {
             $this->hints[] =

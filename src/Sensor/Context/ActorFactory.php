@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Context;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
+use ProjektMotor\IdsEventData\Event\Actor;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
@@ -38,7 +38,7 @@ final class ActorFactory
     ) {
     }
 
-    public function forRequest(Request $request, RequestSnapshot $snapshot): Actor
+    public function forRequest(Request $request, ?RequestSnapshot $snapshot): Actor
     {
         return $this->build($request, $snapshot, $this->currentUser());
     }
@@ -52,9 +52,49 @@ final class ActorFactory
      * Anmeldefehlschlag liegt ohnehin kein Token im Speicher, und die versuchte Kennung
      * trägt der Sensor selbst nach.
      */
-    public function forRequestWithoutUser(Request $request, RequestSnapshot $snapshot): Actor
+    public function forRequestWithoutUser(Request $request, ?RequestSnapshot $snapshot): Actor
     {
         return $this->build($request, $snapshot, null);
+    }
+
+    private function build(Request $request, ?RequestSnapshot $snapshot, ?string $user): Actor
+    {
+        return new Actor(
+            $user,
+            self::clientIp($request),
+            $this->sessionIdHasher->forRequest($request),
+            $this->fingerprint($request, $snapshot),
+        );
+    }
+
+    /**
+     * Die Client-IP, ohne dass ein Angreifer die Erfassung damit abschalten kann.
+     *
+     * `Request::getClientIps()` wirft `ConflictingHeadersException`, sobald
+     * `framework.trusted_proxies` gesetzt ist und ein `Forwarded`- einem
+     * `X-Forwarded-For`-Header widerspricht. Beide Header darf der Client schicken; der
+     * Wurf ist damit von außen auslösbar.
+     *
+     * Ungefangen kostete das je nach Erfassungspunkt das ganze Event: in RequestSensor
+     * und ResponseSensor steht der Akteursaufbau VOR dem append(), das Event war also
+     * gebaut und verschwand ungezählt. Ein Angreifer konnte seinen eigenen Verkehr so
+     * gezielt unsichtbar machen — genau der auslösbare blinde Fleck, den Konzept 2.1
+     * ausschließen will.
+     *
+     * Der Rückfall ist REMOTE_ADDR: die tatsächliche Gegenstelle. Hinter einem Proxy ist
+     * das dessen Adresse und nicht die des Clients — unvollständig, aber niemals
+     * gefälscht. Ein aus den widersprüchlichen Headern geratener Wert wäre schlechter
+     * als gar keiner.
+     */
+    private static function clientIp(Request $request): ?string
+    {
+        try {
+            return $request->getClientIp();
+        } catch (\Throwable) {
+            $remoteAddress = $request->server->get('REMOTE_ADDR');
+
+            return \is_string($remoteAddress) && '' !== $remoteAddress ? $remoteAddress : null;
+        }
     }
 
     /**
@@ -65,15 +105,28 @@ final class ActorFactory
      * Autorisierungsentscheidungen, und der Fingerabdruck ist über alle derselbe. Ihn
      * je Event neu zu hashen wäre Arbeit im Erfassungspfad, für die das Budget aus
      * Konzept 2.1 nicht da ist.
+     *
+     * Ohne Snapshot gibt es nichts zu merken — dann wird gerechnet. Dieser Fall tritt nur
+     * ein, wenn kernel.request diesen Request nie erreicht hat, und dort zählt
+     * Vollständigkeit mehr als die eine Ersparnis.
+     *
+     * Gemerkt wird über ein eigenes „berechnet"-Flag und nicht über `??=`: `null` ist
+     * beim Fingerabdruck ein gültiges Ergebnis, und `??=` hielt es für „noch nichts da".
+     * Die Ersparnis blieb damit ausgerechnet dort aus, wo sie gemeint war — bei
+     * header-losen Clients und bei abgeschaltetem Fingerabdruck.
      */
-    private function build(Request $request, RequestSnapshot $snapshot, ?string $user): Actor
+    private function fingerprint(Request $request, ?RequestSnapshot $snapshot): ?string
     {
-        return new Actor(
-            $user,
-            $request->getClientIp(),
-            $this->sessionIdHasher->forRequest($request),
-            $snapshot->clientFingerprint ??= $this->fingerprinter->forRequest($request),
-        );
+        if (null === $snapshot) {
+            return $this->fingerprinter->forRequest($request);
+        }
+
+        if (!$snapshot->clientFingerprintComputed) {
+            $snapshot->clientFingerprint = $this->fingerprinter->forRequest($request);
+            $snapshot->clientFingerprintComputed = true;
+        }
+
+        return $snapshot->clientFingerprint;
     }
 
     /**

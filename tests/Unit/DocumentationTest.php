@@ -32,6 +32,37 @@ final class DocumentationTest extends TestCase
 {
     private const WURZEL = __DIR__.'/../..';
 
+    /**
+     * Zwischenknoten: Die Referenz führt sie als Überschrift, nicht als Tabellenzeile.
+     *
+     * Sie tragen keinen eigenen Wert — erklärt wird der Abschnitt.
+     *
+     * @var list<string>
+     */
+    private const ABSCHNITTE = [
+        'session_hash', 'layers', 'layers.kernel', 'layers.kernel.events', 'layers.security',
+        'layers.business', 'raw', 'payload_confidentiality_cleanup', 'sampling', 'budget',
+        'flush', 'transport', 'spool', 'circuit_breaker', 'heartbeat', 'telemetry', 'logging',
+        'correlation', 'fingerprint',
+    ];
+
+    /**
+     * Schlüssel, die die Referenz in einer ZUSAMMENGEFASSTEN Zelle erklärt.
+     *
+     * `| events.request / .response / .exception | true | einzelne Hooks |` beschreibt
+     * drei Schlüssel in einer Zeile. Das ist gute Doku und schlechtes Futter für einen
+     * Parser, der genau einen Bezeichner je Zelle erwartet — die Zusammenfassung
+     * aufzubrechen, nur damit ein Test sie findet, hieße die Doku dem Werkzeug
+     * unterzuordnen.
+     *
+     * @var list<string>
+     */
+    private const ZUSAMMENGEFASST = [
+        'layers.kernel.events.request',
+        'layers.kernel.events.response',
+        'layers.kernel.events.exception',
+    ];
+
     /** Diagrammtypen, die GitHub rendert. */
     private const MERMAID_TYPEN = [
         'flowchart', 'graph', 'sequenceDiagram', 'stateDiagram-v2', 'stateDiagram',
@@ -62,6 +93,67 @@ final class DocumentationTest extends TestCase
         }
 
         self::assertGreaterThan(50, $geprueft, 'Zu wenige Verweise gefunden — greift der Test noch?');
+    }
+
+    /**
+     * Was die README verlinkt, muss auch im Dist-Archiv liegen.
+     *
+     * {@see self::testEveryRelativeLinkResolves()} läuft im Repository und kann das nicht
+     * sehen: Dort existiert jede Datei. Über Composer installiert war `doc/` per
+     * `export-ignore` ausgeschlossen — die README verwies elfmal ins Leere, ausgerechnet
+     * auf „Betrieb" und „Konfiguration", die ein Betreiber beim Deploy braucht.
+     */
+    public function testNoLinkedDirectoryIsExcludedFromTheDistArchive(): void
+    {
+        $ausgeschlossen = self::exportIgnorierteVerzeichnisse();
+        $geprueft = 0;
+
+        foreach (self::verweise((string) file_get_contents(self::WURZEL.'/README.md')) as $ziel) {
+            $pfad = explode('#', $ziel)[0];
+
+            if ('' === $pfad || str_starts_with($pfad, 'http')) {
+                continue;
+            }
+
+            $oberstes = explode('/', ltrim($pfad, './'))[0];
+
+            // `tests/` ist ausgenommen und bleibt ausgeschlossen: Diese beiden Verweise
+            // richten sich an Mitwirkende („was ArchitectureTest durchsetzt"), nicht an
+            // Konsumenten. Ihr Ziel ist Quelltext, den ein Dist-Archiv nicht mitliefern
+            // soll — anders als `doc/`, das der Betreiber beim Deploy braucht.
+            if ('tests' === $oberstes) {
+                continue;
+            }
+
+            ++$geprueft;
+
+            self::assertNotContains(
+                $oberstes,
+                $ausgeschlossen,
+                \sprintf('Die README verweist auf %s, aber /%s steht in .gitattributes auf export-ignore.', $ziel, $oberstes),
+            );
+        }
+
+        self::assertGreaterThan(5, $geprueft, 'Zu wenige README-Verweise gefunden — greift der Test noch?');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function exportIgnorierteVerzeichnisse(): array
+    {
+        $zeilen = file(self::WURZEL.'/.gitattributes', \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES);
+        $ausgeschlossen = [];
+
+        foreach ($zeilen ?: [] as $zeile) {
+            if (str_starts_with($zeile, '#') || !str_contains($zeile, 'export-ignore')) {
+                continue;
+            }
+
+            $ausgeschlossen[] = trim(explode(' ', trim($zeile))[0], '/');
+        }
+
+        return $ausgeschlossen;
     }
 
     /**
@@ -124,6 +216,67 @@ final class DocumentationTest extends TestCase
         }
 
         self::assertGreaterThan(50, $geprueft, 'Zu wenige Schlüssel gefunden — greift der Test noch?');
+    }
+
+    /**
+     * Die Gegenrichtung: Der Baum hat keine Schlüssel, die niemand erklärt.
+     *
+     * `testConfigurationReferenceInventsNoKeys()` prüft nur, dass die Doku nichts
+     * ERFINDET. Eine Option, die es gibt und die niemand beschreibt, fällt damit nicht
+     * auf — und wer sie nicht kennt, benutzt sie nicht. Beides zusammen ergibt erst eine
+     * Referenz, auf die man sich verlassen kann.
+     */
+    public function testEveryConfigKeyIsDocumented(): void
+    {
+        $dokumentiert = self::referenzschluessel();
+        $undokumentiert = [];
+
+        foreach (self::konfigurationspfade() as $pfad) {
+            // Zwischenknoten tragen keinen Wert; erklärt wird der Abschnitt, nicht der
+            // Knoten. Die Referenz führt sie deshalb als Überschrift, nicht als Zeile.
+            if (\in_array($pfad, self::ABSCHNITTE, true)
+                || \in_array($pfad, self::ZUSAMMENGEFASST, true)
+            ) {
+                continue;
+            }
+
+            if (!\in_array($pfad, $dokumentiert, true)) {
+                $undokumentiert[] = $pfad;
+            }
+        }
+
+        self::assertSame([], $undokumentiert, \sprintf(
+            'Diese Schlüssel gibt es im ConfigurationTree, aber nicht in '
+            ."doc/08-konfiguration.md:\n  %s\n\nEine Option, die niemand erklärt, benutzt niemand.",
+            implode("\n  ", $undokumentiert),
+        ));
+    }
+
+    /**
+     * Die Vorgabewerte der Referenz stimmen mit dem Baum überein.
+     *
+     * Ein falscher Vorgabewert in der Doku ist schlimmer als ein fehlender: Wer ihn
+     * liest, verlässt sich darauf und lässt den Schlüssel weg — und bekommt etwas
+     * anderes, als dort steht.
+     */
+    public function testDocumentedDefaultsMatchTheTree(): void
+    {
+        $abweichungen = [];
+
+        foreach (self::referenzvorgaben() as $pfad => $dokumentiert) {
+            $tatsaechlich = self::vorgabeImBaum($pfad);
+
+            if (null === $tatsaechlich || $tatsaechlich === $dokumentiert) {
+                continue;
+            }
+
+            $abweichungen[] = \sprintf('%s: Doku sagt %s, der Baum sagt %s', $pfad, $dokumentiert, $tatsaechlich);
+        }
+
+        self::assertSame([], $abweichungen, \sprintf(
+            "Die Vorgabewerte laufen auseinander:\n  %s",
+            implode("\n  ", $abweichungen),
+        ));
     }
 
     /**
@@ -257,6 +410,95 @@ final class DocumentationTest extends TestCase
         }
 
         return $schluessel;
+    }
+
+    /**
+     * Die Vorgabewerte, die doc/08-konfiguration.md in der zweiten Tabellenspalte nennt.
+     *
+     * Nur Zellen, die aus GENAU einem Wert in Backticks bestehen — alles andere ist
+     * Prosa und keine Zusage über einen Vorgabewert.
+     *
+     * @return array<string, string> Pfad => dokumentierter Wert
+     */
+    private static function referenzvorgaben(): array
+    {
+        $zeilen = explode("\n", (string) file_get_contents(self::WURZEL.'/doc/08-konfiguration.md'));
+        $abschnitt = '';
+        $vorgaben = [];
+
+        foreach ($zeilen as $zeile) {
+            if (1 === preg_match('/^#{2,3}\s/', $zeile)) {
+                $abschnitt = 1 === preg_match('/^#{2,3}\s+`([^`]+)`\s*$/', $zeile, $kopf) ? $kopf[1] : '';
+
+                continue;
+            }
+
+            $spalten = explode('|', $zeile);
+            $schluessel = trim($spalten[1] ?? '');
+            $vorgabe = trim($spalten[2] ?? '');
+
+            if (1 !== preg_match('/^`([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)`$/', $schluessel, $token)) {
+                continue;
+            }
+
+            if (1 !== preg_match('/^`([^`]+)`$/', $vorgabe, $wert)) {
+                continue;
+            }
+
+            $vorgaben['' === $abschnitt ? $token[1] : $abschnitt.'.'.$token[1]] = $wert[1];
+        }
+
+        return $vorgaben;
+    }
+
+    /**
+     * Der Vorgabewert eines Pfades im Baum, in derselben Schreibweise wie die Doku.
+     *
+     * null heißt „nicht vergleichbar" — etwa bei Listen und verschachtelten Vorgaben,
+     * die in der Referenz ohnehin in Prosa stehen.
+     */
+    private static function vorgabeImBaum(string $pfad): ?string
+    {
+        $baum = new TreeBuilder('ids_sensor');
+        ConfigurationTree::build($baum->getRootNode());
+
+        $wurzel = $baum->buildTree();
+        \assert($wurzel instanceof ArrayNode);
+
+        $knoten = $wurzel;
+
+        foreach (explode('.', $pfad) as $segment) {
+            $kinder = $knoten->getChildren();
+
+            if (!isset($kinder[$segment])) {
+                return null;
+            }
+
+            $kind = $kinder[$segment];
+
+            if (!$kind instanceof ArrayNode) {
+                return $kind->hasDefaultValue() ? self::alsText($kind->getDefaultValue()) : null;
+            }
+
+            $knoten = $kind;
+        }
+
+        return null;
+    }
+
+    private static function alsText(mixed $wert): ?string
+    {
+        return match (true) {
+            null === $wert => 'null',
+            \is_bool($wert) => $wert ? 'true' : 'false',
+            \is_int($wert) => (string) $wert,
+            // 1.0 und nicht 1: Die Referenz schreibt Fließkommavorgaben mit Nachkomma,
+            // und `(string) 1.0` ergäbe „1" — eine Abweichung, die keine ist.
+            \is_float($wert) => \sprintf('%s', json_encode($wert, \JSON_PRESERVE_ZERO_FRACTION)),
+            \is_string($wert) => $wert,
+            \is_array($wert) => [] === $wert ? '[]' : null,
+            default => null,
+        };
     }
 
     /**

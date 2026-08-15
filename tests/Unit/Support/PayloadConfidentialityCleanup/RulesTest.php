@@ -137,6 +137,11 @@ final class RulesTest extends TestCase
 
     public function testTheShippedListCarriesAVersion(): void
     {
-        self::assertSame(1, TestCleaner::rules()->version);
+        // Die EINE bewusst gepflegte Zahl. Sie steht hier als Literal, damit eine
+        // Änderung der ausgelieferten Liste eine Entscheidung bleibt und kein Nebeneffekt:
+        // Die Version reist in jedem raw-Feld mit, und der Collector unterscheidet daran,
+        // ob ein fehlender Wert redigiert oder nie vorhanden war. Alle anderen Tests
+        // lesen sie über TestCleaner ab, statt sie zu wiederholen.
+        self::assertSame(2, TestCleaner::rules()->version);
     }
 }

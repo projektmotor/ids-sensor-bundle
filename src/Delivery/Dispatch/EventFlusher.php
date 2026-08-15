@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Dispatch;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventNormalizerInterface;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
@@ -76,6 +76,41 @@ final class EventFlusher
         }
     }
 
+    /**
+     * Leert den Puffer in den Spool, ohne den Broker anzufassen.
+     *
+     * Für den Shutdown-Pfad: Stirbt der Prozess an einem Fatal Error, feuert kein
+     * kernel.terminate, und der Puffer ginge mitsamt seiner Events ungezählt verloren —
+     * ein stiller Verlust, den Konzept 4. ausschließt. Normalisiert wird weiterhin; das
+     * ist reine Rechenzeit und ohne sie gäbe es keinen Frame.
+     *
+     * Wirft unter keinen Umständen — dieselbe Zusage wie {@see flush()}, und hier umso
+     * mehr: Ein Wurf in einer Shutdown-Funktion überschriebe die Fehlerausgabe der
+     * Anwendung.
+     *
+     * @return int Anzahl der gespoolten Events
+     */
+    public function flushToSpool(): int
+    {
+        try {
+            $captured = $this->buffer->drain();
+            $this->deferredCounters->collect();
+
+            if ([] === $captured) {
+                return 0;
+            }
+
+            $identity = $this->identityProvider->get();
+            $normalized = $this->normalizeAll($captured, $identity);
+
+            return [] === $normalized ? 0 : $this->frameDispatcher->dispatchToSpool($identity, $normalized);
+        } catch (\Throwable) {
+            // Ohne Logger: Wer hier ankommt, ist mitten im Sterben, und ein
+            // Monolog-Handler könnte den Zustand weiter verschlechtern.
+            return 0;
+        }
+    }
+
     private function doFlush(DispatchPath $path): int
     {
         // drain() statt all(): ein zweiter Durchlauf — etwa aus der
@@ -127,6 +162,20 @@ final class EventFlusher
      */
     private function normalizeAll(array $captured, SensorIdentity $identity): array
     {
+        // VOR der Schleife und auf die erfasste Zahl, nicht auf die normalisierte.
+        //
+        // Hier stand die Erhöhung am Ende, auf count($normalized) — also NACH Abzug von
+        // dropped_no_normalizer und dropped_normalize_error, während der Docblock der
+        // Konstante „bevor irgendetwas verworfen wurde" sagt. Collectorseitig ging die
+        // naheliegende Bilanz `captured = sent + spooled + Σ dropped_*` damit nicht auf:
+        // Die beiden Verluste waren doppelt abgezogen, einmal in captured und einmal in
+        // ihrem eigenen Zähler.
+        //
+        // Die Phase-A-Verluste (Puffer, Budget, Entscheidungsgrenze) sind weiterhin nicht
+        // enthalten — jene Events haben den Puffer nie erreicht. Das ist kein Widerspruch:
+        // captured zählt, was der Sensor angenommen hat.
+        $this->counters->increment(Counters::CAPTURED, \count($captured));
+
         $normalized = [];
 
         foreach ($captured as $event) {
@@ -151,8 +200,6 @@ final class EventFlusher
                 );
             }
         }
-
-        $this->counters->increment(Counters::CAPTURED, \count($normalized));
 
         return $normalized;
     }

@@ -67,4 +67,22 @@ final class InstanceIdProvider
 
         return substr($sanitized, 0, 64);
     }
+
+    /**
+     * Stammt diese Kennung erkennbar aus dem Hostnamen?
+     *
+     * Für `ids:sensor:setup-check`, der davor warnt, dass in allen Replicas dieselbe
+     * Kennung stehen könnte. Er verglich die BEREINIGTE Kennung mit dem ROHEN
+     * Hostnamen — auf jedem Host, dessen Name gekürzt oder umgeschrieben werden muss,
+     * war das ein Falsch-Positiv, mit `--strict` ein Exit 1 für eine völlig richtige
+     * Konfiguration. Praktisch relevant ist die Länge: Ein FQDN über 64 Zeichen wird
+     * gekürzt. (Unterstrich, Punkt, Doppelpunkt und Bindestrich sind zugelassen.)
+     *
+     * Die Regel steht hier und nicht im Command, weil diese Klasse die Bereinigung
+     * besitzt: Wer sie ändert, muss den Vergleich nicht suchen gehen.
+     */
+    public static function matchesHostname(string $instanceId, string $hostname): bool
+    {
+        return $instanceId === self::sanitize($hostname);
+    }
 }

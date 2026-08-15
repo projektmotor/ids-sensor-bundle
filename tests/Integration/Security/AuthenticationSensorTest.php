@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration\Security;
 
-use ProjektMotor\IdsSensor\EventFormat\Payload\SecurityPayload;
+use ProjektMotor\IdsEventData\Payload\SecurityPayload;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;

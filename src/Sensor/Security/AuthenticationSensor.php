@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Security;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Payload\SecurityPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Payload\SecurityPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
@@ -92,7 +92,7 @@ final class AuthenticationSensor implements EventSubscriberInterface
             $this->binder->bind($captured, $request, $this->binder->snapshotFor($request));
             $captured->setActorUser(self::authenticatedIdentifier($event));
 
-            $this->buffer->append($captured);
+            $this->buffer->appendMandatory($captured);
         });
     }
 
@@ -112,7 +112,7 @@ final class AuthenticationSensor implements EventSubscriberInterface
             $this->binder->bind($captured, $request, $this->binder->snapshotFor($request));
             $captured->setActorUser($this->attemptedIdentifier($event));
 
-            $this->buffer->append($captured);
+            $this->buffer->appendMandatory($captured);
         });
     }
 

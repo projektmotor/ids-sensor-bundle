@@ -2,7 +2,11 @@
     "parameters": {
         "ids_sensor.application_id": "shop-api",
         "ids_sensor.budget.capture_us": 1500,
+        "ids_sensor.budget.connect_timeout_ms": 20,
+        "ids_sensor.budget.dispatch_ms": 50,
+        "ids_sensor.budget.fatal_dispatch_ms": 15,
         "ids_sensor.budget.max_events_per_request": 64,
+        "ids_sensor.budget.read_timeout_ms": 30,
         "ids_sensor.circuit_breaker.enabled": true,
         "ids_sensor.circuit_breaker.failure_threshold": 3,
         "ids_sensor.circuit_breaker.open_for_s": 30,
@@ -96,14 +100,11 @@
                 "dispatch_ms": 50,
                 "connect_timeout_ms": 20,
                 "read_timeout_ms": 30,
-                "drain_ms": 25,
                 "fatal_dispatch_ms": 15,
-                "max_events_per_request": 64,
-                "max_events_per_process": 200
+                "max_events_per_request": 64
             },
             "flush": {
                 "policy": "auto",
-                "batch": true,
                 "max_frame_bytes": 262144
             },
             "transport": {
@@ -116,17 +117,14 @@
                 "dir": null,
                 "max_bytes": 16777216,
                 "max_file_bytes": 4194304,
-                "drain": "both",
                 "drain_interval_s": 30,
                 "drain_max_files_per_run": 2,
-                "drain_min_interval_s": 1,
                 "stale_after_s": 300
             },
             "circuit_breaker": {
                 "enabled": true,
                 "failure_threshold": 3,
-                "open_for_s": 30,
-                "half_open_probes": 1
+                "open_for_s": 30
             },
             "heartbeat": {
                 "enabled": true,
@@ -135,11 +133,9 @@
                 "stamp_file": null
             },
             "telemetry": {
-                "latency_histogram": true,
-                "profiler_collector": true
+                "latency_histogram": true
             },
             "logging": {
-                "enabled": true,
                 "channel": "ids_sensor"
             }
         },
@@ -180,6 +176,7 @@
         "ids_sensor.layers.business.event_classes": [],
         "ids_sensor.layers.business.ip_from_request": true,
         "ids_sensor.layers.business.user_from_token": true,
+        "ids_sensor.layers.kernel.capture_fatal_errors": false,
         "ids_sensor.layers.kernel.enabled": false,
         "ids_sensor.layers.kernel.events.exception": true,
         "ids_sensor.layers.kernel.events.request": true,
@@ -189,6 +186,7 @@
         "ids_sensor.layers.security.active": false,
         "ids_sensor.layers.security.capture_granted": true,
         "ids_sensor.layers.security.max_decisions_per_request": 200,
+        "ids_sensor.logging.channel": "ids_sensor",
         "ids_sensor.payload_confidentiality_cleanup.headers": [
             "Cookie",
             "Set-Cookie",
@@ -196,7 +194,9 @@
             "Proxy-Authorization",
             "X-API-Key",
             "X-Auth-Token",
-            "X-CSRF-Token"
+            "X-CSRF-Token",
+            "X-Debug-Exception",
+            "X-Debug-Exception-File"
         ],
         "ids_sensor.payload_confidentiality_cleanup.parameters": [
             "password",
@@ -213,7 +213,7 @@
             "iban"
         ],
         "ids_sensor.payload_confidentiality_cleanup.replacement": "[confidential]",
-        "ids_sensor.payload_confidentiality_cleanup.version": 1,
+        "ids_sensor.payload_confidentiality_cleanup.version": 2,
         "ids_sensor.raw.enabled": true,
         "ids_sensor.raw.include_request_body": true,
         "ids_sensor.raw.max_bytes": 32768,
@@ -229,12 +229,13 @@
         "ids_sensor.session_hash.enabled": true,
         "ids_sensor.session_hash.key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
         "ids_sensor.spool.dir": "/app/tests/Fixtures/var/ids-spool",
-        "ids_sensor.spool.drain": "both",
         "ids_sensor.spool.drain_interval_s": 30,
         "ids_sensor.spool.drain_max_files_per_run": 2,
         "ids_sensor.spool.max_bytes": 16777216,
         "ids_sensor.spool.max_file_bytes": 4194304,
+        "ids_sensor.spool.stale_after_s": 300,
         "ids_sensor.telemetry.latency_histogram": true,
+        "ids_sensor.transport.configured": false,
         "ids_sensor.transport.name": "ids_events"
     },
     "resettable": {
@@ -267,7 +268,8 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                1500
+                1500,
+                "@ids_sensor.logger"
             ],
             "tags": {
                 "kernel.reset": [
@@ -345,7 +347,7 @@
                 "@ids_sensor.environment_resolver",
                 "@ids_sensor.runtime_profile",
                 "%ids_sensor.config%",
-                "@?ids_sensor.spool",
+                "@ids_sensor.spool",
                 "@?ids_sensor.heartbeat.scheduler"
             ],
             "tags": {
@@ -386,7 +388,8 @@
             "synthetic": false,
             "arguments": [
                 "@ids_sensor.spool_drainer",
-                2
+                2,
+                false
             ],
             "tags": {
                 "console.command": [
@@ -438,7 +441,8 @@
                 "@ids_sensor.counters",
                 "@ids_sensor.event_buffer",
                 "@ids_sensor.capture_budget",
-                null
+                null,
+                "@ids_sensor.latency_recorder"
             ],
             "tags": []
         },
@@ -454,7 +458,7 @@
                 "%ids_sensor.environment_map%",
                 {
                     "!inline": {
-                        "class": "ProjektMotor\\IdsSensor\\EventFormat\\Vocabulary\\Environment",
+                        "class": "ProjektMotor\\IdsEventData\\Vocabulary\\Environment",
                         "public": false,
                         "shared": true,
                         "lazy": false,
@@ -465,20 +469,14 @@
                         ],
                         "tags": [],
                         "factory": [
-                            "ProjektMotor\\IdsSensor\\EventFormat\\Vocabulary\\Environment",
+                            "ProjektMotor\\IdsEventData\\Vocabulary\\Environment",
                             "from"
                         ]
                     }
                 },
-                "@?logger"
+                "@ids_sensor.logger"
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.event_buffer": {
             "class": "ProjektMotor\\IdsSensor\\Sensor\\EventBuffer",
@@ -531,16 +529,10 @@
                 "@ids_sensor.counters",
                 "@ids_sensor.deferred_counters",
                 "@ids_sensor.latency_recorder",
-                "@?logger",
+                "@ids_sensor.logger",
                 "@ids_sensor.sampler"
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.event_id_generator": {
             "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\UuidV7EventIdGenerator",
@@ -561,7 +553,8 @@
             "synthetic": false,
             "arguments": [
                 "@ids_sensor.event_flusher",
-                "@?ids_sensor.heartbeat.emitter"
+                "@?ids_sensor.heartbeat.emitter",
+                50
             ],
             "tags": {
                 "kernel.event_subscriber": [
@@ -581,16 +574,11 @@
                 "@ids_sensor.counters",
                 "@ids_sensor.runtime_profile",
                 "@ids_sensor.spool",
+                262144,
                 "@ids_sensor.circuit_breaker",
-                "@?logger"
+                "@ids_sensor.logger"
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.heartbeat.emitter": {
             "class": "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\Emitter",
@@ -606,16 +594,10 @@
                 "@ids_sensor.counters",
                 "@ids_sensor.heartbeat.mode",
                 "@ids_sensor.runtime_profile",
-                "@?logger",
+                "@ids_sensor.logger",
                 "@ids_sensor.circuit_breaker"
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.heartbeat.mode": {
             "class": "ProjektMotor\\IdsSensor\\Delivery\\Heartbeat\\Mode",
@@ -648,7 +630,7 @@
                 "@ids_sensor.heartbeat.scheduler",
                 "@ids_sensor.heartbeat.mode",
                 60,
-                1,
+                2,
                 "@ids_sensor.spool",
                 "@ids_sensor.circuit_breaker"
             ],
@@ -679,15 +661,9 @@
                 "shop-api",
                 "@ids_sensor.instance_id_provider",
                 "@ids_sensor.environment_resolver",
-                "@?logger"
+                "@ids_sensor.logger"
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.instance_id_provider": {
             "class": "ProjektMotor\\IdsSensor\\Support\\Identity\\InstanceIdProvider",
@@ -713,6 +689,24 @@
             ],
             "tags": []
         },
+        "ids_sensor.logger": {
+            "class": "ProjektMotor\\IdsSensor\\Support\\Telemetry\\FailSafeLogger",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@?logger"
+            ],
+            "tags": {
+                "monolog.logger": [
+                    {
+                        "channel": "ids_sensor"
+                    }
+                ]
+            }
+        },
         "ids_sensor.normalizer.kernel": {
             "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\KernelEventNormalizer",
             "public": false,
@@ -723,7 +717,8 @@
             "arguments": [
                 "@ids_sensor.event_factory",
                 "@ids_sensor.severity_resolver",
-                "@ids_sensor.query_normalizer"
+                "@ids_sensor.query_normalizer",
+                "@ids_sensor.payload_confidentiality_cleanup.cleaner"
             ],
             "tags": {
                 "ids_sensor.event_normalizer": [
@@ -752,7 +747,7 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                1,
+                2,
                 "%ids_sensor.payload_confidentiality_cleanup.headers%",
                 "%ids_sensor.payload_confidentiality_cleanup.parameters%"
             ],
@@ -821,15 +816,9 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "@?logger"
+                "@ids_sensor.logger"
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.shipper": {
             "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Shipper\\NullShipper",
@@ -852,15 +841,10 @@
                 "/app/tests/Fixtures/var/ids-spool",
                 16777216,
                 4194304,
-                "@?logger"
+                "@ids_sensor.logger",
+                30
             ],
-            "tags": {
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
-                ]
-            }
+            "tags": []
         },
         "ids_sensor.spool_drainer": {
             "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Spool\\SpoolDrainer",
@@ -872,16 +856,13 @@
             "arguments": [
                 "@ids_sensor.spool",
                 "@ids_sensor.shipper",
-                "@?logger"
+                "@ids_sensor.logger",
+                300,
+                "@ids_sensor.counters"
             ],
             "tags": {
                 "container.no_preload": [
                     []
-                ],
-                "monolog.logger": [
-                    {
-                        "channel": "ids_sensor"
-                    }
                 ]
             }
         }

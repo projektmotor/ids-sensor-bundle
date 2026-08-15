@@ -130,6 +130,12 @@ einem Ausfall in einen Topf werfen.
 Der Wert ist kein Schalter, sondern ein abgeleiteter Tatsachenwert: die Anwendung kann ihn
 nicht setzen.
 
+Auch nicht über die Konsole. `ids:sensor:spool:flush` entscheidet den Wert **je Frame**
+und liest ihn aus dem Frame selbst: Was der Sensor planmäßig als `deferred` in den Spool
+geschrieben hat, bleibt `deferred`; was `direct` gehen sollte und dort landete, war ein
+Fehlschlag und wird `recovered`. Der Command hat dafür bewusst keine Option — ein einziger
+Wert für einen ganzen Lauf wäre für mindestens einen der beiden Fälle falsch.
+
 ## Der Spool
 
 Der Spool ist **kein Übertragungsweg zum Collector**. Der Collector liest ausschließlich
@@ -163,5 +169,9 @@ herausgenommen hat. Für Container ist `/dev/shm/ids-spool` die Empfehlung.
 
 Es gibt bewusst **keinen** `spool.enabled`-Schalter: Der Spool ist kein Merkmal, sondern
 der Puffer, auf dem die fail-open-Zusage steht — und unter mod_php der einzige
-Transportweg. Ein Schalter dafür hätte dort jede Erfassung lautlos verworfen. Wer den
-Spool nicht selbst leeren will, stellt `spool.drain: off`.
+Transportweg. Ein Schalter dafür hätte dort jede Erfassung lautlos verworfen.
+
+Einen `spool.drain`-Schalter gibt es ebenfalls nicht mehr. Er stand hier als der Weg,
+das Nachsenden abzuschalten, wurde vollständig validiert — und von niemandem gelesen: Wer
+`off` einstellte, bekam trotzdem alles nachgesendet. Wer nicht drainen will, richtet den
+cron nicht ein; das ist derselbe Effekt und lügt nicht.

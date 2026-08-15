@@ -74,6 +74,9 @@ final class TestKernel extends Kernel
             // mock_file statt native: PHPUnit läuft in der CLI, wo session_start()
             // keine Header senden kann.
             'session' => ['storage_factory_id' => 'session.storage.factory.mock_file'],
+            // Nötig für die Sub-Request-Tests: ohne diesen Schalter gibt es keinen
+            // fragment.handler und damit keinen Weg, einen echten Sub-Request auszulösen.
+            'fragments' => ['enabled' => true],
         ]);
 
         if (null !== $this->securityConfig) {
@@ -85,6 +88,7 @@ final class TestKernel extends Kernel
         }
 
         $controller = $container->services()->set(TestController::class)->public();
+        $controller->arg('$fragmentHandler', service('fragment.handler'));
 
         if (null !== $this->securityConfig) {
             $controller->args([service('security.authorization_checker')]);
@@ -99,6 +103,10 @@ final class TestKernel extends Kernel
         $routes->add('test_not_found', '/gibt-es-nicht-mehr')->controller([TestController::class, 'notFound']);
         $routes->add('test_denied', '/geschuetzt')->controller([TestController::class, 'denied']);
         $routes->add('test_streamed', '/stream')->controller([TestController::class, 'streamed']);
+        // Erzeugt einen echten Sub-Request über den FragmentHandler — denselben Weg,
+        // den Twigs render() und ESI nehmen.
+        $routes->add('test_fragment_frame', '/mit-fragment')->controller([TestController::class, 'mitFragment']);
+        $routes->add('test_fragment_boom', '/mit-kaputtem-fragment')->controller([TestController::class, 'mitKaputtemFragment']);
         $routes->add('test_cacheable', '/cachebar')->controller([TestController::class, 'cacheable']);
         $routes->add('test_decide', '/entscheide')->controller([TestController::class, 'decide']);
         // Wird per access_control geschützt — der Pfad, den nur der Manager-Decorator sieht.

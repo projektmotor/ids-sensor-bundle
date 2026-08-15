@@ -33,5 +33,27 @@ interface SpoolInterface
     /** Wegen fehlender Schreibrechte verworfene Frames. */
     public function discardedUnwritable(): int;
 
+    /** Wegen eines Kodierfehlers verworfene Frames — nicht zu verwechseln mit „voll". */
+    public function discardedUnencodable(): int;
+
     public function spooledFrames(): int;
+
+    /**
+     * Wartende Dateien — aktive, versiegelte und gerade beanspruchte.
+     *
+     * Beantwortet „liegt etwas herum", nicht „was darf der Drainer abholen". Gehört ins
+     * Interface, weil {@see \ProjektMotor\IdsSensor\Delivery\Heartbeat\PayloadFactory}
+     * die Zahl braucht und sie sich bis hierher mit `method_exists()` besorgt hat —
+     * also mit einer Prüfung, die kein Vertrag ist und jede Fehlbenennung verschweigt.
+     *
+     * @return list<string>
+     */
+    public function waitingFiles(): array;
+
+    /**
+     * Alter der ältesten wartenden Datei in Sekunden, `null` wenn nichts wartet.
+     *
+     * Konzept 3.4: die einzige Außenansicht eines nicht laufenden Drains.
+     */
+    public function oldestWaitingAgeSeconds(): ?int;
 }

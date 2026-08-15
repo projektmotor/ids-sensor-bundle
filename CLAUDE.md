@@ -34,7 +34,7 @@ Jede Codezeile wird öfter gelesen als geschrieben. Ziel ist Code, der sich selb
 - **Eine Aufgabe (Single Level of Abstraction).** Eine Methode tut genau eine Sache und tut sie gut. Wenn du "und" brauchst, um zu beschreiben was eine Methode tut, ist sie zu groß.
 - **Wenige Parameter.** Maximal 3 Parameter (niladisch/monadisch/dyadisch bevorzugt). Bei mehr Parametern: Value Object / DTO einführen.
   - **Bei Konstruktoren zuerst den Dienstschnitt prüfen, nicht die Zahl.** Ein DTO um zwölf injizierte Services zu wickeln verpackt die Kopplung nur; ein besser geschnittener Dienst löst sie. Maßstab ist §1.8 (Kohäsion): Tritt eine Gruppe von Feldern nur in denselben Methoden auf, gehört sie in eine eigene Klasse. Erst wenn der Schnitt nachweislich stimmt, darf ein Konstruktor über 3 liegen — mit Begründung im Docblock. Beispiele: `Delivery\Dispatch\FrameDispatcher`, `Sensor\Context\CapturedEventBinder`.
-  - **Ausgenommen: DTOs, die ein festes Drahtformat abbilden.** `EventFormat\Event\NormalizedEvent` bildet 1:1 die Pflichtfelder aus Konzept Abschnitt 3 ab. Diese Klassen *sind* bereits die Value Objects, die die Regel als Lösung fordert.
+  - **Ausgenommen: DTOs, die ein festes Drahtformat abbilden.** `IdsEventData\Event\NormalizedEvent` bildet 1:1 die Pflichtfelder aus Konzept Abschnitt 3 ab. Diese Klassen *sind* bereits die Value Objects, die die Regel als Lösung fordert.
 - **Keine Flag-Parameter** (`function save(bool $isUpdate)`) — stattdessen zwei explizite Methoden.
 - **Keine Seiteneffekte.** Eine Methode namens `isValid()` darf keine Datenbankänderung auslösen.
 - **Command Query Separation:** Eine Methode ändert entweder einen Zustand ODER gibt eine Information zurück, niemals beides.
@@ -58,7 +58,7 @@ Jede Codezeile wird öfter gelesen als geschrieben. Ziel ist Code, der sich selb
 - **Gesetz von Demeter:** Nur mit direkten "Freunden" sprechen. Keine Ketten wie `$order->getCustomer()->getAddress()->getCity()`. Stattdessen delegierende Methoden oder Tell-Don't-Ask anwenden.
 - Objekte verstecken Daten hinter Verhalten (Kapselung), reine Datenstrukturen (DTOs, `readonly` Klassen) haben keine Business-Logik.
 - Value Objects für fachliche Konzepte nutzen (z.B. `Money`, `EmailAddress`) statt primitive Typen durchzureichen ("Primitive Obsession" vermeiden).
-  - **Ausgenommen: der Request-Pfad und `EventFormat/`.** Alles unter `src/Sensor/` läuft unter dem 5-ms-Budget aus Konzept 2.1; bei bis zu 200 Autorisierungsentscheidungen pro Request zählt jede Allokation. Und `EventFormat/` darf nichts Fremdes importieren, weil es als eigenes Paket ausgelöst werden soll — durchgesetzt von `ArchitectureTest::testEventFormatImportsNothingForeign()`. `eventId`, `correlationId`, `applicationId` und `instanceId` bleiben deshalb `string`.
+  - **Ausgenommen: der Request-Pfad und `projektmotor/ids-event-data`.** Alles unter `src/Sensor/` läuft unter dem 5-ms-Budget aus Konzept 2.1; bei bis zu 200 Autorisierungsentscheidungen pro Request zählt jede Allokation. Und das Ereignisformat darf nichts Fremdes importieren, weil dasselbe Paket auch das IdsBackendBundle konsumiert — durchgesetzt dort von `ArchitectureTest::testImportsNothingForeign()`. `eventId`, `correlationId`, `applicationId` und `instanceId` bleiben deshalb `string`.
 
 ### 1.6 Fehlerbehandlung
 
@@ -67,14 +67,14 @@ Jede Codezeile wird öfter gelesen als geschrieben. Ziel ist Code, der sich selb
 - Kontext in Exceptions mitgeben (was ist passiert, mit welchen Werten).
 - `try/catch` nicht zur Steuerung des normalen Kontrollflusses missbrauchen.
 - Keine `null`-Rückgaben, wo ein leeres Objekt/Collection oder eine Exception klarer ist (Null Object Pattern erwägen).
-  - **Ausgenommen: die vier `actor.*`-Felder.** Konzept 2.2.4 schreibt sie als „immer vorhanden, aber nullable" vor. Das Null-Objekt existiert bereits und heißt `EventFormat\Event\Actor::anonymous()`.
+  - **Ausgenommen: die vier `actor.*`-Felder.** Konzept 2.2.4 schreibt sie als „immer vorhanden, aber nullable" vor. Das Null-Objekt existiert bereits und heißt `IdsEventData\Event\Actor::anonymous()`.
 - Keine `null`-Parameter übergeben, wo es vermeidbar ist.
 
 ### 1.7 Grenzen (Boundaries)
 
 - Symfony-Core-Klassen, Drittanbieter-Bibliotheken und externe APIs immer hinter eigenen Interfaces/Adaptern kapseln — niemals direkt im Domain-Code verstreut nutzen.
 - Dependency Injection statt `new` innerhalb von Business-Logik (Symfony Service Container konsequent nutzen).
-- Public API des Bundles so gestalten, dass sie sich bei internen Refactorings möglichst nicht ändert. **In diesem Bundle sind das `Contract/` und `EventFormat/`** — alles andere trägt `@internal`, durchgesetzt von `ArchitectureTest`. `DependencyInjection/` und `config/` gehören ausdrücklich NICHT dazu.
+- Public API des Bundles so gestalten, dass sie sich bei internen Refactorings möglichst nicht ändert. **In diesem Bundle ist das `Contract/`** — alles andere trägt `@internal`, durchgesetzt von `ArchitectureTest`. Das Drahtformat liegt im eigenen Paket `projektmotor/ids-event-data` und ist dort vollständig öffentlich. `DependencyInjection/` und `config/` gehören ausdrücklich NICHT dazu.
 
 ### 1.8 Klassen
 
@@ -113,7 +113,6 @@ Geschnitten wird nach den Phasen der Pipeline, nicht nach technischen Schubladen
 ```
 src/
 ├── IdsSensorBundle.php      AbstractBundle — kein Extension/Configuration-Paar
-├── EventFormat/             Drahtformat (Konzept 3) — importfrei, künftig eigenes Paket
 ├── Contract/                was die überwachte Anwendung implementiert
 ├── Sensor/                  PHASE A: Erfassung im Request, unter dem 5-ms-Budget
 ├── Processing/              PHASE B, 1. Takt: aus Erfasstem wird das Ereignis
@@ -138,7 +137,15 @@ tests/
 ├── Integration/             nach Zusagen geschnitten, nicht nach Namespaces
 ├── Functional/
 └── Fixtures/
+
+vendor/projektmotor/ids-event-data/   das Drahtformat (Konzept 3) — eigenes Paket,
+                                      Namensraum ProjektMotor\IdsEventData\
 ```
+
+Das Ereignisformat lag bis zur Ausgliederung als `src/EventFormat/` hier. Es ist jetzt
+eine gewöhnliche Abhängigkeit, weil es der Vertrag zwischen **zwei** Paketen ist: der
+Sensor schreibt das Format, das IdsBackendBundle liest es. Es importiert seinerseits
+nichts — kein Symfony, kein PSR — und liegt damit unter allem in `src/`.
 
 Die oberste Ebene ist die Pipelinephase. `Support/` ist eng zu lesen — was dort landet,
 muss nachweislich von beiden Phasen benutzt werden, sonst wird der Ordner zur

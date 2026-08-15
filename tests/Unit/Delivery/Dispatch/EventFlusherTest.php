@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Delivery\Dispatch;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\EventFlusher;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\FrameDispatcher;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Processing\Normalization\KernelEventNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\QueryNormalizer;
@@ -27,6 +27,7 @@ use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Support\Telemetry\DeferredCounters;
 use ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
+use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingSpool;
 use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 
@@ -170,6 +171,16 @@ final class EventFlusherTest extends TestCase
 
         self::assertSame(1, $sent, 'Das zweite Event kommt trotzdem durch');
         self::assertSame(1, $this->counters->get(Counters::DROPPED_NORMALIZE_ERROR));
+
+        // captured zählt BEIDE — so, wie der Docblock der Konstante es sagt: „bevor
+        // irgendetwas verworfen wurde". Wurde es am Ende auf die normalisierte Zahl
+        // gesetzt, war der Verlust doppelt abgezogen, einmal hier und einmal in seinem
+        // eigenen Zähler, und die collectorseitige Bilanz ging nicht auf.
+        self::assertSame(
+            2,
+            $this->counters->get(Counters::CAPTURED),
+            'captured muss zählen, was der Sensor angenommen hat — nicht, was übrig blieb',
+        );
     }
 
     /**
@@ -218,13 +229,18 @@ final class EventFlusherTest extends TestCase
             [$this->kernelNormalizer()],
             $this->dispatcher(new CollectingShipper()),
             $this->counters,
-            $this->deferredCounters($this->collector),
+            new DeferredCounters($this->counters, $this->collector, $this->budget, null, $recorder),
             $recorder,
         );
         $flusher->flush();
 
         self::assertSame(1, $recorder->dispatchMs()->count());
-        self::assertSame(0, $recorder->inRequestOverheadUs()->count(), 'Der Flush zählt nicht als Erfassungskost');
+
+        // Und die Erfassungskost wird eingesammelt — getrennt vom Versand, weil beide
+        // Zahlen Verschiedenes bedeuten. Ohne diese Zeile war der Zähler dauerhaft 0,
+        // und der Test war grün, ohne irgendetwas zu belegen: recordCapture() hatte
+        // keinen einzigen Produktionsaufrufer.
+        self::assertSame(1, $recorder->inRequestOverheadUs()->count(), 'Die 5-ms-Zusage muss messbar sein');
     }
 
     public function testDispatchPathIsAdopted(): void
@@ -262,7 +278,9 @@ final class EventFlusherTest extends TestCase
 
     /**
      * Bis zur Entflechtung nahm der Flusher den Shipper direkt. POLICY_DIRECT liefert
-     * dasselbe Verhalten wie das frühere `$runtime = null`: kein Spool, kein Breaker.
+     * dasselbe Verhalten wie das frühere `$runtime = null`: direkt versenden, kein
+     * Breaker. Der Spool ist trotzdem verdrahtet — er ist seit der Verengung des
+     * Konstruktors Pflicht, weil ein fehlender Spool lautlosen Verlust bedeutet hätte.
      */
     private function dispatcher(ShipperInterface $shipper): FrameDispatcher
     {
@@ -270,7 +288,50 @@ final class EventFlusherTest extends TestCase
             $shipper,
             $this->counters,
             new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
+            new CollectingSpool(),
         );
+    }
+
+    /**
+     * Ein Frame über der Größengrenze wird verworfen und gezählt — nicht gespoolt.
+     *
+     * `flush.max_frame_bytes` war dokumentiert („Obergrenze je Frame") und wirkungslos:
+     * Es gab überhaupt keine Frame-Größengrenze. Redis lehnt eine Nachricht oberhalb von
+     * `proto-max-bulk-len` ab, der Frame kam also aus sich heraus nie durch.
+     *
+     * Gespoolt wird er bewusst NICHT: Der Drainer schickte ihn später an denselben Broker
+     * und liefe in denselben Fehler — die Zeile blockierte den Spool bei jedem Lauf, bis
+     * er voll ist. Genau das Head-of-Line-Blocking, gegen das es
+     * UnshippableFrameException gibt.
+     */
+    public function testAnOversizedFrameIsDiscardedAndCounted(): void
+    {
+        $this->collector->append($this->kernelRequest());
+        $shipper = new CollectingShipper();
+        $spool = new CollectingSpool();
+
+        $dispatcher = new FrameDispatcher(
+            $shipper,
+            $this->counters,
+            new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
+            $spool,
+            maxFrameBytes: 10,
+        );
+
+        $flusher = new EventFlusher(
+            $this->collector,
+            $this->identityProvider(),
+            [$this->kernelNormalizer()],
+            $dispatcher,
+            $this->counters,
+            $this->deferredCounters($this->collector),
+            new LatencyRecorder(),
+        );
+
+        self::assertSame(0, $flusher->flush());
+        self::assertSame(0, $shipper->frameCount(), 'Der Broker wird gar nicht erst angefasst');
+        self::assertSame([], $spool->frames(), 'Und der Spool auch nicht — er würde nur blockiert');
+        self::assertSame(1, $this->counters->get(Counters::DROPPED_FRAME_TOO_LARGE));
     }
 
     private function kernelNormalizer(): KernelEventNormalizer
@@ -279,6 +340,7 @@ final class EventFlusherTest extends TestCase
             new EventFactory(new SequentialEventIdGenerator()),
             new SeverityResolver(),
             new QueryNormalizer(TestCleaner::default()),
+            TestCleaner::default(),
         );
     }
 

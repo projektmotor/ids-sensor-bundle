@@ -6,6 +6,7 @@ namespace ProjektMotor\IdsSensor\Tests\Unit\Sensor;
 
 use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
+use ProjektMotor\IdsSensor\Tests\Fixtures\ThrowingLogger;
 
 final class CaptureBudgetTest extends TestCase
 {
@@ -38,45 +39,51 @@ final class CaptureBudgetTest extends TestCase
         $this->expectNotToPerformAssertions();
     }
 
-    public function testGuardSwallowsErrorsInTheErrorHandlerToo(): void
+    /**
+     * Ein defekter Logger darf den Schutz nicht aushebeln.
+     *
+     * Der Fehlerpfad ist die empfindlichste Stelle: Wirft der Logger dort — ein
+     * Monolog-Handler auf voller Platte genügt —, entwiche die Exception ausgerechnet
+     * beim Behandeln eines Fehlers.
+     */
+    public function testAThrowingLoggerDoesNotEscape(): void
     {
-        $budget = new CaptureBudget(1500);
+        $budget = new CaptureBudget(1500, new ThrowingLogger());
 
-        $budget->guard(
-            static function (): void {
-                throw new \RuntimeException('Sensor kaputt');
-            },
-            static function (\Throwable $e): void {
-                throw new \LogicException('Logger auch kaputt');
-            },
-        );
+        $budget->guard(static function (): void {
+            throw new \RuntimeException('Sensor kaputt');
+        });
 
-        $this->expectNotToPerformAssertions();
-    }
-
-    public function testTheErrorHandlerReceivesTheException(): void
-    {
-        $budget = new CaptureBudget(1500);
-        $caught = null;
-
-        $budget->guard(
-            static function (): void {
-                throw new \RuntimeException('Sensor kaputt');
-            },
-            static function (\Throwable $e) use (&$caught): void {
-                $caught = $e;
-            },
-        );
-
-        self::assertInstanceOf(\RuntimeException::class, $caught);
-        self::assertSame('Sensor kaputt', $caught->getMessage());
+        self::assertSame(1, $budget->failed(), 'Gezählt wird trotzdem');
     }
 
     /**
-     * Auch eine geworfene Exception muss auf das Budget angerechnet werden — sonst
-     * wäre ein dauerhaft fehlschlagender Sensor gratis und könnte den Request
-     * beliebig verzögern.
+     * Ein Fehler in der Erfassung wird GEZÄHLT, nicht bloß geschluckt.
+     *
+     * Hier stand ein optionaler `$onError`-Rückruf — und keine der acht Aufrufstellen
+     * übergab ihn. Der Zweig war toter Produktionscode, und ein Defekt im Sensor war von
+     * einem ruhigen Request nicht zu unterscheiden: kein Zähler, kein Logeintrag. Das
+     * widersprach Konzept 4. („Jeder verworfene oder verlorene Event wird gezählt") und
+     * wörtlich dem Docblock von CapturingEventDispatcher.
+     *
+     * Als Rückruf war die Zusage opt-in — sie galt nur, wenn jede Aufrufstelle daran
+     * dachte. Jetzt zählt das Budget selbst, und niemand kann es vergessen.
      */
+    public function testAFailedCaptureIsCounted(): void
+    {
+        $budget = new CaptureBudget(1500);
+
+        $budget->guard(static function (): void {
+            throw new \RuntimeException('Sensor kaputt');
+        });
+        $budget->guardMandatory(static function (): void {
+            throw new \RuntimeException('auch kaputt');
+        });
+
+        self::assertSame(2, $budget->failed());
+        self::assertSame(0, $budget->skipped(), 'Ein Fehler ist keine Budgetüberschreitung');
+    }
+
     public function testEvenFailedCaptureCostsBudget(): void
     {
         $budget = new CaptureBudget(1500);

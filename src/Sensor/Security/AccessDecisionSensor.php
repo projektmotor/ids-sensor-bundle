@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Security;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Payload\SecurityPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Payload\SecurityPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
@@ -117,7 +116,12 @@ final class AccessDecisionSensor implements AccessDecisionManagerInterface, Rese
 
         // Dedup: eine Übersichtsseite prüft dasselbe Recht auf demselben Objekt oft
         // mehrfach. Ein Event je unterschiedlicher Entscheidung genügt.
-        $key = $attribute.'|'.($resource ?? '-').'|'.$decision;
+        //
+        // Der Platzhalter für „keine Ressource" ist ein Nullbyte und kein '-': Ein
+        // Bindestrich ist eine gültige Ressourcenkennung (`isGranted('EDIT', '-')`),
+        // und dann fielen zwei verschiedene Entscheidungen auf denselben Schlüssel —
+        // die zweite verschwände dedupliziert. Ein Nullbyte kann keine sein.
+        $key = $attribute.'|'.($resource ?? "\0").'|'.$decision;
 
         if (isset($this->seen[$key])) {
             return;
@@ -160,8 +164,9 @@ final class AccessDecisionSensor implements AccessDecisionManagerInterface, Rese
         $user = $this->binder->currentUser();
 
         if (null === $user && !$token instanceof NullToken) {
-            $identifier = $token->getUserIdentifier();
-            $user = '' === $identifier ? null : $identifier;
+            // Die Leerzeichenkette wird in setActorUser() zu null — hier steht sie
+            // nicht mehr, damit es nur eine Stelle mit dieser Regel gibt.
+            $user = $token->getUserIdentifier();
         }
 
         $captured->setActorUser($user);

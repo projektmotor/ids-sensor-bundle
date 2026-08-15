@@ -167,6 +167,28 @@ final class SessionIdHasherTest extends TestCase
         self::assertSame(hash_hmac('sha256', self::SESSION_ID, self::KEY), $hasher->forRequest($request));
     }
 
+    /**
+     * Nach dem Request darf keine Roh-Session-ID mehr im Objekt liegen.
+     *
+     * In einer Worker-Laufzeit überlebte sie im Klartext bis zum nächsten Request. Der
+     * Test greift auf das private Feld zu, weil genau dessen Inhalt die Zusage ist —
+     * über die öffentliche Schnittstelle ist „ist weg" nicht von „wird neu berechnet"
+     * zu unterscheiden.
+     */
+    public function testResetForgetsTheRawSessionId(): void
+    {
+        $hasher = $this->hasher();
+        $hasher->forRequest($this->requestWithSession(self::SESSION_ID));
+
+        $gemerkt = new \ReflectionProperty($hasher, 'memoRawId');
+
+        self::assertSame(self::SESSION_ID, $gemerkt->getValue($hasher), 'Vorbedingung: die ID liegt im Objekt');
+
+        $hasher->reset();
+
+        self::assertNull($gemerkt->getValue($hasher), 'Nach reset() darf keine Klartext-ID mehr im Objekt liegen');
+    }
+
     private function hasher(): SessionIdHasher
     {
         return new SessionIdHasher(self::KEY, 'PHPSESSID');

@@ -31,7 +31,7 @@ final class QueryNormalizer
     public const MAX_VALUE_LENGTH = 512;
 
     /** Wird gesetzt, wenn Parameter wegen der Obergrenzen entfallen sind. */
-    public const TRUNCATED_MARKER = '__truncated';
+    public const TRUNCATED_MARKER = Cleaner::TRUNCATED_MARKER;
 
     /**
      * Der Cleaner ist PFLICHT und nicht nullbar.
@@ -45,6 +45,19 @@ final class QueryNormalizer
     public function __construct(
         private readonly Cleaner $cleaner,
     ) {
+    }
+
+    /**
+     * Redigiert den Query-String einer vollständigen URL.
+     *
+     * Für `payload.referer` — die einzige Stelle, an der eine FREMDE vollständige URL in
+     * ein Event gelangt. Die Arbeit macht der {@see Cleaner}, weil sie dieselbe ist wie
+     * bei `raw.request_headers.referer` und ein zweiter Durchlauf mit eigener Logik eine
+     * zweite Gelegenheit wäre, es unterschiedlich zu machen.
+     */
+    public function normalizeUrl(string $url): string
+    {
+        return $this->cleaner->cleanUrl($url);
     }
 
     /**
@@ -71,8 +84,15 @@ final class QueryNormalizer
             // Erst redigieren, dann normalisieren: der Wert eines sensiblen Parameters
             // darf nicht einmal gekürzt durchkommen. Ein auf 512 Zeichen gekürztes Token
             // ist immer noch ein Token.
+            //
+            // Geprüft wird der VOLLE Schlüssel, ausgegeben der gekürzte. Hier stand der
+            // gekürzte in beiden Rollen — und `Rules::isSensitiveParameter()` sucht per
+            // str_contains: Stand `token` jenseits von Zeichen 64, griff die Denylist
+            // nicht. Im raw-Pfad passierte das nicht, dort geht der volle Schlüssel an
+            // den Cleaner. Zwei Ergebnisse für dieselben Daten, bei einem Feld, das im
+            // Gegensatz zu raw bei JEDER Stufe übertragen wird.
             $normalized[$normalizedKey] = $this->normalizeValue(
-                $this->cleaner->cleanParameterValue($normalizedKey, $value),
+                $this->cleaner->cleanParameterValue((string) $key, $value),
                 $truncated,
             );
         }

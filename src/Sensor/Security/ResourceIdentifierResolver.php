@@ -42,7 +42,14 @@ final class ResourceIdentifierResolver
         }
 
         try {
-            return $this->truncate($this->doResolve($subject));
+            $resource = $this->truncate($this->doResolve($subject));
+
+            // `is_scalar('')` und `(string) false` liefern die leere Zeichenkette. Für
+            // `payload.resource` ist das keine dritte Auskunft neben Kennung und
+            // „keine Ressource", sondern eine Kennung, die nichts benennt — der
+            // Collector gruppiert danach. Und `doResolve()` sagt im Docblock zu, „immer
+            // eine Auskunft" zu geben; `''` löst das nicht ein.
+            return '' === $resource ? null : $resource;
         } catch (\Throwable) {
             // Auflösung fehlgeschlagen — das Event ist trotzdem wertvoll. Lieber
             // resource: null als kein Event.

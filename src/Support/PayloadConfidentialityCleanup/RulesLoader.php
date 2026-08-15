@@ -37,11 +37,17 @@ final class RulesLoader
         array $additionalParameters,
         ContainerBuilder $builder,
     ): array {
-        $builder->addResource(new FileResource($path));
-
+        // Die Lesbarkeitsprüfung steht VOR addResource(): `new FileResource()` wirft bei
+        // einer fehlenden Datei selbst, und zwar mit „The file … does not exist" — die
+        // ausführliche Begründung unten war damit für den wahrscheinlichsten Fall
+        // überhaupt (Tippfehler im Pfad) unerreichbar. Eine Ressource für eine Datei
+        // anzumelden, deren Fehlen die Kompilierung ohnehin abbricht, hat auch keinen
+        // Zweck: Es gibt dann keinen Cache, den ihr Anlegen verwerfen könnte.
         if (!is_file($path) || !is_readable($path)) {
             throw new InvalidArgumentException(\sprintf('Die Redaktionsliste "%s" ist nicht lesbar. Ohne sie würde ungeprüft ausgeliefert, was Konzept 4.5.1 ausdrücklich redigieren will — deshalb bricht die Kompilierung ab statt stillschweigend eine leere Liste zu benutzen.', $path));
         }
+
+        $builder->addResource(new FileResource($path));
 
         $parsed = Yaml::parseFile($path);
 
@@ -70,7 +76,7 @@ final class RulesLoader
         $value = $parsed[$key] ?? null;
 
         if (!\is_int($value) || $value < 1) {
-            throw new InvalidArgumentException(\sprintf('Die Redaktionsliste "%s" braucht "%s" als positive Ganzzahl. Die Version reist in jeden Frame mit; ohne sie ließe sich später nicht feststellen, nach welcher Fassung ein Event redigiert wurde.', $path, $key));
+            throw new InvalidArgumentException(\sprintf('Die Redaktionsliste "%s" braucht "%s" als positive Ganzzahl. Die Version reist in jedem raw-Feld mit; ohne sie ließe sich später nicht feststellen, nach welcher Fassung ein Event redigiert wurde.', $path, $key));
         }
 
         return $value;
