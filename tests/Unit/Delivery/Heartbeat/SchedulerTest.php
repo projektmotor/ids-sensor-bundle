@@ -89,7 +89,7 @@ final class SchedulerTest extends TestCase
         return new SensorIdentityProvider(
             $application,
             new InstanceIdProvider('web-03'),
-            new EnvironmentResolver('prod', EnvironmentResolver::DEFAULT_MAP, \ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment::Prod),
+            new EnvironmentResolver('prod', EnvironmentResolver::DEFAULT_MAP, \ProjektMotor\IdsEventData\Vocabulary\Environment::Prod),
         );
     }
 }

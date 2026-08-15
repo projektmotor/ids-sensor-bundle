@@ -11,8 +11,8 @@ namespace ProjektMotor\IdsSensor\Processing\Normalization;
  * die Anwendung liefert, und prüfen im Request bewusst nichts nach (Konzept 2.1: unter dem
  * Erfassungsbudget wird gesammelt, nicht geformt). Erst hier wird daraus ein Wert, den das
  * Drahtformat zulässt: ein String oder null, und nie länger als die Obergrenze, die
- * {@see \ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload} beziehungsweise
- * {@see \ProjektMotor\IdsSensor\EventFormat\Payload\SecurityPayload} für das Feld nennt.
+ * {@see \ProjektMotor\IdsEventData\Payload\KernelPayload} beziehungsweise
+ * {@see \ProjektMotor\IdsEventData\Payload\SecurityPayload} für das Feld nennt.
  *
  * Stand vorher zweimal wörtlich in KernelEventNormalizer und SecurityEventNormalizer, das
  * Stringisieren zusätzlich unter zwei Namen (`stringOrNull` und `str`). Zwei Namen für

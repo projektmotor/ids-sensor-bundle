@@ -24,7 +24,7 @@ use Symfony\Component\HttpFoundation\Response;
  * Events ist `info`. Würde raw beim Erfassen gebaut, zahlte der info-Pfad im Request die
  * vollen Kosten für Header-Kopie, Redaktion und Trace-Aufbau — und würde sie anschließend
  * wegwerfen. Deshalb hält {@see \ProjektMotor\IdsSensor\Sensor\CapturedEvent} nur eine
- * Closure, die {@see \ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent::toArray()} genau dann
+ * Closure, die {@see \ProjektMotor\IdsEventData\Event\NormalizedEvent::toArray()} genau dann
  * auswertet, wenn die Stufe raw überhaupt trägt.
  *
  * KEINE DOPPELUNG ÜBER DIE EVENTS EINES REQUESTS

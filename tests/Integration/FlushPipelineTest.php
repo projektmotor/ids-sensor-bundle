@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\NullShipper;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;

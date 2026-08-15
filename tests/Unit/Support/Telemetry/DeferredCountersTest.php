@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Support\Telemetry;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\ActorFactory;

@@ -6,9 +6,9 @@ namespace ProjektMotor\IdsSensor\Tests\Unit\Latency;
 
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Transport\Spool;
 
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use Psr\Log\LoggerInterface;
 

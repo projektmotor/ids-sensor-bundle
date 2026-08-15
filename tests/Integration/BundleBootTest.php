@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;

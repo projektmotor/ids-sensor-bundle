@@ -586,7 +586,7 @@
                 "%ids_sensor.environment_map%",
                 {
                     "!inline": {
-                        "class": "ProjektMotor\\IdsSensor\\EventFormat\\Vocabulary\\Environment",
+                        "class": "ProjektMotor\\IdsEventData\\Vocabulary\\Environment",
                         "public": false,
                         "shared": true,
                         "lazy": false,
@@ -597,7 +597,7 @@
                         ],
                         "tags": [],
                         "factory": [
-                            "ProjektMotor\\IdsSensor\\EventFormat\\Vocabulary\\Environment",
+                            "ProjektMotor\\IdsEventData\\Vocabulary\\Environment",
                             "from"
                         ]
                     }

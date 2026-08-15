@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Context;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
+use ProjektMotor\IdsEventData\Event\Actor;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use Symfony\Component\HttpFoundation\Request;
 

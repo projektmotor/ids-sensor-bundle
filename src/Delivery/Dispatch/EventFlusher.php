@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Dispatch;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventNormalizerInterface;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;

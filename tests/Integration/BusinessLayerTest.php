@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Contract\BusinessEventRecorderInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\PayloadSanitizer;
 use ProjektMotor\IdsSensor\Sensor\Business\CapturingEventDispatcher;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;

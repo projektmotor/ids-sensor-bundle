@@ -11,17 +11,21 @@ use PHPUnit\Framework\TestCase;
  *
  * WOZU
  *
- * Die Aufteilung von src/ trägt fünf Zusagen, die man einer einzelnen Datei nicht
- * ansieht und die deshalb ohne Test binnen weniger Commits still verfallen. Alle fünf
+ * Die Aufteilung von src/ trägt vier Zusagen, die man einer einzelnen Datei nicht
+ * ansieht und die deshalb ohne Test binnen weniger Commits still verfallen. Alle vier
  * sind billig zu prüfen und teuer zu reparieren:
  *
  *  - Welche Klassen unter Semver stehen (heute: Prosa in der README).
- *  - Dass EventFormat/ als eigenes Paket herauslösbar bleibt.
  *  - Dass Phase A nicht an Phase B hängt — die einzige harte Zusage gegenüber der
  *    überwachten Anwendung (5 ms p99, Konzept 2.1).
  *  - Dass Dispatch/ die Spitze der Pipeline bleibt und keine Sammelstelle wird.
  *  - Dass die Abhängigkeiten zwischen den Namensräumen in eine Richtung zeigen und
  *    kein Namensraum unbemerkt hinzukommt.
+ *
+ * Eine fünfte stand bis zur Ausgliederung hier: dass EventFormat/ als eigenes Paket
+ * herauslösbar bleibt. Sie ist eingelöst — der Namensraum ist heute
+ * projektmotor/ids-event-data, und der Test wachte dort weiter als
+ * ArchitectureTest::testImportsNothingForeign().
  *
  * Bewusst über Dateiinhalte statt über Reflection: der Test soll auch dann etwas
  * sagen, wenn eine Klasse gar nicht ladbar ist.
@@ -40,17 +44,17 @@ final class ArchitectureTest extends TestCase
      * das?"; diese Tabelle beantwortet „wer darf wen importieren?". Zwei verschiedene
      * Fragen, deshalb zwei verschiedene Antworten.
      *
-     * EventFormat/ hat keinen Sammel-Eintrag, sondern vier — einen je Untergruppe.
-     * Das ist Absicht: eine Datei, die jemand direkt unter EventFormat/ ablegt, lässt
-     * den Test fehlschlagen, bis sie eingeordnet ist. Die Ränge halten dabei die
-     * Verschachtelung des Drahtformats fest: Vocabulary/ und Payload/ importieren
-     * nichts, Event/ liest aus Vocabulary/, Frame/ liest aus Event/.
+     * Nicht aufgeführt ist projektmotor/ids-event-data: ein Fremdpaket hat in dieser
+     * Tabelle nichts verloren. {@see self::eigeneImporte()} greift ausschließlich auf
+     * den eigenen Wurzel-Namensraum, Importe daraus sind für die Schichtung also
+     * unsichtbar — richtig so, denn das Paket importiert seinerseits nichts und liegt
+     * damit per Konstruktion unter allem hier.
      *
      * Am deutlichsten an Support/: der Ordner sammelt, was keiner Phase gehört, aber
      * seine vier Mitglieder verteilen sich über drei Ränge.
      *
      *  - PayloadConfidentialityCleanup/ und Identity/ importieren nur aus dem
-     *    EventFormat und stehen damit unter allem anderen.
+     *    Ereignisformat und stehen damit unter allem anderen.
      *  - RawPayload/ liegt eine Stufe darüber, weil der Builder den Cleaner benutzt:
      *    redigiert wird beim AUFBAU, nicht in einem nachgelagerten Durchlauf.
      *  - Sensor/ folgt, weil ResponseSensor und ExceptionSensor den Builder
@@ -63,10 +67,6 @@ final class ArchitectureTest extends TestCase
      * @var array<string, int>
      */
     private const RANGFOLGE = [
-        'EventFormat/Vocabulary' => 0,
-        'EventFormat/Payload' => 0,
-        'EventFormat/Event' => 1,
-        'EventFormat/Frame' => 2,
         'Contract' => 0,
         'Exception' => 0,
         'Support/PayloadConfidentialityCleanup' => 1,
@@ -86,20 +86,22 @@ final class ArchitectureTest extends TestCase
     /**
      * Die öffentliche Fläche ist ein Verzeichnis, keine Aufzählung.
      *
-     * README-Abschnitt „Öffentliche API": Semver gilt für Contract\* und
-     * EventFormat\*, alles andere ist @internal. Ohne diesen Test wäre das eine
-     * Behauptung — jede künftig dort abgelegte Datei wäre unbemerkt ein
-     * Semver-Versprechen, und jede @internal-Klasse, der jemand die Annotation
-     * abnimmt, ebenfalls.
+     * README-Abschnitt „Öffentliche API": Semver gilt für Contract\*, alles andere
+     * trägt die Annotation. Ohne diesen Test wäre das eine Behauptung — jede künftig
+     * dort abgelegte Datei wäre unbemerkt ein Semver-Versprechen, und jede annotierte
+     * Klasse, der jemand die Annotation abnimmt, ebenfalls.
+     *
+     * Der zweite öffentliche Namensraum, EventFormat\, ist mit der Ausgliederung nach
+     * projektmotor/ids-event-data verschwunden. Dort gilt Semver für das gesamte
+     * Paket, und die Entsprechung dieses Tests heißt testNothingIsInternal().
      */
-    public function testOnlyContractAndEventFormatArePublic(): void
+    public function testOnlyContractIsPublic(): void
     {
         $oeffentlich = [];
         $intern = [];
 
         foreach (self::quelldateien() as $relativ => $inhalt) {
             $istOeffentlicherNamensraum = str_starts_with($relativ, 'Contract/')
-                || str_starts_with($relativ, 'EventFormat/')
                 || 'IdsSensorBundle.php' === $relativ;
 
             if (str_contains($inhalt, '@internal')) {
@@ -119,8 +121,8 @@ final class ArchitectureTest extends TestCase
                     '@internal',
                     $inhalt,
                     \sprintf(
-                        '%s trägt kein @internal. Entweder gehört die Klasse nach Contract/ '
-                        .'oder EventFormat/, oder die Annotation fehlt.',
+                        '%s trägt kein @internal. Entweder gehört die Klasse nach Contract/, '
+                        .'oder die Annotation fehlt.',
                         $relativ,
                     ),
                 );
@@ -132,69 +134,40 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
-     * EventFormat/ muss ohne den Rest des Bundles übersetzbar bleiben.
+     * Das Ereignisformat bleibt ausgelagert.
      *
-     * Das ist die Bedingung dafür, dass der Namespace später als eigenes Paket
-     * ausgelöst und vom IdsBackendBundle mitbenutzt werden kann: ein einziger
-     * Import aus Sensor/, Processing/ oder Delivery/ macht aus dem Verzeichnis-Move
-     * eine Entflechtung.
+     * Bis zur Ausgliederung stand hier testEventFormatImportsNothingForeign() und
+     * bewachte, dass src/EventFormat/ nichts aus dem Bundle importiert — die
+     * Bedingung dafür, dass der Verzeichnis-Move keine Entflechtung wird. Die Zusage
+     * ist eingelöst: der Namensraum ist heute projektmotor/ids-event-data, und dort
+     * bewacht ArchitectureTest::testImportsNothingForeign() dieselbe Eigenschaft
+     * weiter, jetzt zusätzlich gegen Symfony und PSR.
      *
-     * Auch KEIN Symfony: das Format ist reines PHP und soll es bleiben, damit ein
-     * Consumer es ohne Framework lesen kann.
-     *
-     * WARUM NICHT „gar keine Importe"
-     *
-     * Bis zur Untergliederung verbot dieser Test jede use-Zeile. Das war damals
-     * dasselbe wie „nichts Fremdes", weil alle elf Klassen flach in einem Namensraum
-     * lagen — aber es war nie die Zusage. Seit Frame/, Event/, Payload/ und
-     * Vocabulary/ existieren, greifen sie übereinander, und das muss erlaubt sein:
-     * ein Paket darf sich selbst importieren.
-     *
-     * WARUM AUCH DOCBLOCKS
-     *
-     * Ein {@see \ProjektMotor\IdsSensor\Sensor\CapturedEvent} erzeugt keine
-     * Abhängigkeit für den Übersetzer, wohl aber einen toten Verweis, sobald das
-     * Verzeichnis ein eigenes Paket ist. Genau so einer stand in NormalizedEvent und
-     * wäre ohne diese Erweiterung erst nach der Ausgliederung aufgefallen. Geprüft
-     * wird deshalb nicht die use-Zeile, sondern jede Nennung des Wurzel-Namensraums.
+     * Was hier bleibt, ist die Gegenrichtung: das Bundle darf das Format nicht
+     * zurückholen. Eine Klasse unter src/, die wieder einen EventFormat-Namensraum
+     * deklariert, wäre eine stille Abspaltung — zwei Wahrheiten über dasselbe
+     * Drahtformat, die erst beim Collector auseinanderfallen.
      */
-    public function testEventFormatImportsNothingForeign(): void
+    public function testTheEventFormatStaysInItsOwnPackage(): void
     {
-        foreach (self::quelldateien('EventFormat') as $relativ => $inhalt) {
-            preg_match_all('/^use\s+([^;]+);$/m', $inhalt, $treffer);
-
-            foreach ($treffer[1] as $import) {
-                self::assertStringStartsWith(
-                    'ProjektMotor\\IdsSensor\\EventFormat\\',
-                    $import,
-                    \sprintf(
-                        '%s importiert %s. Der Namensraum muss autark bleiben — '
-                        .'sonst ist er nicht als eigenes Paket herauslösbar. Erlaubt sind '
-                        .'ausschließlich Importe aus EventFormat/ selbst.',
-                        $relativ,
-                        $import,
-                    ),
-                );
-            }
-
-            preg_match_all('/ProjektMotor\\\\IdsSensor\\\\([A-Za-z]+)/', $inhalt, $nennungen);
-
-            foreach ($nennungen[1] as $namensraum) {
-                self::assertSame(
-                    'EventFormat',
-                    $namensraum,
-                    \sprintf(
-                        '%s nennt ProjektMotor\\IdsSensor\\%s — auch in einem '
-                        .'Docblock ist das ein Verweis, der nach der Ausgliederung ins Leere '
-                        .'zeigt. Als Prosa schreiben statt als {@see}.',
-                        $relativ,
-                        $namensraum,
-                    ),
-                );
-            }
+        foreach (self::quelldateien() as $relativ => $inhalt) {
+            self::assertStringNotContainsString(
+                'namespace ProjektMotor\\IdsSensor\\EventFormat',
+                $inhalt,
+                \sprintf(
+                    '%s deklariert wieder einen EventFormat-Namensraum. Das Format lebt '
+                    .'in projektmotor/ids-event-data; eine zweite Fassung hier wäre eine '
+                    .'stille Abspaltung des Vertrags mit dem Collector.',
+                    $relativ,
+                ),
+            );
         }
 
-        self::assertNotEmpty(self::quelldateien('EventFormat'));
+        self::assertDirectoryDoesNotExist(
+            self::SRC.'/EventFormat',
+            'src/EventFormat/ ist zurück. Das Verzeichnis gehört nach '
+            .'projektmotor/ids-event-data — dort konsumiert es auch das IdsBackendBundle.',
+        );
     }
 
     /**
@@ -220,7 +193,7 @@ final class ArchitectureTest extends TestCase
                 $inhalt,
                 \sprintf(
                     '%s importiert aus Processing/. Phase A darf nicht an Phase B hängen; '
-                    .'gemeinsame Schlüssel gehören ins EventFormat.',
+                    .'gemeinsame Schlüssel gehören ins Ereignisformat-Paket.',
                     $relativ,
                 ),
             );

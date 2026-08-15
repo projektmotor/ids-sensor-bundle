@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Delivery\Dispatch;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\EventFlusher;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\FrameDispatcher;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Processing\Normalization\KernelEventNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\QueryNormalizer;

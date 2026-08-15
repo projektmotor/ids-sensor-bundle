@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Heartbeat;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder;

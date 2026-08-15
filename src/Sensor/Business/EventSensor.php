@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Business;
 
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Contract\SecurityRelevantBusinessEvent;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
@@ -40,8 +40,8 @@ final class EventSensor
      *
      * Der Unterstrich-Präfix hält sie aus dem übertragenen Payload heraus: Konzept
      * 2.1.3 reserviert solche Schlüssel, und der Normalisierer entfernt sie beim
-     * Übersetzen. Sie stehen deshalb NICHT im EventFormat — sie sind nie auf der
-     * Leitung.
+     * Übersetzen. Sie stehen deshalb NICHT im Ereignisformat-Paket — sie sind nie auf
+     * der Leitung.
      */
     public const FIELD_EVENT_NAME = '_event_name';
     public const FIELD_SEVERITY_HINT = '_severity_hint';

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\DependencyInjection;
 
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Environment;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 

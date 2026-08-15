@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Dispatch;
 
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
+use ProjektMotor\IdsEventData\Frame\Frame;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
-use ProjektMotor\IdsSensor\EventFormat\Frame\Frame;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 

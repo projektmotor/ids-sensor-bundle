@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\Actor;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\Actor;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 
 /**
  * Ein im Request erfasstes, noch NICHT normalisiertes Event.

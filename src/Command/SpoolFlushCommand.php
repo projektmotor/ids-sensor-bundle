@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Command;
 
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;

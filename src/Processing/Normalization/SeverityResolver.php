@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Processing\Normalization;
 
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Payload\SecurityPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Payload\SecurityPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use Psr\Log\LoggerInterface;
 
 /**

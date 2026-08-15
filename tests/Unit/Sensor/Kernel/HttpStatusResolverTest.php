@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Sensor\Kernel;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 use ProjektMotor\IdsSensor\Sensor\Kernel\HttpStatusResolver;
 use Symfony\Component\HttpFoundation\Exception\BadRequestException;

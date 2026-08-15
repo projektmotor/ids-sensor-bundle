@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use ProjektMotor\IdsSensor\DependencyInjection\Compiler\BusinessCaptureModePass;
 use ProjektMotor\IdsSensor\DependencyInjection\ConfigurationTree;
@@ -175,7 +176,11 @@ final class IdsSensorBundle extends AbstractBundle
         }
 
         if ([] !== $messenger) {
-            $container->extension('framework', ['messenger' => $messenger], true);
+            // Über den ContainerBuilder statt über ContainerConfigurator::extension().
+            // Deren dritter Parameter $prepend gibt es erst ab Symfony 7.0; unter 6.4
+            // verschluckt PHP das Argument stillschweigend, und die Konfiguration
+            // würde angehängt — genau die Rangfolge, die oben ausgeschlossen wird.
+            $builder->prependExtensionConfig('framework', ['messenger' => $messenger]);
         }
     }
 
@@ -247,7 +252,7 @@ final class IdsSensorBundle extends AbstractBundle
             $config['environment_map'],
         ));
         $builder->setParameter('ids_sensor.environment_fallback', $config['environment_fallback']);
-        $builder->setParameter('ids_sensor.schema_version', EventFormat\Event\EventSchema::SCHEMA_VERSION);
+        $builder->setParameter('ids_sensor.schema_version', EventSchema::SCHEMA_VERSION);
 
         // Flache Parameter für die Werte, die die Verdrahtung braucht. Ein
         // verschachteltes Array als einzelner Parameter wäre in der YAML-Verdrahtung nicht

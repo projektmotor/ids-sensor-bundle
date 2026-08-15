@@ -12,7 +12,7 @@ In allen drei Wegen dieselbe. Sie implementiert `Contract\SecurityRelevantBusine
 
 ```php
 use ProjektMotor\IdsSensor\Contract\SecurityRelevantBusinessEvent;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 
 final class OrderAmountOverridden implements SecurityRelevantBusinessEvent
 {
@@ -40,7 +40,7 @@ final class OrderAmountOverridden implements SecurityRelevantBusinessEvent
 ```
 
 `getSeverityHint()` gibt bewusst `string` zurück und nicht das Enum. So sind Implementierer
-nicht gezwungen, `EventFormat\Vocabulary\Severity` zu importieren, und eine spätere
+nicht gezwungen, `IdsEventData\Vocabulary\Severity` zu importieren, und eine spätere
 Verengung wird kein BC-Bruch. Das Enum ist reiner Komfort:
 `return Severity::Critical->value;`
 

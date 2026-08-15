@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Support\RawPayload;
 
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Severity;
+use ProjektMotor\IdsEventData\Vocabulary\Severity;
 
 /**
  * Entscheidet, ob ein Event sein raw-Feld überhaupt behalten darf.

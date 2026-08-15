@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
+use ProjektMotor\IdsEventData\Event\EventSchema;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
-use ProjektMotor\IdsSensor\EventFormat\Event\EventSchema;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;

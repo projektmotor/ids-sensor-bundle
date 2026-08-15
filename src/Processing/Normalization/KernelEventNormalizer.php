@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Processing\Normalization;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\NormalizedEvent;
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
-use ProjektMotor\IdsSensor\EventFormat\Payload\KernelPayload;
-use ProjektMotor\IdsSensor\EventFormat\Vocabulary\Layer;
+use ProjektMotor\IdsEventData\Event\NormalizedEvent;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
+use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 
 /**

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Support\Identity;
 
-use ProjektMotor\IdsSensor\EventFormat\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Event\SensorIdentity;
 use Psr\Log\LoggerInterface;
 
 /**

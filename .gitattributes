@@ -1,6 +1,9 @@
-# Nicht mit dem Paket ausliefern. resources/ ist bewusst NICHT ausgeschlossen:
-# die Golden Events dort sind Teil des öffentlichen Formatvertrags und werden
-# vom Collector als Testeingabe wiederverwendet.
+# Nicht mit dem Paket ausliefern. Was hier fehlt, landet im Dist-Archiv und damit
+# bei jedem Konsumenten — geprüft wird das mit `git archive HEAD | tar -t`.
+#
+# src/, config/, README.md, CHANGELOG.md und LICENSE bleiben drin: das erste Paar
+# ist das Paket, das zweite erklärt es. CLAUDE.md dagegen richtet sich an die
+# Entwicklung dieses Bundles und hat beim Konsumenten nichts zu suchen.
 /tests               export-ignore
 /docker              export-ignore
 /doc                 export-ignore
@@ -10,5 +13,6 @@
 /phpstan.neon.dist   export-ignore
 /.php-cs-fixer.dist.php export-ignore
 /Makefile            export-ignore
+/CLAUDE.md           export-ignore
 /.gitattributes      export-ignore
 /.gitignore          export-ignore

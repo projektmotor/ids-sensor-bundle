@@ -5,19 +5,140 @@ Alle nennenswerten Änderungen an diesem Paket werden hier festgehalten.
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung [Semantic Versioning](https://semver.org/lang/de/).
 
-Semver gilt für `Contract\*` und `EventFormat\*`. Alles andere trägt `@internal`
-und kann sich jederzeit ändern — durchgesetzt von
-`tests/Unit/ArchitectureTest::testOnlyContractAndEventFormatArePublic()`.
+Semver gilt für `Contract\*`. Alles andere trägt `@internal` und kann sich
+jederzeit ändern — durchgesetzt von
+`tests/Unit/ArchitectureTest::testOnlyContractIsPublic()`. Das Drahtformat hat
+ein eigenes Paket und einen eigenen Changelog:
+[`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data).
 
-## [Unreleased]
+## [0.1.0] — 2026-08-15
 
-Das Paket ist noch nicht veröffentlicht (kein Tag, kein `version` in der
-`composer.json`). Der folgende Umbau ist trotzdem vollständig eingetragen —
-gerade **weil** er vor dem ersten Tag stattfindet und danach ein Bruch wäre.
+Erste Ausgabe. Alles darunter ist die Entstehungsgeschichte: Das Bundle war bis
+hierher ungetaggt, die „Breaking"-Einträge betrafen deshalb niemanden außerhalb
+dieses Repositoriums. Sie stehen trotzdem vollständig da, weil sie erklären,
+warum die Teile liegen, wo sie liegen. Ab dieser Ausgabe gilt Semver.
+
+Eine `0.x`-Ausgabe: `Contract\*` ist tragfähig, aber noch nicht in fremden
+Anwendungen erprobt. Bis `1.0.0` kann sich dort etwas ändern — dann mit
+Eintrag hier.
+
+`composer.json` trägt bewusst kein `version`-Feld; die Ausgabe steht am Tag.
 
 **Die Paketgrenze bleibt unberührt.** `Delivery\Transport\MessageSerializer`
 schreibt weiterhin `ids.event_batch` und `ids.heartbeat` und niemals einen
 Klassennamen. Für Konsumenten des JSON ändert sich durch nichts hiervon etwas.
+
+### Fixed — `projektmotor/ids-event-data` stand in `require-dev`
+
+Bei der Ausgliederung landete die neue Abhängigkeit im falschen Block. Für die
+Entwicklung fiel das nicht auf, weil dort ohnehin alles installiert wird; ein
+Konsument mit `composer install --no-dev` dagegen bekam das Ereignisformat nicht
+mitgeliefert. Die Kompilierung brach dann schon beim Aufbau des
+Konfigurationsbaums ab, weil `ConfigurationTree` `Vocabulary\Environment` für
+den Vorgabewert von `environment` auflöst — also lange bevor das erste Ereignis
+entsteht.
+
+Das Paket steht jetzt unter `require`. Ein Auftrag in der CI installiert ohne
+Dev-Abhängigkeiten und bootet einen Kernel; damit kann derselbe Fehler nicht
+zurückkehren. Die Testsuite konnte ihn seiner Natur nach nie sehen.
+
+### Fixed — `prependExtension()` hängte unter Symfony 6.4 an, statt voranzustellen
+
+`ContainerConfigurator::extension()` hat den dritten Parameter `$prepend` erst
+ab Symfony 7.0. Unter 6.4 verschluckt PHP das überzählige Argument
+stillschweigend — kein Fehler, aber die Transportkonfiguration wurde angehängt
+statt vorangestellt. Damit hätte das Bundle ausdrückliche `framework.messenger`-
+Angaben der Anwendung überschrieben, also genau die Rangfolge, die der Docblock
+ausschließt.
+
+Ersetzt durch `ContainerBuilder::prependExtensionConfig()`, das es in beiden
+Zweigen unverändert gibt. Der kompilierte Container unter Symfony 7 bleibt
+identisch — die 15 Abdrücke laufen unverändert durch.
+
+### Changed — `symfony/security-core` ausdrücklich auf `^6.4|^7.0`
+
+Ein `composer update` zog über `symfony/security-bundle` bisher
+`symfony/security-core` in Version 8 herein, also über die deklarierte Spanne
+hinaus. Dort hat `Voter::voteOnAttribute()` einen vierten Parameter bekommen,
+woran die Testvorrichtung zerbrach. Die Dev-Umgebung bleibt jetzt in der Spanne,
+die das Bundle zusagt.
+
+### Added — Continuous Integration und die Gruppe `fingerprint`
+
+`.github/workflows/ci.yml` fährt beide Ränder des Constraints (PHP 8.2 mit
+Symfony 6.4 `--prefer-lowest`, PHP 8.4 mit dem jeweils Neuesten) sowie den
+Standardfall, dazu Redis mit der produktiven ACL, PHPStan, Coding Standards und
+den Installierbarkeitsauftrag von oben.
+
+`ContainerFingerprintTest::testTheContainerMatchesTheFingerprint()` trägt neu
+`#[Group('fingerprint')]` und wird auf dem unteren Zweig ausgelassen. Der Abdruck
+hält den gesamten Container fest, also auch Symfonys eigene Dienste, und die
+unterscheiden sich zwischen 6.4 und 7. Die Alternative wäre ein zweiter Satz
+Referenzdateien gewesen — doppelte Pflege für eine Zusage über die eigene
+Verdrahtung. Dass diese unter 6.4 trägt, sichern die übrigen Integrationstests.
+
+### Removed — `tree.php`, und `CLAUDE.md` reist nicht mehr mit
+
+Eine leere, versehentlich eingecheckte Datei im Repo-Stamm ist entfernt.
+`CLAUDE.md` ist jetzt `export-ignore`d: die Datei richtet sich an die
+Entwicklung dieses Bundles und hat im Dist-Archiv nichts zu suchen. Der
+Kommentar in `.gitattributes` nannte außerdem ein `resources/`-Verzeichnis, das
+es nicht gibt.
+
+### Breaking — `EventFormat\` ist ein eigenes Paket
+
+`src/EventFormat/` ist nach
+[`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data)
+ausgezogen und dort als `0.1.0` getaggt. Das Bundle konsumiert es jetzt als
+gewöhnliche Abhängigkeit.
+
+**Warum.** Das Format ist der Vertrag zwischen zwei Paketen: dieses Bundle
+schreibt es, das IdsBackendBundle liest es. Solange es hier lag, hätte das
+Backend Symfony Messenger, HttpFoundation und Redis mitziehen müssen, nur um
+drei Enums zu kennen.
+
+Die Ausgliederung war vorbereitet und kostete deshalb nichts:
+`src/EventFormat/` importierte per Test nichts Fremdes — weder aus dem Bundle
+noch aus Symfony, in `use`-Zeilen wie in Docblocks. Der Umbau war ein
+Verzeichnis-Move plus Namensraum-Ersetzung, wie in `doc/struktur.md`
+angekündigt.
+
+**Der Namensraum verkürzt sich doppelt:**
+
+```
+ProjektMotor\IdsSensor\EventFormat\   →   ProjektMotor\IdsEventData\
+```
+
+`IdsSensor` fällt weg, weil das Paket keinem der beiden Konsumenten gehört; die
+Zwischenebene `EventFormat\` fällt weg, weil der Paketname sie bereits sagt. Die
+vier Untergruppen `Frame/`, `Event/`, `Payload/` und `Vocabulary/` bleiben
+unverändert.
+
+| vorher | jetzt |
+|---|---|
+| `EventFormat\Event\NormalizedEvent` | `ProjektMotor\IdsEventData\Event\NormalizedEvent` |
+| `EventFormat\Frame\Frame` | `ProjektMotor\IdsEventData\Frame\Frame` |
+| `EventFormat\Payload\KernelPayload` | `ProjektMotor\IdsEventData\Payload\KernelPayload` |
+| `EventFormat\Vocabulary\Severity` | `ProjektMotor\IdsEventData\Vocabulary\Severity` |
+
+**Am JSON ändert sich nichts.** `schema_version` bleibt `1`, `v` im Frame bleibt
+`1`, kein Feldname und kein Enum-Wert wurde angefasst. Belegt durch die 14
+Container-Fingerprints unter `tests/Fixtures/container-fingerprints/` und durch
+`tests/Functional/RedisStreamTest.php`, die beide unverändert durchlaufen.
+
+### Changed — `ArchitectureTest` ohne EventFormat
+
+`testEventFormatImportsNothingForeign()` ist entfallen; die Zusage lebt im neuen
+Paket als `ArchitectureTest::testImportsNothingForeign()` weiter, dort zusätzlich
+gegen Symfony und PSR geprüft. An ihre Stelle tritt
+`testTheEventFormatStaysInItsOwnPackage()` — die Gegenrichtung: das Bundle darf
+das Format nicht zurückholen, denn eine zweite Fassung des Drahtformats fiele
+erst beim Collector auf.
+
+`testOnlyContractAndEventFormatArePublic()` heißt jetzt
+`testOnlyContractIsPublic()`, und die vier `EventFormat/*`-Einträge sind aus der
+Rangfolge verschwunden. Ein Fremdpaket gehört nicht in die Schichtungstabelle —
+es importiert seinerseits nichts und liegt damit per Konstruktion unter allem.
 
 ### Added — zweistufige Dokumentation
 

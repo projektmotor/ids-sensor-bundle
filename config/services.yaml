@@ -27,8 +27,8 @@ services:
             $configuredEnvironment: '%ids_sensor.environment%'
             $map: '%ids_sensor.environment_map%'
             $fallback: !service
-                class: ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment
-                factory: ['ProjektMotor\IdsSensor\EventFormat\Vocabulary\Environment', 'from']
+                class: ProjektMotor\IdsEventData\Vocabulary\Environment
+                factory: ['ProjektMotor\IdsEventData\Vocabulary\Environment', 'from']
                 arguments: ['%ids_sensor.environment_fallback%']
         tags:
             - { name: monolog.logger, channel: ids_sensor }

@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Delivery\Transport\Spool;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
 

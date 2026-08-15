@@ -22,7 +22,7 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Shipper;
 interface ShipperInterface
 {
     /**
-     * @param array<string, mixed> $frame Ergebnis von {@see \ProjektMotor\IdsSensor\EventFormat\Frame\Frame::toArray()}
+     * @param array<string, mixed> $frame Ergebnis von {@see \ProjektMotor\IdsEventData\Frame\Frame::toArray()}
      *
      * @throws \Throwable wenn der Frame nicht übergeben werden konnte
      */

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Delivery\Transport\Message;
 
-use ProjektMotor\IdsSensor\EventFormat\Frame\Frame;
+use ProjektMotor\IdsEventData\Frame\Frame;
 
 /**
  * Die Messenger-Nachricht: ein Frame auf dem Weg zum Broker.

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Delivery\Transport;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsEventData\Frame\DispatchPath;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
-use ProjektMotor\IdsSensor\EventFormat\Frame\DispatchPath;
 
 /**
  * Die Laufzeiterkennung, auf der die mod_php-Unterstützung beruht.
