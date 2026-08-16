@@ -36,6 +36,15 @@ ausgelieferten Code — die statische Analyse war durchgehend grün:
   einem Unterschied, der wie eine geänderte Verdrahtung aussieht. `ContainerFingerprintPass`
   maskiert das Projektverzeichnis jetzt als `<project_dir>`. Das traf nicht nur die CI:
   jeder Mitwirkende außerhalb von `/app` sah dieselben 15 Fehlschläge.
+- **Der Budget-Test war ein Wettlauf gegen die Uhr.**
+  `FlushListenerTest::testTheHeartbeatIsSkippedWhenTheDispatchBudgetIsSpent()` verließ sich
+  darauf, dass Rechenarbeit im Raw-Builder ein Budget von 1 ms überschreitet. Gemessen
+  kostete diese Arbeit 0,4 bis 1,05 ms — der Ausgang hing an der Maschine. Auf dem Runner,
+  rund dreimal schneller als die Entwicklungsumgebung, kippte der Test von Lauf zu Lauf,
+  ohne dass sich am geprüften Code etwas geändert hätte. Die Dauer kommt jetzt aus einer
+  festen Wartezeit von 5 ms; ein Ereignis genügt dafür statt der bisherigen 200, von denen
+  `EventBuffer::maxEvents` ohnehin nur 64 durchließ. Nebenwirkung: die Suite läuft lokal
+  etwa doppelt so schnell.
 - **Der ACL-Test verband gegen einen fest verdrahteten Hostnamen.**
   `RedisStreamTest::testTheSensorUserMayNeitherReadNorDelete()` rief `connect('redis', …)`
   auf — den Namen des Compose-Dienstes. Die `setUp()` desselben Tests leitet Host und Port

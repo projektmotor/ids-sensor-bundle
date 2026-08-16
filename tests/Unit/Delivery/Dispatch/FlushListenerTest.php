@@ -50,6 +50,14 @@ use Symfony\Component\HttpKernel\KernelEvents;
 final class FlushListenerTest extends TestCase
 {
     /**
+     * Wartezeit im Raw-Builder von `slowFlusher()`, in Mikrosekunden.
+     *
+     * Fünffaches des dort geprüften Budgets von einer Millisekunde — siehe die Begründung
+     * an `slowFlusher()`, warum die Dauer gewartet und nicht gerechnet wird.
+     */
+    private const OVER_BUDGET_US = 5_000;
+
+    /**
      * Ein Fehler beim Protokollieren des Fehlers darf nicht nach draußen.
      *
      * Der Weg ist echt und war vor dieser Absicherung offen: Der rawBuilder wird erst
@@ -209,19 +217,26 @@ final class FlushListenerTest extends TestCase
     }
 
     /**
-     * Ein Flusher, dessen Arbeit garantiert länger als eine Millisekunde dauert.
+     * Ein Flusher, dessen Arbeit garantiert länger dauert als das Budget von einer
+     * Millisekunde.
      *
-     * Über einen echten Frame mit rawBuilder: Der wird beim Serialisieren ausgewertet,
-     * und der Test braucht keine künstliche Verzögerung, sondern nur einen Lauf, der
-     * messbar Zeit kostet.
+     * Die Dauer kommt aus einer festen Wartezeit, nicht aus Rechenarbeit. Vorher füllte
+     * diese Methode den Puffer mit 200 Ereignissen, deren Raw-Builder „genug Arbeit"
+     * leisten sollten, um die Millisekunde zu reißen. Das war ein Wettlauf gegen die Uhr,
+     * und zwar ein knapper: gemessen kostete diese Arbeit je nach Maschine 0,4 bis 1,05 ms
+     * — bei einem Budget von 1,0 ms. Auf dem CI-Runner, der rund dreimal schneller ist als
+     * die Entwicklungsumgebung, kippte der Test deshalb sprunghaft, mal grün und mal rot,
+     * ohne dass sich am Code etwas geändert hätte. (Von den 200 Ereignissen kamen wegen
+     * `EventBuffer::maxEvents` ohnehin nur 64 an.)
+     *
+     * Eine Wartezeit ist die einzige Größe, die auf jeder Maschine über dem Budget liegt.
+     * Ein Ereignis genügt dafür — geprüft wird die Naht zwischen Frame und Lebenszeichen,
+     * nicht die Menge im Puffer.
      */
     private function slowFlusher(): EventFlusher
     {
         $buffer = new EventBuffer();
-
-        for ($i = 0; $i < 200; ++$i) {
-            $buffer->append($this->eventWithSlowRawBuilder());
-        }
+        $buffer->append($this->eventWithSlowRawBuilder());
 
         $counters = new Counters('epoch-1', 4711);
 
@@ -300,8 +315,13 @@ final class FlushListenerTest extends TestCase
         ]);
         $event->setCorrelationId('req-7f2a1c');
         $event->setRawBuilder(static function (): array {
-            // Genug Arbeit, um die Millisekunde sicher zu überschreiten.
-            return ['fuellung' => str_repeat('x', 8192), 'hash' => hash('sha256', random_bytes(64))];
+            // Der Raw-Builder wird beim Serialisieren des Frames ausgewertet, also
+            // innerhalb der Messstrecke. Fünf Millisekunden liegen weit genug über dem
+            // Budget von einer, dass auch eine ungenaue Uhr die Entscheidung nicht dreht,
+            // und bleiben klein genug, um den Unit-Test schnell zu halten.
+            usleep(self::OVER_BUDGET_US);
+
+            return ['fuellung' => 'x'];
         });
 
         return $event;

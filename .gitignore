@@ -1,5 +1,4 @@
 /vendor/
-/composer.lock
 /var/
 # TestKernel::getProjectDir() zeigt auf tests/Fixtures/ — Spool-Reste eines Testlaufs
 # gehören genauso wenig ins Repository wie die aus /var/.
