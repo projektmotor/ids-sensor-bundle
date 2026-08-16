@@ -13,6 +13,34 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+Nichts.
+
+## [0.1.1] — 2026-08-16
+
+Ergebnis eines vollständigen Code-Checks: 48 Einträge, die meisten davon mehrere
+Einzelbefunde. Jede Korrektur mit Verhaltensänderung trägt einen Test, der ohne sie
+nachweislich fehlschlägt; wo bestehendes Verhalten nur abgesichert wurde, ist das
+stattdessen durch gezielte Mutationen im Quelltext geprüft. Der Schwerpunkt liegt auf
+drei Klassen von Fehlern, die alle dasselbe gemeinsam hatten — sie waren im Betrieb
+unsichtbar:
+
+- **Verluste, die als Erfolg gezählt wurden.** Ein Rennen zwischen Schreiber und
+  Drainer im Spool, ein Frame ohne `events`, den der Shipper stillschweigend
+  durchwinkte, ein voller Spool, der auch nach dem Drain weiter verwarf.
+- **Zusagen, die niemand durchsetzte.** Sechzehn Konfigurationsoptionen ohne jede
+  Wirkung, `auto_setup` als Bitte statt als Sperre, `ignored_paths` als PCRE ohne
+  Prüfung, ein Circuit Breaker, der sich unter Last verzählte.
+- **Geheimnisse auf Wegen, die die Denylist nicht sah.** Der Referer, die
+  Exception-Meldung, Symfonys Debug-Header, ein Query-Schlüssel jenseits von
+  Zeichen 64.
+
+**Vor dem Aktualisieren lesen:** Acht Konfigurationsoptionen sind entfernt und drei
+Transport-Optionen gesperrt. Wer eine davon gesetzt hat, bekommt einen Fehler beim
+Kompilieren des Containers — absichtlich, denn bisher wurden sie stillschweigend
+ignoriert. Die Redaktionsliste steht auf Fassung 2; wer eine eigene Liste mit
+`merge_defaults: false` führt, ergänzt `X-Debug-Exception` und
+`X-Debug-Exception-File` selbst. `Contract\*` ist unverändert.
+
 ### Fixed — Symfonys Debug-Header trug die Exception-Meldung im Klartext in `raw`
 
 `X-Debug-Exception` enthält im Debug-Modus die vollständige, URL-kodierte
