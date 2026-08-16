@@ -82,6 +82,21 @@ final class SessionIdHasher implements ResetInterface
         return $this->memoHash = hash_hmac('sha256', $rawId, $this->key);
     }
 
+    /**
+     * DER NAME KOMMT AUS DER KONFIGURATION, NICHT AUS php.ini.
+     *
+     * `$cookieName` trägt entweder die ausdrückliche Angabe der Anwendung oder den Wert
+     * von `framework.session.name`, den {@see \ProjektMotor\IdsSensor\IdsSensorBundle}
+     * zur Compile-Zeit aufliest. `ini_get('session.name')` ist nur noch der letzte
+     * Rückfall — als alleinige Quelle war es falsch: Symfony schreibt
+     * `framework.session.name` erst dann nach php.ini, wenn `NativeSessionStorage`
+     * konstruiert wird, und das ist ein lazy Dienst. Zum Erfassungszeitpunkt (RequestSensor
+     * bei Priorität 1024, SessionListener bei 128) stand dort praktisch immer noch
+     * `PHPSESSID`.
+     *
+     * Jede Anwendung mit eigenem Session-Namen lieferte deshalb `actor.session_id_hash:
+     * null` in JEDEM Event — die Regeln B8/B9 aus Konzept 4.3.3 waren still abgeschaltet.
+     */
     private function readSessionId(Request $request): ?string
     {
         $name = $this->cookieName ?? (\ini_get('session.name') ?: self::DEFAULT_COOKIE_NAME);

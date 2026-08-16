@@ -437,6 +437,84 @@ final class BundleBootTest extends IntegrationTestCase
         self::assertSame(['#^/health$#'], $muster);
     }
 
+    /**
+     * `capture_fatal_errors: false` muss den Dienst ENTFERNEN, nicht bloß einen Parameter
+     * setzen.
+     *
+     * Der Listener registriert eine Shutdown-Funktion. Bliebe er im Container stehen und
+     * fragte zur Laufzeit einen Schalter ab, wäre die Funktion trotzdem gesetzt — und die
+     * Option hätte eine plausible Bestätigung durch `debug:config` und keine Wirkung.
+     * Genau das war der Zustand: `loadExtension()` setzte den Parameter,
+     * `services_kernel.yaml` registrierte den Listener bedingungslos, und niemand las den
+     * Parameter. Der CHANGELOG-Eintrag zu 0.1.1 behauptete, die Option sei „wirksam"
+     * geworden.
+     */
+    public function testFatalErrorRescueIsRegisteredByDefault(): void
+    {
+        $kernel = $this->boot(self::MINIMAL_CONFIG, 'minimal');
+
+        self::assertTrue($kernel->getContainer()->has('ids_sensor.fatal_error_flush_listener'));
+    }
+
+    public function testFatalErrorRescueCanBeSwitchedOff(): void
+    {
+        $kernel = $this->boot(
+            array_merge(self::MINIMAL_CONFIG, ['layers' => ['kernel' => ['capture_fatal_errors' => false]]]),
+            'fatal-aus',
+        );
+
+        self::assertFalse(
+            $kernel->getContainer()->has('ids_sensor.fatal_error_flush_listener'),
+            'capture_fatal_errors: false muss den Dienst entfernen — ein Schalter, der ihn stehen '
+            .'lässt, registriert die Shutdown-Funktion trotzdem',
+        );
+    }
+
+    /**
+     * Der Name des Session-Cookies kommt aus `framework.session.name`, nicht aus php.ini.
+     *
+     * Symfony schreibt den konfigurierten Namen erst dann nach php.ini, wenn
+     * `NativeSessionStorage` konstruiert wird — ein lazy Dienst, der erst beim ersten
+     * `$request->getSession()` entsteht. Der RequestSensor läuft bei Priorität 1024, der
+     * SessionListener bei 128: Zum Erfassungszeitpunkt stand dort praktisch immer noch
+     * `PHPSESSID`, und `SessionIdHasher` fand das Cookie nie. Jede Anwendung mit eigenem
+     * Session-Namen lieferte damit `actor.session_id_hash: null` in JEDEM Event — die
+     * Regeln B8/B9 aus Konzept 4.3.3 waren still abgeschaltet.
+     */
+    public function testTheSessionCookieNameComesFromTheFrameworkConfiguration(): void
+    {
+        $kernel = new TestKernel(self::MINIMAL_CONFIG, 'session-name', sessionName: 'MYAPPSESSID');
+        $kernel->boot();
+
+        self::assertSame(
+            'MYAPPSESSID',
+            $kernel->getContainer()->getParameter('ids_sensor.session_hash.cookie_name'),
+        );
+    }
+
+    /**
+     * Eine ausdrückliche Angabe gewinnt weiterhin gegen die Framework-Konfiguration.
+     */
+    public function testAnExplicitCookieNameWins(): void
+    {
+        $kernel = new TestKernel(
+            // Die Teilkonfiguration wird GEMISCHT, nicht ersetzt: array_merge auf der
+            // obersten Ebene nähme session_hash.key mit, und ohne den bricht die
+            // Kompilierung ab.
+            array_merge(self::MINIMAL_CONFIG, [
+                'session_hash' => array_merge(self::MINIMAL_CONFIG['session_hash'], ['cookie_name' => 'EIGENES']),
+            ]),
+            'session-name-eigen',
+            sessionName: 'MYAPPSESSID',
+        );
+        $kernel->boot();
+
+        self::assertSame(
+            'EIGENES',
+            $kernel->getContainer()->getParameter('ids_sensor.session_hash.cookie_name'),
+        );
+    }
+
     public function testDisabledBundleRegistersNoServices(): void
     {
         $kernel = $this->boot(

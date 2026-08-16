@@ -80,7 +80,12 @@ final class ConfigurationReachTest extends TestCase
         'environment_map' => 'dito',
         'environment_fallback' => 'dito',
         'session_hash.enabled' => 'Entscheidet in loadExtension() über den Import von services_kernel.yaml.',
-        'session_hash.key' => 'Geht unmittelbar an ids_sensor.session_id_hasher; ein Parameter machte den HMAC-Schlüssel per debug:container einsehbar.',
+        // `session_hash.key` stand hier mit der Begründung, ein Parameter machte den
+        // HMAC-Schlüssel per debug:container einsehbar. Die Begründung beschrieb einen
+        // Zustand, den es nicht gab: `ids_sensor.session_hash.key` IST ein Parameter und
+        // wird von services_kernel.yaml gelesen. Ein Eintrag, der eine Prüfung mit einer
+        // falschen Begründung überspringt, ist genau die Sorte Schlupfloch, gegen die
+        // dieser Test gebaut wurde — deshalb ist er entfallen, nicht korrigiert.
         'layers' => 'Zwischenknoten ohne eigenen Wert.',
         'layers.kernel' => 'Zwischenknoten.',
         'layers.kernel.events' => 'Zwischenknoten.',
@@ -124,7 +129,7 @@ final class ConfigurationReachTest extends TestCase
         'ids_sensor.transport.name' => 'Liest der LazyTransportPass zur Compile-Zeit.',
         'ids_sensor.layers.business.capture_mode' => 'Liest der BusinessCaptureModePass zur Compile-Zeit.',
         'ids_sensor.layers.business.event_classes' => 'dito',
-        'ids_sensor.layers.kernel.capture_fatal_errors' => 'Entscheidet in loadExtension(), ob der FatalErrorFlushListener geladen wird.',
+        'ids_sensor.layers.kernel.capture_fatal_errors' => 'Entscheidet in loadExtension() über den Import von services_kernel_fatal_errors.yaml; bleibt als Parameter für ids:sensor:setup-check ablesbar.',
         'ids_sensor.layers.kernel.enabled' => 'Reine Auskunft für ids:sensor:setup-check über %ids_sensor.config%.',
         'ids_sensor.layers.security.active' => 'Entscheidet zur Compile-Zeit über die Sicherheitsdienste.',
         'ids_sensor.heartbeat.enabled' => 'Entscheidet in loadExtension() über den Import von services_heartbeat.yaml.',
@@ -133,6 +138,7 @@ final class ConfigurationReachTest extends TestCase
         'ids_sensor.budget.read_timeout_ms' => 'dito als read_timeout.',
         'ids_sensor.logging.channel' => 'Wird in loadExtension() an die monolog.logger-Tags gesetzt — Symfony löst Platzhalter in Tag-Attributen nicht auf.',
         'ids_sensor.schema_version' => 'Reine Auskunft: macht die Formatversion per debug:container sichtbar, ohne dass jemand das Paket öffnen muss.',
+        'ids_sensor.session_hash.framework_cookie_name' => 'Zwischenablage zwischen prependExtension() und loadExtension() — dort fließt der Wert in ids_sensor.session_hash.cookie_name, und den liest services_kernel.yaml.',
     ];
 
     /**

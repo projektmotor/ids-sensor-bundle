@@ -141,6 +141,16 @@ final class IdsSensorBundle extends AbstractBundle
             return;
         }
 
+        // MUSS hier stehen und nicht in loadExtension(). Dort ist der ContainerBuilder der
+        // temporäre aus MergeExtensionConfigurationPass, und der trägt KEINE
+        // Extension-Konfigurationen — getExtensionConfig('framework') gäbe dort immer ein
+        // leeres Array zurück. Den ParameterBag teilt er dagegen mit dem echten Container,
+        // derselbe Weg wie bei kernel.bundles in securityBundleIsRegistered().
+        $builder->setParameter(
+            'ids_sensor.session_hash.framework_cookie_name',
+            self::rawSessionCookieName($builder),
+        );
+
         $transport = self::rawTransportConfig($builder);
 
         if (null === $transport['dsn'] || '' === $transport['dsn']) {
@@ -238,6 +248,69 @@ final class IdsSensorBundle extends AbstractBundle
     }
 
     /**
+     * Der in {@see prependExtension()} ermittelte Cookie-Name, sofern es einen gibt.
+     *
+     * Über den ParameterBag statt über ein Feld: `prependExtension()` und
+     * `loadExtension()` laufen auf verschiedenen ContainerBuildern, aber auf demselben
+     * ParameterBag.
+     */
+    private static function frameworkCookieName(ContainerBuilder $builder): ?string
+    {
+        if (!$builder->hasParameter('ids_sensor.session_hash.framework_cookie_name')) {
+            return null;
+        }
+
+        $name = $builder->getParameter('ids_sensor.session_hash.framework_cookie_name');
+
+        return \is_string($name) && '' !== $name ? $name : null;
+    }
+
+    /**
+     * Der Name des Session-Cookies aus `framework.session.name`.
+     *
+     * WARUM DAS NICHT ini_get('session.name') SEIN DARF
+     *
+     * {@see Sensor\Context\SessionIdHasher} liest den Cookie-Wert, nicht die Session — das
+     * ist richtig und in Konzept 2.1 begründet (kein I/O im Request-Pfad). Er braucht dafür
+     * aber den NAMEN, und `ini_get('session.name')` ist dafür die falsche Quelle:
+     * `framework.session.name` erreicht php.ini erst, wenn `NativeSessionStorage`
+     * konstruiert wird, und das ist ein lazy Dienst, der erst beim ersten
+     * `$request->getSession()` entsteht. Der RequestSensor läuft bei Priorität 1024, der
+     * SessionListener bei 128 — zum Erfassungszeitpunkt steht dort praktisch immer noch der
+     * php.ini-Wert.
+     *
+     * Die Folge war ein stiller Totalausfall der Sitzungsverkettung: Jede Anwendung mit
+     * eigenem `framework.session.name` lieferte `actor.session_id_hash: null` in JEDEM
+     * Event, und die Regeln B8/B9 (Konzept 4.3.3, Szenario S9) konnten nicht feuern. Der
+     * Wert war nicht einmal stabil — wurde die Session irgendwo im Request doch
+     * materialisiert, trug derselbe Request `null` im kernel.request und einen Hash im
+     * kernel.response.
+     *
+     * Gelesen wird wie beim Transport aus der noch unverarbeiteten Konfiguration: der
+     * zuletzt gesetzte Wert gewinnt, was der Merge-Reihenfolge der Config-Komponente
+     * entspricht. Ein %env()%-Platzhalter wird unverändert durchgereicht und später
+     * aufgelöst.
+     */
+    private static function rawSessionCookieName(ContainerBuilder $builder): ?string
+    {
+        $name = null;
+
+        foreach ($builder->getExtensionConfig('framework') as $config) {
+            if (!\is_array($config) || !isset($config['session']) || !\is_array($config['session'])) {
+                continue;
+            }
+
+            $candidate = $config['session']['name'] ?? null;
+
+            if (\is_string($candidate) && '' !== $candidate) {
+                $name = $candidate;
+            }
+        }
+
+        return $name;
+    }
+
+    /**
      * Liest die Transportangaben aus der noch unverarbeiteten Konfiguration.
      *
      * @return array{name: string, dsn: string|null, options: array<string, mixed>, register_transport: bool}
@@ -331,7 +404,13 @@ final class IdsSensorBundle extends AbstractBundle
 
         $builder->setParameter('ids_sensor.session_hash.enabled', $config['session_hash']['enabled']);
         $builder->setParameter('ids_sensor.session_hash.key', $config['session_hash']['key']);
-        $builder->setParameter('ids_sensor.session_hash.cookie_name', $config['session_hash']['cookie_name']);
+        // Ohne ausdrückliche Angabe der Name aus `framework.session.name` — NICHT
+        // ini_get('session.name'), das zum Erfassungszeitpunkt noch den php.ini-Wert
+        // trägt. Begründung bei {@see rawSessionCookieName()}.
+        $builder->setParameter(
+            'ids_sensor.session_hash.cookie_name',
+            $config['session_hash']['cookie_name'] ?? self::frameworkCookieName($builder),
+        );
         $builder->setParameter('ids_sensor.fingerprint.enabled', $config['fingerprint']['enabled']);
         $builder->setParameter('ids_sensor.fingerprint.headers', $config['fingerprint']['headers']);
 
@@ -360,6 +439,16 @@ final class IdsSensorBundle extends AbstractBundle
         // (Konzept 2.). Abschaltbar, aber standardmäßig an.
         if (true === $kernelLayer['enabled']) {
             $container->import('../config/services_kernel.yaml');
+
+            // Bedingt, nicht bedingungslos mit einem Laufzeit-Schalter: Der Listener
+            // registriert eine Shutdown-Funktion, und die stünde sonst auch bei
+            // `capture_fatal_errors: false`. Die Option hätte dann eine plausible
+            // Bestätigung durch `debug:config` und keine Wirkung — genau das, was
+            // ConfigurationReachTest verhindern soll. Bis hierher war sie ein
+            // Parameter, den niemand las.
+            if (true === $kernelLayer['capture_fatal_errors']) {
+                $container->import('../config/services_kernel_fatal_errors.yaml');
+            }
         }
 
         // Die Security-Ebene: nach `composer require` ohne Anwendungscode aktiv —
@@ -373,7 +462,16 @@ final class IdsSensorBundle extends AbstractBundle
         );
 
         $securityAvailable = self::securityBundleIsRegistered($builder);
-        $builder->setParameter('ids_sensor.layers.security.active', $securityLayer['enabled'] && $securityAvailable);
+
+        // Die Kernel-Ebene gehört in die Verrechnung, weil der Import eine Zeile weiter
+        // unten sie verlangt: ActorFactory und RequestSnapshotRegistry sind dort
+        // verdrahtet. Ohne sie meldete der Parameter `true`, während kein einziger
+        // Security-Dienst existierte — und ids:sensor:setup-check schrieb „Security-Ebene:
+        // aktiv" für eine Ebene, die es nicht gab.
+        $builder->setParameter(
+            'ids_sensor.layers.security.active',
+            $securityLayer['enabled'] && $securityAvailable && $kernelLayer['enabled'],
+        );
 
         if (true === $securityLayer['enabled'] && $securityAvailable && true === $kernelLayer['enabled']) {
             $container->import('../config/services_security.yaml');

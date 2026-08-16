@@ -231,6 +231,7 @@
         "ids_sensor.schema_version": 1,
         "ids_sensor.session_hash.cookie_name": null,
         "ids_sensor.session_hash.enabled": true,
+        "ids_sensor.session_hash.framework_cookie_name": null,
         "ids_sensor.session_hash.key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
         "ids_sensor.spool.dir": "/app/tests/Fixtures/var/ids-spool",
         "ids_sensor.spool.drain_interval_s": 30,
@@ -452,7 +453,10 @@
                 "@ids_sensor.runtime_profile",
                 "%ids_sensor.config%",
                 "@ids_sensor.spool",
-                "@?ids_sensor.heartbeat.scheduler"
+                "@?ids_sensor.heartbeat.scheduler",
+                "ein-dedizierter-ids-schluessel-mit-32-zeichen",
+                null,
+                "test-app-secret"
             ],
             "tags": {
                 "console.command": [
@@ -1289,6 +1293,7 @@
                 "@ids_sensor.shipper",
                 "@ids_sensor.logger",
                 300,
+                30,
                 "@ids_sensor.counters"
             ],
             "tags": {

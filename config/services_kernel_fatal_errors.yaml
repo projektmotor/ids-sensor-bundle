@@ -1,0 +1,25 @@
+# Die Rettung des Puffers beim Fatal Error (`layers.kernel.capture_fatal_errors`).
+#
+# Eigene Datei, weil die Option abschaltbar ist und ein Schalter nur dann etwas bedeutet,
+# wenn er den Dienst gar nicht erst registriert. Stuende der Listener unbedingt hier und
+# fragte zur Laufzeit einen Parameter ab, waere die Shutdown-Funktion trotzdem gesetzt —
+# und `capture_fatal_errors: false` haette wieder eine plausible Bestaetigung durch
+# `debug:config` und keine Wirkung. Genau diese Fehlerklasse haelt
+# `ConfigurationReachTest` auf.
+#
+# Ohne ihn geht bei einem Fatal Error alles Erfasste ungezaehlt verloren — der stille
+# Ausfall, den Konzept 4. ausschliesst.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+    ids_sensor.fatal_error_flush_listener:
+        class: ProjektMotor\IdsSensor\Delivery\Dispatch\FatalErrorFlushListener
+        arguments:
+            $flusher: '@ids_sensor.event_flusher'
+            $budgetMs: '%ids_sensor.budget.fatal_dispatch_ms%'
+        tags:
+            - { name: kernel.event_subscriber }

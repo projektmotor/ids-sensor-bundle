@@ -91,6 +91,16 @@ Fehlt der Schlüssel, bricht die **Container-Kompilierung** ab — der einzige P
 dieses Bundle nicht fail-open ist. Ein stilles `null` würde die sitzungsbezogenen Regeln
 unsichtbar abschalten.
 
+Steckt im Schlüssel ein `%env()%`-Platzhalter — der empfohlene Fall —, sind Länge und
+Gleichheit mit `APP_SECRET` beim Kompilieren **nicht** prüfbar: der Wert ist dort noch nicht
+aufgelöst. Diese beiden Prüfungen holt `ids:sensor:setup-check` im Deploy nach, gegen den
+tatsächlich benutzten Schlüssel. Ein zu kurzer oder mit `APP_SECRET` identischer Wert ist
+dort ein Befund mit Rückgabewert 1.
+
+`cookie_name` wird aus `framework.session.name` gelesen, nicht aus `php.ini`: Symfony
+schreibt den konfigurierten Namen erst dann nach `php.ini`, wenn die Session-Storage
+tatsächlich entsteht — und das ist im Erfassungspfad regelmäßig zu spät.
+
 **Eine Rotation bricht die Sitzungsverkettung**: Events von vor und nach der Rotation
 tragen für dieselbe Sitzung verschiedene Hashes.
 
@@ -240,11 +250,17 @@ hier als Bitte und wurden von `array_merge` überstimmt. Wer einen von ihnen in
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `dir` | `null` | `null` nutzt `%kernel.project_dir%/var/ids-spool`; **muss node-lokal sein** |
-| `max_bytes` | `16777216` | Gesamtgrenze; Überlauf zählt `dropped_spool_full` |
-| `max_file_bytes` | `4194304` | Grenze je Datei |
-| `drain_interval_s` | `30` | reiner Dokumentationswert — reist im Heartbeat mit, damit der Collector die normale Verzögerung kennt |
+| `max_bytes` | `16777216` | Gesamtgrenze; Überlauf zählt `dropped_spool_full`. **`0` nimmt nichts auf** — `setup-check` meldet es als Befund |
+| `max_file_bytes` | `4194304` | Grenze je Datei, ab der der Schreiber versiegelt |
+| `drain_interval_s` | `30` | der Takt: nach dieser Zeit versiegelt der Schreiber seine Datei, und der Drainer versiegelt stellvertretend, woran niemand mehr schreibt. Reist zusätzlich im Heartbeat mit, damit der Collector die normale Verzögerung kennt |
 | `drain_max_files_per_run` | `2` | |
-| `stale_after_s` | `300` | ab wann eine Datei als liegengeblieben gilt |
+| `stale_after_s` | `300` | ab wann eine vom Drainer **beanspruchte** Datei als liegengeblieben gilt und zurückgeholt wird |
+
+`drain_interval_s` ist die Zusage aus *3.3.1* für `deferred`: ein Frame wartet höchstens ein
+Drain-Intervall auf seine Versiegelung. `stale_after_s` ist eine andere Frage — es geht dort
+um einen abgebrochenen Drain-Lauf, nicht um einen stillen Schreiber. Die beiden Fristen
+dürfen deshalb nicht dieselbe sein: Mit 300 s käme ein Frame außerhalb der consumerseitigen
+Toleranz an und würde wie `recovered` behandelt, also von den Echtzeit-Regeln ausgenommen.
 
 Es gibt **keinen** `spool.enabled`-Schalter, und das ist Absicht — Begründung in
 [05 — Versandweg](05-versandweg.md#der-spool).

@@ -48,6 +48,12 @@ services:
             $spool: '@ids_sensor.spool'
             $shipper: '@ids_sensor.shipper'
             $staleAfterSeconds: '%ids_sensor.spool.stale_after_s%'
+            # NICHT stale_after_s: Eine aktive Datei stellvertretend erst nach 300 s zu
+            # versiegeln haette die Zusage aus Konzept 3.3.1 gebrochen — `deferred` heisst
+            # "hoechstens ein Drain-Intervall", und der Collector toleriert das Zweifache
+            # davon. Bei geringer Last kam unter mod_php sonst jeder Frame ausserhalb der
+            # Toleranz an und wurde wie `recovered` behandelt: keine Echtzeit-Regeln.
+            $sealIdleAfterSeconds: '%ids_sensor.spool.drain_interval_s%'
             $counters: '@ids_sensor.counters'
 
     # Unter mod_php ist dieser Command der einzige Transportweg und damit Pflicht.

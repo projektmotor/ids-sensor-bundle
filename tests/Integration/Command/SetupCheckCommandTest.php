@@ -221,6 +221,84 @@ final class SetupCheckCommandTest extends TestCase
     }
 
     /**
+     * Die Prüfung, auf die die Compile-Zeit ausdrücklich verweist.
+     *
+     * `IdsSensorBundle::assertSessionHashKeyIsUsable()` kann einen Schlüssel hinter einer
+     * Umgebungsvariable nicht bewerten — beim Kompilieren steht dort ein Platzhalter, nicht
+     * der Wert. Beide Kommentare dort verweisen für diesen Fall auf diesen Command;
+     * eingelöst war das nicht, geprüft wurde hier ausschließlich `session_hash.enabled`.
+     *
+     * Das traf genau den empfohlenen Weg: Die Fehlermeldung des Bundles und `doc/08:25`
+     * schlagen `key: '%env(IDS_SESSION_HASH_KEY)%'` vor. Wer der Empfehlung folgte, hatte
+     * WEDER die Längen- NOCH die APP_SECRET-Prüfung.
+     */
+    public function testAShortKeyBehindAnEnvPlaceholderIsAFinding(): void
+    {
+        $tester = $this->setupCheckMitSchluessel('kurz-env', 'geheim');
+
+        self::assertSame(Command::FAILURE, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringContainsString('mindestens 32', $tester->getDisplay());
+    }
+
+    /**
+     * APP_SECRET als IDS-Schlüssel öffnet genau den Session-Hijacking-Vektor, den das
+     * Hashen verhindern soll — die überwachte Anwendung kennt APP_SECRET, ein Angreifer
+     * mit Codeausführung also auch (Konzept 2.2.4).
+     */
+    public function testAKeyIdenticalToAppSecretBehindAnEnvPlaceholderIsAFinding(): void
+    {
+        $tester = $this->setupCheckMitSchluessel('secret-env', 'test-app-secret');
+
+        self::assertSame(Command::FAILURE, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringContainsString('identisch mit APP_SECRET', $tester->getDisplay());
+    }
+
+    /**
+     * Ein tragfähiger Schlüssel hinter einer Umgebungsvariable bleibt grün — sonst wäre
+     * die Prüfung ein Ärgernis statt einer Hilfe.
+     */
+    public function testAViableKeyBehindAnEnvPlaceholderIsGreen(): void
+    {
+        $tester = $this->setupCheckMitSchluessel('gut-env', IntegrationTestCase::SESSION_KEY);
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
+    }
+
+    /**
+     * `spool.max_bytes: 0` heißt: der Spool nimmt NICHTS auf.
+     *
+     * `FileSpool::hasRoomFor()` ist dann immer falsch, jeder Frame wird verworfen und als
+     * `dropped_spool_full` gezählt. Unter mod_php, wo der Spool laut Konzept 3.3.1 der
+     * einzige Transportweg ist, ist das der vollständige Erfassungsausfall — sichtbar nur
+     * als wachsender Zähler. Der Konfigurationsbaum kann die 0 nicht ablehnen (sie ist der
+     * Typ-Platzhalter für `int`) und weist die Prüfung dem verbrauchenden Dienst zu; für
+     * den Circuit Breaker war sie eingelöst, für den Spool nicht.
+     */
+    public function testASpoolLimitOfZeroIsAFinding(): void
+    {
+        $tester = $this->setupCheck('spool-null', ['spool' => ['max_bytes' => 0]]);
+
+        self::assertSame(Command::FAILURE, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringContainsString('spool.max_bytes ist 0', $tester->getDisplay());
+    }
+
+    /**
+     * Der Schlüssel kommt über eine Umgebungsvariable — nur so entsteht die Lage, für die
+     * es die Laufzeitprüfung gibt.
+     */
+    private function setupCheckMitSchluessel(string $variant, string $schluessel): CommandTester
+    {
+        $variable = 'IDS_TEST_HASH_KEY_'.strtoupper(str_replace('-', '_', $variant));
+        $_ENV[$variable] = $schluessel;
+
+        try {
+            return $this->setupCheck($variant, ['session_hash' => ['key' => '%env('.$variable.')%']]);
+        } finally {
+            unset($_ENV[$variable]);
+        }
+    }
+
+    /**
      * @param array<string, mixed> $overrides
      * @param array<string, mixed> $input
      */

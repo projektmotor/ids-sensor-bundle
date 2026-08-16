@@ -164,4 +164,44 @@ final class CleanerTest extends TestCase
         self::assertArrayNotHasKey(Cleaner::TRUNCATED_MARKER, $bereinigt);
         self::assertSame('sichtbar', $bereinigt['echt']);
     }
+
+    /**
+     * Zugangsdaten in der URL entfallen — auch ohne Query.
+     *
+     * Der Frühausstieg prüfte nur auf einen Query-String und gab eine URL ohne ihn
+     * unverändert zurück, samt `nutzer:geheim@`. Die Zusage im Docblock von `cleanUrl()`
+     * galt damit nur im Nebenfall — an einem Feld, das laut Konzept 3.1.1 bei JEDER Stufe
+     * mitreist (`payload.referer`) und zusätzlich in `raw.request_headers.referer`,
+     * `location` und `content-location` steht.
+     */
+    public function testCredentialsInAUrlAreDroppedEvenWithoutAQuery(): void
+    {
+        $bereinigt = $this->cleaner->cleanUrl('https://nutzer:geheim@app.example/reset');
+
+        self::assertStringNotContainsString('geheim', $bereinigt);
+        self::assertStringNotContainsString('nutzer', $bereinigt);
+        self::assertSame('https://app.example/reset', $bereinigt);
+    }
+
+    public function testCredentialsAndQueryAreBothHandled(): void
+    {
+        $bereinigt = $this->cleaner->cleanUrl('https://nutzer:geheim@app.example/reset?token=abc&ziel=start');
+
+        self::assertStringNotContainsString('geheim', $bereinigt);
+        self::assertStringNotContainsString('abc', $bereinigt, 'Der Query-Wert läuft durch die Denylist');
+        self::assertStringContainsString('ziel=start', $bereinigt, 'Harmlose Parameter bleiben lesbar');
+    }
+
+    /**
+     * Ohne Zugangsdaten und ohne Query bleibt die Zeichenkette, wie sie ist.
+     *
+     * Ein Neuaufbau würde dort nur Schreibweisen verändern — und die Herkunft ist
+     * forensisch genau die Auskunft, um die es geht.
+     */
+    public function testAHarmlessUrlIsLeftUntouched(): void
+    {
+        $url = 'https://app.example/artikel/42';
+
+        self::assertSame($url, $this->cleaner->cleanUrl($url));
+    }
 }

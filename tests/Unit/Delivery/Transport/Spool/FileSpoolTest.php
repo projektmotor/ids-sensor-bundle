@@ -338,6 +338,70 @@ final class FileSpoolTest extends TestCase
     }
 
     /**
+     * Das stellvertretende Versiegeln folgt dem DRAIN-INTERVALL, nicht `stale_after_s`.
+     *
+     * Hier stand `stale_after_s` (Vorgabe 300 s), und das brach die Zusage, die derselbe
+     * Umbau gab: Konzept 3.3.1 sagt für `deferred` „höchstens ein Drain-Intervall" zu und
+     * empfiehlt dem Collector als Toleranz das Zweifache des gemeldeten
+     * `drain_interval_s`, also 60 s. Ein Frame, der 300 s auf seine Versiegelung wartet,
+     * kommt mit `spool_delay_ms ≈ 300 000` an und wird collectorseitig wie `recovered`
+     * behandelt — KEINE Echtzeit-Regeln.
+     *
+     * Unter mod_php, wo der Spool der Regelweg ist, traf das jede Installation mit
+     * geringer Last: also genau den Ausfall, gegen den es die drei Zustände aus 3.3.1
+     * überhaupt gibt.
+     */
+    public function testAnIdleActiveFileIsSealedAfterOneDrainIntervalNotAfterStale(): void
+    {
+        $spool = $this->spool();
+        $spool->append($this->frame('leiser-prozess'));
+
+        // Älter als ein Drain-Intervall, aber weit unter stale_after_s.
+        foreach ($spool->waitingFiles() as $file) {
+            touch($file, time() - 45);
+        }
+
+        $shipper = new CollectingShipper();
+        $result = (new SpoolDrainer(
+            $spool,
+            $shipper,
+            null,
+            staleAfterSeconds: 300,
+            sealIdleAfterSeconds: 30,
+        ))->drain();
+
+        self::assertSame(1, $result['frames'], 'Nach einem Drain-Intervall muss der Frame abfließen');
+        self::assertSame(
+            'leiser-prozess',
+            $shipper->lastFrame()['events'][0]['payload']['marker'] ?? null,
+        );
+    }
+
+    /**
+     * Innerhalb des Intervalls bleibt der Schreiber in Ruhe.
+     *
+     * Sonst würde der Drainer bei jedem Lauf eine Datei versiegeln, an die gerade
+     * angehängt wird — funktional harmlos (der nächste Anhang legt sie neu an), aber es
+     * erzeugte eine Datei je Drain-Lauf statt je Intervall.
+     */
+    public function testAFreshActiveFileIsLeftAlone(): void
+    {
+        $spool = $this->spool();
+        $spool->append($this->frame('gerade-eben'));
+
+        $result = (new SpoolDrainer(
+            $spool,
+            new CollectingShipper(),
+            null,
+            staleAfterSeconds: 300,
+            sealIdleAfterSeconds: 30,
+        ))->drain();
+
+        self::assertSame(0, $result['frames']);
+        self::assertSame([], $spool->pendingFiles(), 'Die Datei bleibt aktiv');
+    }
+
+    /**
      * Eine liegengebliebene `.draining`-Datei muss zurückkommen.
      *
      * `claim()` benennt vor dem Senden um. Stirbt der Prozess danach — SIGKILL, OOM,

@@ -41,6 +41,11 @@ final class TestKernel extends Kernel
      *                                                   schreibt. Wird nur beim KOMPILIEREN gefüllt —
      *                                                   ein aus dem Cache geladener Container führt
      *                                                   keine Compiler-Pässe aus.
+     * @param string|null               $sessionName     setzt `framework.session.name`. Nötig, weil
+     *                                                   der Sensor den Namen des Session-Cookies von
+     *                                                   dort liest und nicht aus php.ini — ohne
+     *                                                   diesen Schalter ließe sich genau der Fall
+     *                                                   nicht prüfen, in dem beide auseinanderfallen.
      */
     public function __construct(
         private readonly array $sensorConfig = [],
@@ -49,6 +54,7 @@ final class TestKernel extends Kernel
         bool $debug = true,
         private readonly ?array $securityConfig = null,
         private readonly ?string $fingerprintFile = null,
+        private readonly ?string $sessionName = null,
     ) {
         parent::__construct('test', $debug);
     }
@@ -66,14 +72,20 @@ final class TestKernel extends Kernel
 
     protected function configureContainer(ContainerConfigurator $container): void
     {
+        // mock_file statt native: PHPUnit läuft in der CLI, wo session_start()
+        // keine Header senden kann.
+        $session = ['storage_factory_id' => 'session.storage.factory.mock_file'];
+
+        if (null !== $this->sessionName) {
+            $session['name'] = $this->sessionName;
+        }
+
         $container->extension('framework', [
             'test' => true,
             'secret' => 'test-app-secret',
             'http_method_override' => false,
             'php_errors' => ['log' => true],
-            // mock_file statt native: PHPUnit läuft in der CLI, wo session_start()
-            // keine Header senden kann.
-            'session' => ['storage_factory_id' => 'session.storage.factory.mock_file'],
+            'session' => $session,
             // Nötig für die Sub-Request-Tests: ohne diesen Schalter gibt es keinen
             // fragment.handler und damit keinen Weg, einen echten Sub-Request auszulösen.
             'fragments' => ['enabled' => true],

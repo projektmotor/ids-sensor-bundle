@@ -98,13 +98,7 @@ services:
     ids_sensor.sensor.kernel_response:
         class: ProjektMotor\IdsSensor\Sensor\Kernel\ResponseSensor
 
-    # Rettet den Puffer, wenn der Prozess vor kernel.terminate stirbt. Ohne ihn geht bei
-    # einem Fatal Error alles Erfasste ungezaehlt verloren — genau der stille Ausfall,
-    # den Konzept 4. ausschliesst.
-    ids_sensor.fatal_error_flush_listener:
-        class: ProjektMotor\IdsSensor\Delivery\Dispatch\FatalErrorFlushListener
-        arguments:
-            $flusher: '@ids_sensor.event_flusher'
-            $budgetMs: '%ids_sensor.budget.fatal_dispatch_ms%'
-        tags:
-            - { name: kernel.event_subscriber }
+    # Der FatalErrorFlushListener steht in services_kernel_fatal_errors.yaml, weil er
+    # ueber layers.kernel.capture_fatal_errors abschaltbar ist — und ein Schalter, der
+    # den Dienst stehen laesst und ihn zur Laufzeit abfragt, waere derselbe Fehler wie
+    # bei ids_sensor.enabled: registriert wird gar nichts, statt nichts zu tun.

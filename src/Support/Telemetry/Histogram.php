@@ -25,8 +25,11 @@ namespace ProjektMotor\IdsSensor\Support\Telemetry;
 final class Histogram
 {
     /**
-     * 25 Klassen: [0,1), [1,2), [2,4), … [2^23, ∞).
-     * Bei Mikrosekunden deckt das bis ~8,4 Sekunden ab.
+     * 25 Klassen: [0,0], [1,1], [2,3], [4,7] … und als letzte [2^23, ∞).
+     *
+     * Der berichtete Perzentilwert ist die Obergrenze der Klasse, also höchstens
+     * 2^24 − 1 ≈ 16,8 Millionen — bei Mikrosekunden rund 16,8 Sekunden. Gekappt wird
+     * zusätzlich am beobachteten Maximum, siehe {@see percentile()}.
      */
     public const BUCKET_COUNT = 25;
 

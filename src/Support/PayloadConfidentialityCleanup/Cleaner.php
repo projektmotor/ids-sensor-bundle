@@ -162,6 +162,18 @@ final class Cleaner
      * redigiert, sondern weggelassen — sie sind nie eine Auskunft, aber immer ein
      * Geheimnis. Eine nicht zerlegbare Zeichenkette wird vollständig ersetzt: was wir
      * nicht verstehen, können wir auch nicht redigieren.
+     *
+     * ZWEI GRÜNDE ZUM NEUAUFBAU, UND DER ZWEITE FEHLTE
+     *
+     * Der Frühausstieg prüfte nur auf eine Query. Eine URL OHNE Query wurde unverändert
+     * zurückgegeben — samt `nutzer:geheim@`. Genau die Zusage im Absatz darüber galt damit
+     * nur im Nebenfall, und zwar an einem Feld, das bei JEDER Stufe mitreist
+     * (`payload.referer`, Konzept 3.1.1) und zusätzlich in `raw.request_headers.referer`,
+     * `location` und `content-location`.
+     *
+     * Neu aufgebaut wird deshalb, sobald ENTWEDER Zugangsdaten ODER eine Query vorhanden
+     * sind. Ist beides nicht der Fall, gibt es nichts zu entfernen und die Zeichenkette
+     * bleibt, wie sie ist — ein Neuaufbau würde dort nur Schreibweisen verändern.
      */
     public function cleanUrl(string $url): string
     {
@@ -175,19 +187,23 @@ final class Cleaner
             return $this->placeholder;
         }
 
-        if (!isset($parts['query']) || '' === $parts['query']) {
+        $hatQuery = isset($parts['query']) && '' !== $parts['query'];
+        $hatZugangsdaten = isset($parts['user']) || isset($parts['pass']);
+
+        if (!$hatQuery && !$hatZugangsdaten) {
             return $url;
         }
-
-        parse_str($parts['query'], $query);
 
         $rebuilt = isset($parts['scheme']) ? $parts['scheme'].'://' : '';
         $rebuilt .= $parts['host'] ?? '';
         $rebuilt .= isset($parts['port']) ? ':'.$parts['port'] : '';
         $rebuilt .= $parts['path'] ?? '';
 
-        $cleaned = $this->cleanParameters($query);
-        $rebuilt .= [] === $cleaned ? '' : '?'.http_build_query($cleaned);
+        if ($hatQuery) {
+            parse_str((string) $parts['query'], $query);
+            $cleaned = $this->cleanParameters($query);
+            $rebuilt .= [] === $cleaned ? '' : '?'.http_build_query($cleaned);
+        }
 
         // Das Fragment erreicht den Server ohnehin nie; es steht nur dann hier, wenn die
         // Zeichenkette gar kein echter Referer war.

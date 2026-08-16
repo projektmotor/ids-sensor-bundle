@@ -177,6 +177,30 @@ final class FrameDispatcherTest extends TestCase
     }
 
     /**
+     * Der Shutdown-Pfad meldet NICHT gerettet, wenn der Spool nichts angenommen hat.
+     *
+     * `dispatchToSpool()` gab `$frame->count()` zurück, ohne das Ergebnis des
+     * Spool-Versuchs anzusehen — und `spool()` lieferte für beide Ausgänge 0, war als
+     * Auskunft also wertlos. Der `FatalErrorFlushListener` protokollierte daraufhin „n
+     * Events wurden gerettet", während derselbe Vorgang sie als `dropped_spool_full`
+     * zählte. Der Zähler stimmte, das Protokoll widersprach ihm — und wer im Protokoll
+     * nachsieht, sieht zuerst das Protokoll.
+     */
+    public function testTheShutdownPathReportsNothingRescuedWhenTheSpoolRefuses(): void
+    {
+        $counters = new Counters();
+
+        $gerettet = $this->dispatcher(
+            new CollectingShipper(new \RuntimeException('darf nie')),
+            $counters,
+            new CollectingSpool(acceptsNothing: true),
+        )->dispatchToSpool($this->identity(), [$this->event()]);
+
+        self::assertSame(0, $gerettet, 'Verworfen ist nicht gerettet');
+        self::assertSame(1, $counters->get(Counters::DROPPED_SPOOL_FULL));
+    }
+
+    /**
      * Ein voller Spool ist der endgültige Verlust — und wird als solcher gezählt.
      */
     public function testAFullSpoolCountsTheLoss(): void

@@ -157,6 +157,14 @@ services:
             $config: '%ids_sensor.config%'
             $spool: '@ids_sensor.spool'
             $heartbeatScheduler: '@?ids_sensor.heartbeat.scheduler'
+            # Die AUFGELÖSTEN Werte. Genau darin liegt der Zweck: Die Prüfungen in
+            # IdsSensorBundle::assertSessionHashKeyIsUsable() überspringen jeden Schlüssel
+            # mit %env()%-Platzhalter — er ist beim Kompilieren noch nicht aufgelöst — und
+            # verweisen dafür auf diesen Command. Hier steht der Wert, den der HMAC
+            # tatsächlich benutzt.
+            $sessionHashKey: '%ids_sensor.session_hash.key%'
+            $sessionCookieName: '%ids_sensor.session_hash.cookie_name%'
+            $appSecret: '%kernel.secret%'
 
     # Volumen-Stellrad aus Konzept 4.2.3. Bei der Vorgabe 1.0 wird nicht einmal gezogen.
     ids_sensor.sampler:

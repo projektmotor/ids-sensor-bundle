@@ -7,13 +7,16 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Shipper;
 /**
  * Verwirft Frames.
  *
- * Zwei Verwendungen:
- *  - `ids_sensor.enabled: false` — der Kill-Schalter, ohne das Bundle zu entfernen
- *  - Messung des Erfassungsbudgets ohne jede Broker-Beteiligung
+ * Die Vorgabe, solange keine `transport.dsn` konfiguriert ist. Damit ist das Bundle
+ * installierbar, bevor Infrastruktur bereitsteht — und das Erfassungsbudget aus
+ * Konzept 2.1 lässt sich beweisen, ohne dass Broker-Latenz und Sensor-Kosten
+ * vermischt werden.
  *
- * Der zweite Punkt ist der wichtigere: das Budget aus Konzept 2.1 Sensorik lässt
- * sich damit beweisen, bevor überhaupt ein Transport existiert. Broker-Latenz und
- * Sensor-Kosten sind so nicht vermischt.
+ * NICHT der Kill-Schalter. Hier stand `ids_sensor.enabled: false` als zweite
+ * Verwendung; bei dem Wert kehrt `IdsSensorBundle::loadExtension()` zurück, BEVOR
+ * `services.yaml` importiert wird — es gibt dann überhaupt keinen Shipper, keinen
+ * Sensor und keinen Listener. Genau das ist dort die Absicht: „registriert bewusst
+ * gar keine Listener, statt sie zur Laufzeit abzufragen".
  *
  * @internal
  */

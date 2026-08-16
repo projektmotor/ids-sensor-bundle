@@ -13,6 +13,155 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+Ergebnis eines zweiten Tiefenchecks, diesmal gegen `doc/konzept-v1.md`. Drei der
+Befunde sind stille Erkennungsausfälle, und zwei davon standen im Changelog zu 0.1.1
+bereits als erledigt — siehe „Berichtigt" am Ende dieses Abschnitts. Jede
+Verhaltensänderung trägt einen Test, der ohne sie fehlschlägt.
+
+### Fixed — `actor.session_id_hash` blieb bei eigenem Session-Cookie-Namen immer `null`
+
+`Sensor\Context\SessionIdHasher` ermittelte den Namen des Session-Cookies über
+`ini_get('session.name')`. Der Konfigurationsbaum und `doc/08:81` sagen aber „`null`
+ermittelt ihn aus der **Framework-Konfiguration**", und das ist etwas anderes: Symfony
+schreibt `framework.session.name` erst dann nach php.ini, wenn `NativeSessionStorage`
+konstruiert wird — ein lazy Dienst, der erst beim ersten `$request->getSession()`
+entsteht. Der `RequestSensor` läuft bei Priorität 1024, der `SessionListener` bei 128.
+Zum Erfassungszeitpunkt stand dort praktisch immer noch `PHPSESSID`.
+
+Jede Anwendung mit eigenem Session-Namen lieferte damit `actor.session_id_hash: null`
+in **jedem** Event. Die sitzungsbezogenen Regeln B8/B9 (Konzept 4.3.3) konnten nicht
+feuern, und Szenario S9 — Session-Fixation und Remember-Me-Missbrauch — war unerkennbar.
+Der Wert war nicht einmal stabil: Wurde die Session irgendwo im Request doch
+materialisiert, trug derselbe Request `null` im `kernel.request` und einen Hash im
+`kernel.response`.
+
+Der Name wird jetzt in `prependExtension()` aus `framework.session.name` gelesen —
+derselbe Weg, den `transport.dsn` und die Broker-Timeouts schon gehen, weil der
+ContainerBuilder in `loadExtension()` keine Extension-Konfigurationen trägt.
+`ini_get()` bleibt der letzte Rückfall.
+
+### Fixed — der HMAC-Schlüssel wurde im dokumentierten Standardfall nie geprüft
+
+`IdsSensorBundle::assertSessionHashKeyIsUsable()` prüft Länge und Gleichheit mit
+`APP_SECRET` beim Kompilieren. Beide Prüfungen können einen Schlüssel hinter einer
+Umgebungsvariable nicht bewerten — dort steht zu diesem Zeitpunkt ein Platzhalter, nicht
+der Wert. Die Kommentare verwiesen dafür ausdrücklich auf `ids:sensor:setup-check`;
+eingelöst war das nicht, geprüft wurde dort ausschließlich `session_hash.enabled`.
+
+Das traf genau den empfohlenen Weg: Die Fehlermeldung des Bundles und `doc/08:25`
+schlagen `key: '%env(IDS_SESSION_HASH_KEY)%'` vor. Wer der Empfehlung folgte, hatte
+**weder** die Längen- **noch** die APP_SECRET-Prüfung — `IDS_SESSION_HASH_KEY=geheim`
+lief durch, und der HMAC aus Konzept 2.2.4 war entsprechend schwach. Der bestehende
+Test `testATooShortSessionHashKeyIsRejected()` lief daran vorbei, weil er einen
+literalen Wert benutzt.
+
+`setup-check` prüft jetzt den aufgelösten Schlüssel: zu kurz oder identisch mit
+`APP_SECRET` ist ein Befund mit Rückgabewert 1. Ein leerer Wert zur Laufzeit ebenfalls —
+die Umgebungsvariable kann fehlen, ohne dass beim Kompilieren etwas auffiel.
+
+### Fixed — `layers.kernel.capture_fatal_errors` bewirkte nichts
+
+`loadExtension()` setzte den Parameter, und niemand las ihn: `services_kernel.yaml`
+registrierte den `FatalErrorFlushListener` bedingungslos. `capture_fatal_errors: false`
+war wirkungslos, während `doc/08:131` der Option eine Wirkung zuschrieb.
+
+Der Listener steht jetzt in `config/services_kernel_fatal_errors.yaml` und wird nur bei
+`true` importiert. Ein Schalter, der den Dienst stehen ließe und ihn zur Laufzeit
+abfragte, wäre keiner — die Shutdown-Funktion würde trotzdem registriert.
+
+### Fixed — Zugangsdaten in einer URL ohne Query blieben stehen
+
+`Cleaner::cleanUrl()` sagt zu, `https://nutzer:geheim@host/` um die Zugangsdaten zu
+kürzen. Der Neuaufbau, der das tut, wurde aber nur erreicht, **wenn die URL eine Query
+hatte** — ohne sie kam die Zeichenkette unverändert zurück, samt `nutzer:geheim@`.
+
+Betroffen war `payload.referer`, das laut Konzept 3.1.1 bei **jeder** Stufe mitreist und
+nicht nur bei `warning`/`critical` wie `raw`, sowie die Header `referer`, `location` und
+`content-location` in `raw.request_headers` und `raw.response_headers`. Neu aufgebaut
+wird jetzt, sobald **entweder** Zugangsdaten **oder** eine Query vorhanden sind.
+
+### Fixed — unter mod_php wartete ein Frame bis zu 300 s auf seine Versiegelung
+
+`SpoolDrainer::sealIdleFiles()` versiegelt stellvertretend, woran erkennbar niemand mehr
+schreibt — und benutzte dafür `spool.stale_after_s` (Vorgabe 300 s). Das brach die
+Zusage, die derselbe Umbau vier Zeilen später gab: Konzept 3.3.1 sagt für `deferred`
+„höchstens ein Drain-Intervall" zu und empfiehlt dem Collector als Toleranzschwelle das
+Zweifache des gemeldeten `drain_interval_s`, also 60 s.
+
+Ein Frame, der 300 s auf die Versiegelung wartet, kommt mit `spool_delay_ms ≈ 300 000`
+an und wird collectorseitig wie `recovered` behandelt: **keine Echtzeit-Regeln**. Unter
+mod_php, wo der Spool der Regelweg ist, traf das jede Installation mit geringer Last —
+also genau den Ausfall, gegen den es die drei Zustände aus 3.3.1 überhaupt gibt.
+
+Die beiden Fristen sind jetzt getrennt: `drain_interval_s` steuert das stellvertretende
+Versiegeln einer **aktiven** Datei, `stale_after_s` weiterhin das Zurückholen einer vom
+Drainer **beanspruchten**. Die kürzere Frist ist gefahrlos, weil der Name einer aktiven
+Datei die Kennung ihres Schreibers trägt: Sein nächster Anhang legt sie einfach neu an,
+und was zwischen Dateiende und Abschluss noch hereinlief, hebt der Längenvergleich auf.
+
+### Added — `setup-check` erkennt einen Spool, der nichts aufnimmt
+
+`spool.max_bytes: 0` heißt: `FileSpool::hasRoomFor()` ist immer falsch, jeder Frame wird
+verworfen und als `dropped_spool_full` gezählt. Unter mod_php ist das der vollständige
+Erfassungsausfall, sichtbar nur als wachsender Zähler. Der Konfigurationsbaum kann die 0
+nicht ablehnen (sie ist der Typ-Platzhalter für `int`) und weist die Prüfung dem
+verbrauchenden Dienst zu — für den Circuit Breaker war das eingelöst, für den Spool
+nicht. `max_file_bytes: 0` erscheint als Hinweis: Der Schreiber versiegelt dann nach
+jedem Frame.
+
+### Fixed — der Shutdown-Pfad meldete Events als gerettet, die der Spool verworfen hatte
+
+`FrameDispatcher::dispatchToSpool()` gab `$frame->count()` zurück, ohne das Ergebnis des
+Spool-Versuchs anzusehen — und `spool()` lieferte für beide Ausgänge `0`, war als
+Auskunft also wertlos. Der `FatalErrorFlushListener` protokollierte daraufhin „n Events
+wurden gerettet", während derselbe Vorgang sie als `dropped_spool_full` zählte. Der
+Zähler stimmte, das Protokoll widersprach ihm — und wer nach einem Fatal Error nachsieht,
+sieht zuerst das Protokoll. `spool()` gibt jetzt `bool` zurück.
+
+### Fixed — `layers.security.active` meldete `true` ohne Security-Dienste
+
+Der Parameter verrechnete `layers.security.enabled` mit der Verfügbarkeit des
+SecurityBundle, der Import eine Zeile später verlangt aber zusätzlich die Kernel-Ebene —
+`ActorFactory` und `RequestSnapshotRegistry` sind dort verdrahtet. Mit
+`layers.kernel.enabled: false` stand der Parameter auf `true`, obwohl kein einziger
+Security-Dienst existierte, und `ids:sensor:setup-check` schrieb „Security-Ebene: aktiv".
+Die Ausgabe des Commands nennt die Abhängigkeit jetzt ebenfalls.
+
+### Fixed — drei Docblocks beschrieben einen Zustand, den es nicht gibt
+
+- `Rules::none()` nannte `payload_confidentiality_cleanup.enabled: false` als
+  Verwendungszweck. Diese Option existiert nicht und soll es laut
+  `services_payload_confidentiality_cleanup.yaml` auch nicht — „einen Weg, Werte MIT
+  Klartext zu übertragen, gibt es bewusst nicht".
+- `NullShipper` führte `ids_sensor.enabled: false` als zweite Verwendung. Bei dem Wert
+  kehrt `loadExtension()` zurück, **bevor** `services.yaml` importiert wird — es gibt
+  dann überhaupt keinen Shipper.
+- `Histogram` gab die Reichweite mit „~8,4 Sekunden" an; 25 Klassen mit Deckelung bei
+  Index 24 reichen bis 2²⁴ − 1, bei Mikrosekunden also rund 16,8 Sekunden.
+
+### Fixed — `ConfigurationReachTest` übersprang eine Prüfung mit falscher Begründung
+
+Die Ausnahmeliste führte `session_hash.key` mit „ein Parameter machte den HMAC-Schlüssel
+per `debug:container` einsehbar". Der Parameter existiert und wird von
+`services_kernel.yaml` gelesen; die Begründung beschrieb einen Zustand, den es nicht gab.
+Ein Eintrag, der eine Prüfung mit falscher Begründung überspringt, ist genau das
+Schlupfloch, gegen das dieser Test gebaut wurde — er ist entfallen, nicht korrigiert.
+
+### Berichtigt — zwei Aussagen im Changelog zu 0.1.1
+
+Beide betreffen Einträge, die eine Zusage als eingelöst beschrieben, die es nicht war.
+Sie stehen hier, damit die Historie nicht zwei Zustände behauptet:
+
+- **„Damit werden `layers.kernel.capture_fatal_errors` und `budget.fatal_dispatch_ms`
+  wirksam."** Für `budget.fatal_dispatch_ms` stimmte das. `capture_fatal_errors` blieb
+  ein Parameter, den niemand las — der Satz „damit sind alle 16 wirkungslosen
+  Konfigurationsoptionen abgearbeitet" traf also für 15 zu.
+- **„Die Altersschranke ist zugleich die Zusage aus Konzept 3.3.1 für `deferred`: Ein
+  Frame wartet höchstens ein Drain-Intervall."** Für den Schreiber stimmte das
+  (`sealAfterSeconds` = `drain_interval_s`); für das stellvertretende Versiegeln durch
+  den Drainer nicht, das lief über `stale_after_s`. Derselbe Absatz nannte beide Fristen
+  und behauptete beides.
+
 ### Documented — was `heartbeat.interval_s: 0` bedeutet
 
 Dass die 0 das automatische Senden einstellt, stand nur im Docblock eines Unit-Tests;

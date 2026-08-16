@@ -76,6 +76,12 @@ final class SetupCheckCommand extends Command
         // {@see \ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer}.
         private readonly FileSpool $spool,
         private readonly ?Scheduler $heartbeatScheduler = null,
+        // Der AUFGELÖSTE Schlüssel, nicht der aus %ids_sensor.config%. Genau darin liegt
+        // der Zweck: Die Compile-Zeit-Prüfungen in IdsSensorBundle überspringen jeden
+        // Wert mit einem %env()%-Platzhalter und verweisen dafür auf diesen Command.
+        private readonly ?string $sessionHashKey = null,
+        private readonly ?string $sessionCookieName = null,
+        private readonly ?string $appSecret = null,
     ) {
         parent::__construct();
     }
@@ -195,9 +201,22 @@ final class SetupCheckCommand extends Command
         );
     }
 
+    /**
+     * Die Prüfung, auf die die Compile-Zeit ausdrücklich verweist.
+     *
+     * `IdsSensorBundle::assertSessionHashKeyIsUsable()` überspringt jeden Schlüssel, der
+     * einen `%env()%`-Platzhalter enthält — beim Kompilieren ist er noch nicht aufgelöst.
+     * Beide Kommentare dort verweisen für diesen Fall auf diesen Command. Eingelöst war
+     * das nicht: Geprüft wurde hier ausschließlich `enabled`.
+     *
+     * Das traf genau den empfohlenen Weg. Die Fehlermeldung des Bundles und `doc/08:25`
+     * schlagen `key: '%env(IDS_SESSION_HASH_KEY)%'` vor — wer der Empfehlung folgte, hatte
+     * WEDER die Längen- NOCH die APP_SECRET-Prüfung. `IDS_SESSION_HASH_KEY=geheim` lief
+     * durch, und der HMAC aus Konzept 2.2.4 war entsprechend schwach.
+     */
     private function checkSessionHash(SymfonyStyle $io): void
     {
-        /** @var array{enabled: bool, key: string|null} $sessionHash */
+        /** @var array{enabled: bool, key: string|null, min_key_length: int} $sessionHash */
         $sessionHash = $this->config['session_hash'];
 
         if (false === $sessionHash['enabled']) {
@@ -205,6 +224,48 @@ final class SetupCheckCommand extends Command
                 'session_hash ist abgeschaltet: actor.session_id_hash bleibt null. Die sitzungsbezogenen '
                 .'Regeln B8/B9 können damit nicht feuern, und eine Sitzungsverkettung über mehrere '
                 .'Requests ist nicht möglich.';
+
+            return;
+        }
+
+        $io->definitionList(
+            ['Session-Cookie' => $this->sessionCookieName ?? 'aus php.ini (session.name)'],
+        );
+
+        $key = $this->sessionHashKey;
+
+        if (null === $key || '' === $key) {
+            // Beim Kompilieren wäre das ein Abbruch gewesen; hier kann es trotzdem
+            // auftreten, wenn die Umgebungsvariable zur Laufzeit leer ist.
+            $this->findings[] =
+                'session_hash.key ist zur Laufzeit leer. Die Umgebungsvariable ist offenbar nicht '
+                .'gesetzt — actor.session_id_hash bleibt dann in jedem Event null, und die Regeln '
+                .'B8/B9 sind wirkungslos.';
+
+            return;
+        }
+
+        if (null !== $this->appSecret && '' !== $this->appSecret && $this->appSecret === $key) {
+            $this->findings[] =
+                'session_hash.key ist identisch mit APP_SECRET (Konzept 2.2.4). Die überwachte '
+                .'Anwendung kennt APP_SECRET, ein Angreifer mit Codeausführung also auch — er '
+                .'könnte aus einer gestohlenen Event-Datenbank die Session-Hashes nachrechnen und '
+                .'genau den Session-Hijacking-Vektor öffnen, den das Hashen verhindern soll.';
+
+            return;
+        }
+
+        $minimum = $sessionHash['min_key_length'];
+
+        if (mb_strlen($key) < $minimum) {
+            $this->findings[] = \sprintf(
+                'session_hash.key ist zur Laufzeit %d Zeichen lang, mindestens %d sind verlangt '
+                .'(session_hash.min_key_length). Ist der Schlüssel zu kurz, lässt sich aus einer '
+                .'gestohlenen Event-Datenbank die Session-ID zurückrechnen — der '
+                .'Session-Hijacking-Vektor aus Konzept 2.2.4.',
+                mb_strlen($key),
+                $minimum,
+            );
         }
     }
 
@@ -271,8 +332,10 @@ final class SetupCheckCommand extends Command
 
     private function checkSpool(SymfonyStyle $io): void
     {
-        /** @var array{dir: string|null, drain_interval_s: int} $spoolConfig */
+        /** @var array{dir: string|null, drain_interval_s: int, max_bytes: int, max_file_bytes: int} $spoolConfig */
         $spoolConfig = $this->config['spool'];
+
+        $this->checkSpoolLimits($spoolConfig['max_bytes'], $spoolConfig['max_file_bytes']);
 
         // Den AUFGELÖSTEN Pfad, nicht den konfigurierten. `spool.dir` ist per Vorgabe
         // null — erst IdsSensorBundle setzt daraus %kernel.project_dir%/var/ids-spool.
@@ -307,6 +370,37 @@ final class SetupCheckCommand extends Command
         }
 
         $this->checkSpoolAge($io, $directory, $spoolConfig['drain_interval_s']);
+    }
+
+    /**
+     * Zwei Nullen, die den Spool still unbrauchbar machen.
+     *
+     * Der Konfigurationsbaum lässt bei jeder Zahl die 0 zu — der Typ-Platzhalter für `int`
+     * ist 0, und `->min(1)` würde ihn zurückweisen — und weist die fachliche Untergrenze
+     * ausdrücklich „dem verbrauchenden Dienst" zu. Für den Circuit Breaker ist das
+     * eingelöst; für den Spool tat es niemand, obwohl die Folge dort größer ist.
+     *
+     * `max_bytes: 0` heißt: `FileSpool::hasRoomFor()` ist immer falsch, JEDER Frame wird
+     * verworfen und als `dropped_spool_full` gezählt. Unter mod_php, wo der Spool der
+     * einzige Transportweg ist (Konzept 3.3.1), ist das der vollständige Erfassungsausfall
+     * — sichtbar nur als wachsender Zähler.
+     */
+    private function checkSpoolLimits(int $maxBytes, int $maxFileBytes): void
+    {
+        if (0 === $maxBytes) {
+            $this->findings[] =
+                'spool.max_bytes ist 0. Der Spool nimmt dann NICHTS auf: jeder Frame wird verworfen '
+                .'und als dropped_spool_full gezählt. Unter einer Laufzeit ohne abkoppelbare Antwort '
+                .'(mod_php) ist der Spool der einzige Transportweg — dort ist das der vollständige '
+                .'Erfassungsausfall.';
+        }
+
+        if (0 === $maxFileBytes) {
+            $this->hints[] =
+                'spool.max_file_bytes ist 0: der Schreiber versiegelt seine Datei nach JEDEM Frame. '
+                .'Das funktioniert, erzeugt aber eine Datei je Frame und lässt '
+                .'spool.drain_max_files_per_run zum Engpass werden.';
+        }
     }
 
     /**
@@ -498,12 +592,22 @@ final class SetupCheckCommand extends Command
         /** @var array{kernel: array{enabled: bool}, security: array{enabled: bool, access_decision: bool}, business: array{enabled: bool, capture_mode: string}} $layers */
         $layers = $this->config['layers'];
 
+        // Security und Business hängen an der Kernel-Ebene — ActorFactory und
+        // RequestSnapshotRegistry sind dort verdrahtet. Ohne sie meldete diese Ausgabe
+        // „aktiv" für Ebenen, deren Dienste gar nicht geladen wurden.
+        $kernelAktiv = $layers['kernel']['enabled'];
+        $abhaengig = static fn (bool $eigen): string => match (true) {
+            !$kernelAktiv => 'ABGESCHALTET (Kernel-Ebene aus)',
+            $eigen => 'aktiv',
+            default => 'ABGESCHALTET',
+        };
+
         $io->definitionList(
-            ['Kernel-Ebene' => $layers['kernel']['enabled'] ? 'aktiv' : 'ABGESCHALTET'],
-            ['Security-Ebene' => $layers['security']['enabled'] ? 'aktiv' : 'ABGESCHALTET'],
+            ['Kernel-Ebene' => $kernelAktiv ? 'aktiv' : 'ABGESCHALTET'],
+            ['Security-Ebene' => $abhaengig($layers['security']['enabled'])],
             ['Business-Ebene' => \sprintf(
                 '%s, capture_mode=%s',
-                $layers['business']['enabled'] ? 'aktiv' : 'ABGESCHALTET',
+                $abhaengig($layers['business']['enabled']),
                 $layers['business']['capture_mode'],
             )],
         );

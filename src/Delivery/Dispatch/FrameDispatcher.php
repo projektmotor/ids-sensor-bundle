@@ -120,9 +120,14 @@ final class FrameDispatcher
             $this->counters->pid(),
         );
 
-        $this->spool($frame->toArray(), $frame->count(), 'Shutdown nach Fatal Error');
-
-        return $frame->count();
+        // Das Ergebnis wird AUSGEWERTET, nicht verworfen. Hier stand `return
+        // $frame->count()` ohne Rücksicht darauf, ob der Spool die Zeile überhaupt
+        // angenommen hat — der FatalErrorFlushListener protokollierte daraufhin „n Events
+        // wurden gerettet", während derselbe Vorgang sie als dropped_spool_full zählte.
+        // Der Zähler stimmte, das Protokoll widersprach ihm.
+        return $this->spool($frame->toArray(), $frame->count(), 'Shutdown nach Fatal Error')
+            ? $frame->count()
+            : 0;
     }
 
     private function ship(Frame $frame): int
@@ -153,7 +158,11 @@ final class FrameDispatcher
         // „nur wenn Budget übrig" — gar keiner. Bei einer chunked übertragenen Antwort
         // wartet der Client noch, und jede Millisekunde hier wäre echte Antwortzeit.
         if (!$this->runtime->shipsDirectly()) {
-            return $this->spool($payload, $frame->count(), 'Laufzeit ohne abkoppelbare Antwort ('.$this->runtime->sapi().')');
+            $this->spool($payload, $frame->count(), 'Laufzeit ohne abkoppelbare Antwort ('.$this->runtime->sapi().')');
+
+            // 0 in beiden Fällen: Der Rückgabewert zählt DIREKT versendete Events, und
+            // gespoolt ist das Gegenteil davon.
+            return 0;
         }
 
         // Ist der Breaker offen, findet KEIN Verbindungsversuch statt. Das ist der
@@ -161,7 +170,9 @@ final class FrameDispatcher
         // Abkürzung kostet ein Broker-Ausfall jeden Request ein Timeout und erschöpft
         // den Worker-Pool.
         if (null !== $this->breaker && $this->breaker->isOpen()) {
-            return $this->spool($payload, $frame->count(), 'Circuit Breaker offen');
+            $this->spool($payload, $frame->count(), 'Circuit Breaker offen');
+
+            return 0;
         }
 
         try {
@@ -217,9 +228,16 @@ final class FrameDispatcher
      * verlorene Event wird gezählt", weil ein stiller Ausfall gefährlicher ist als ein
      * sichtbarer.
      *
+     * Gibt `bool` und nicht `int` zurück: Die Zahl war für beide Ausgänge 0 und damit als
+     * Auskunft wertlos — {@see dispatchToSpool()} konnte Erfolg und Verlust nicht
+     * unterscheiden und meldete beides als gerettet. Die Rückgabe von {@see ship()} bleibt
+     * davon unberührt: Dort ist 0 richtig, denn gespoolt heißt „nicht direkt versendet".
+     *
      * @param array<string, mixed> $payload
+     *
+     * @return bool ob der Spool die Sendung angenommen hat
      */
-    private function spool(array $payload, int $eventCount, string $reason): int
+    private function spool(array $payload, int $eventCount, string $reason): bool
     {
         if ($this->spool->append($payload)) {
             $this->counters->increment(Counters::SPOOLED, $eventCount);
@@ -228,11 +246,11 @@ final class FrameDispatcher
                 ['count' => $eventCount, 'reason' => $reason],
             );
 
-            return 0;
+            return true;
         }
 
         $this->counters->increment(Counters::DROPPED_SPOOL_FULL, $eventCount);
 
-        return 0;
+        return false;
     }
 }

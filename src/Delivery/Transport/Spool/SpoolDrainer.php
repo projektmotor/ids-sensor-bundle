@@ -42,9 +42,13 @@ final class SpoolDrainer
         private readonly FileSpool $spool,
         private readonly ShipperInterface $shipper,
         private readonly ?LoggerInterface $logger = null,
-        // Ab wann eine beanspruchte Datei als liegengeblieben gilt. Entspricht
-        // `ids_sensor.spool.stale_after_s` — der Knoten war bis hierher tot.
+        // Ab wann eine BEANSPRUCHTE Datei als liegengeblieben gilt. Entspricht
+        // `ids_sensor.spool.stale_after_s`.
         private readonly int $staleAfterSeconds = 300,
+        // Ab wann eine AKTIVE Datei stellvertretend versiegelt wird. Entspricht
+        // `ids_sensor.spool.drain_interval_s` — siehe {@see sealIdleFiles()} für den
+        // Grund, warum das nicht dieselbe Frist sein darf.
+        private readonly int $sealIdleAfterSeconds = 30,
         // Der Drainer hatte keinen Zaehler: Eine verworfene Zeile hinterliess nur einen
         // Logeintrag, und $logger ist optional. Konzept 4. verlangt aber, dass JEDER
         // verlorene Event gezaehlt wird — sonst ist der Verlust von "nichts war da"
@@ -134,12 +138,28 @@ final class SpoolDrainer
      * erfasst und danach keinen Verkehr mehr bekommt — bei geringer Last der Normalfall —
      * ließe ihn sonst für immer liegen, und ein abgestürzter Prozess ohnehin.
      *
-     * Die Frist ist dieselbe wie fürs Beanspruchen: Wer innerhalb davon geschrieben hat,
-     * gilt als aktiv und wird in Ruhe gelassen.
+     * WARUM NICHT DIESELBE FRIST WIE FÜRS BEANSPRUCHEN
+     *
+     * Hier stand `stale_after_s` (Vorgabe 300 s), und das brach die Zusage, die derselbe
+     * Umbau eine Zeile später gab: Konzept 3.3.1 sagt für `deferred` „höchstens ein
+     * Drain-Intervall" zu und empfiehlt dem Collector als Toleranzschwelle das Zweifache
+     * des gemeldeten `drain_interval_s`, also 60 s. Ein Frame, der 300 s auf seine
+     * Versiegelung wartet, kommt mit `spool_delay_ms ≈ 300 000` an und wird
+     * collectorseitig wie `recovered` behandelt: KEINE Echtzeit-Regeln.
+     *
+     * Unter mod_php, wo der Spool der Regelweg ist, traf das jede Installation mit
+     * geringer Last — also genau den Ausfall, gegen den es die drei Zustände aus 3.3.1
+     * überhaupt gibt. `stale_after_s` bleibt, wofür es gedacht ist: das Zurückholen
+     * beanspruchter `.draining`-Dateien in {@see reclaimStalled()}.
+     *
+     * Gefahrlos ist die kürzere Frist, weil der Schreiber noch leben darf: Der Name seiner
+     * aktiven Datei enthält SEINE Kennung, sein nächster Anhang legt sie unter demselben
+     * Namen einfach neu an, und was zwischen unserem Dateiende und dem Abschluss noch
+     * hereinlief, hebt {@see discardOrKeepTail()} über den Längenvergleich auf.
      */
     private function sealIdleFiles(): void
     {
-        foreach ($this->spool->idleActiveFiles($this->staleAfterSeconds) as $file) {
+        foreach ($this->spool->idleActiveFiles($this->sealIdleAfterSeconds) as $file) {
             @rename($file, $this->spool->sealedFileName());
         }
     }

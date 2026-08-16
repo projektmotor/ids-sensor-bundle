@@ -67,7 +67,13 @@ final class Rules
     }
 
     /**
-     * Leere Regeln für `payload_confidentiality_cleanup.enabled: false`.
+     * Leere Regeln — die Nullvariante für Tests und für Aufrufer ohne Liste.
+     *
+     * ES GIBT KEINEN SCHALTER, DER SIE IM BETRIEB ERZEUGT. Hier stand
+     * `payload_confidentiality_cleanup.enabled: false` als Verwendungszweck; diese Option
+     * existiert nicht und soll es laut `services_payload_confidentiality_cleanup.yaml`
+     * auch nicht — „einen Weg, Werte MIT Klartext zu übertragen, gibt es bewusst nicht".
+     * Wer die Liste verkleinern muss, benutzt `merge_defaults: false`.
      *
      * Bewusst ein Objekt mit leeren Listen und nicht `null`: ein nullbarer Cleaner wäre
      * die naheliegendste Art, die Redaktion versehentlich abzuschalten — ein vergessener
