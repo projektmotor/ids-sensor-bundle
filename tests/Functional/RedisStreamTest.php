@@ -61,12 +61,11 @@ final class RedisStreamTest extends IntegrationTestCase
             self::markTestSkipped('IDS_REDIS_ADMIN ist nicht gesetzt');
         }
 
-        $host = parse_url($adminDsn, \PHP_URL_HOST) ?: 'redis';
-        $port = parse_url($adminDsn, \PHP_URL_PORT) ?: 6379;
+        [$host, $port] = self::hostAndPortOf($adminDsn);
 
         $this->admin = new \Redis();
         try {
-            $this->admin->connect((string) $host, (int) $port, 1.0);
+            $this->admin->connect($host, $port, 1.0);
         } catch (\Throwable $e) {
             self::markTestSkipped('Redis nicht erreichbar: '.$e->getMessage());
         }
@@ -197,8 +196,10 @@ final class RedisStreamTest extends IntegrationTestCase
      */
     public function testTheSensorUserMayNeitherReadNorDelete(): void
     {
+        [$host, $port] = self::hostAndPortOf($this->redisDsn());
+
         $sensor = new \Redis();
-        $sensor->connect('redis', 6379, 1.0);
+        $sensor->connect($host, $port, 1.0);
         $sensor->auth(['ids_sensor', 'sensor-geheim']);
 
         // Schreiben: erlaubt.
@@ -283,6 +284,24 @@ final class RedisStreamTest extends IntegrationTestCase
         $event->setCorrelationId('req-7f2a1c');
 
         return $event;
+    }
+
+    /**
+     * Zerlegt eine DSN in Host und Port.
+     *
+     * Beide Verbindungen dieses Tests — die des Collectors und die des Sensors — müssen
+     * denselben Broker treffen wie der Transport. Ein fest verdrahteter Hostname wäre der
+     * Name des Compose-Dienstes und damit nur lokal richtig; auf einem CI-Runner läuft
+     * derselbe Broker unter 127.0.0.1.
+     *
+     * @return array{string, int}
+     */
+    private static function hostAndPortOf(string $dsn): array
+    {
+        return [
+            (string) (parse_url($dsn, \PHP_URL_HOST) ?: 'redis'),
+            (int) (parse_url($dsn, \PHP_URL_PORT) ?: 6379),
+        ];
     }
 
     private function redisDsn(): string

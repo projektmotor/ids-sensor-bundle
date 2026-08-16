@@ -36,6 +36,12 @@ ausgelieferten Code — die statische Analyse war durchgehend grün:
   einem Unterschied, der wie eine geänderte Verdrahtung aussieht. `ContainerFingerprintPass`
   maskiert das Projektverzeichnis jetzt als `<project_dir>`. Das traf nicht nur die CI:
   jeder Mitwirkende außerhalb von `/app` sah dieselben 15 Fehlschläge.
+- **Der ACL-Test verband gegen einen fest verdrahteten Hostnamen.**
+  `RedisStreamTest::testTheSensorUserMayNeitherReadNorDelete()` rief `connect('redis', …)`
+  auf — den Namen des Compose-Dienstes. Die `setUp()` desselben Tests leitet Host und Port
+  längst aus der DSN ab; diese eine Stelle tat es nicht und scheiterte auf dem Runner, wo
+  der Broker unter `127.0.0.1` läuft, mit `getaddrinfo for redis failed`. Die Auflösung
+  liegt jetzt in `hostAndPortOf()` und wird von beiden Verbindungen benutzt.
 - **Die Prüfung des Dist-Archivs führte `doc/` als unerwünscht.** Sie stammt aus der Zeit,
   als `/doc` auf `export-ignore` stand. Seit der Wiederaufnahme — die README verweist
   elfmal dorthin, siehe `.gitattributes` — widersprach der Workflow einer Zusage, die
