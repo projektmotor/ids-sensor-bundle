@@ -1,5 +1,10 @@
 # IdsSensorBundle
 
+[![CI](https://img.shields.io/github/actions/workflow/status/projektmotor/ids-sensor-bundle/ci.yml?branch=main&label=CI)](https://github.com/projektmotor/ids-sensor-bundle/actions/workflows/ci.yml)
+[![packagist](https://img.shields.io/packagist/v/projektmotor/ids-sensor-bundle)](https://packagist.org/packages/projektmotor/ids-sensor-bundle)
+[![php](https://img.shields.io/packagist/dependency-v/projektmotor/ids-sensor-bundle/php)](#requirements)
+[![license](https://img.shields.io/packagist/l/projektmotor/ids-sensor-bundle)](LICENSE)
+
 **Intrusion detection sensors for Symfony applications.** Captures security-relevant
 events, normalizes them into a fixed wire format, and ships them over Redis Streams to a
 separately operated collector — without ever slowing down the application it watches.
