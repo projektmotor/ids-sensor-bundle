@@ -49,8 +49,10 @@ final class CorrelationIdFactory
     }
 
     /**
-     * Für Kontexte ohne HTTP-Request: eine ID pro Console-Aufruf beziehungsweise pro
-     * verarbeiteter Worker-Nachricht.
+     * Für Kontexte ohne HTTP-Request: eine ID pro Console-Lauf.
+     *
+     * Gehalten wird sie von {@see ConsoleCorrelation} — samt der dort benannten Grenze,
+     * dass ein Worker-Prozess als ein Lauf zählt und nicht je Nachricht neu beginnt.
      */
     public function generate(): string
     {

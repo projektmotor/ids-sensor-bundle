@@ -89,6 +89,22 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
     ];
 
     /**
+     * Der sechste Eintrittspunkt: der JSON-Anfragekörper.
+     *
+     * Getrennt von {@see SECRETS}, weil er einen eigenen Request braucht — Symfony parst
+     * JSON nicht in `$request->request`, ein Formular und ein JSON-Körper schließen sich
+     * also aus. Bis zur Auflösung des Konzeptwiderspruchs (3.5 gegen Szenario S5) war
+     * dieser Weg gar nicht erfasst: `raw.request_params` blieb bei jeder API-Anfrage leer.
+     */
+    private const JSON_SECRETS = [
+        'json-password' => 'hunter2-im-json-koerper',
+        'json-nested-token' => 'json_refresh_token_8d2f_geheim',
+        'json-api-key' => 'api_key_json_4417_geheim',
+    ];
+
+    private const JSON_HARMLESS = 'sichtbar-im-json-koerper';
+
+    /**
      * Die Untergrenze, ab der ein Suchbegriff nicht mehr zufällig in einem Hex-Wert
      * auftaucht. 12 Zeichen reichen dafür mit großem Abstand.
      */
@@ -143,6 +159,41 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         $content = $this->spoolContent('spool');
 
         $this->assertNoSecretsIn($content, 'im Spool');
+    }
+
+    /**
+     * Der JSON-Körper läuft durch dieselbe Denylist wie ein Formular.
+     *
+     * Vor der Auflösung des Konzeptwiderspruchs war dieser Test gegenstandslos: Symfony
+     * parst JSON nicht in `$request->request`, also blieb `raw.request_params` bei jeder
+     * API-Anfrage leer — und mit ihm der Beweis für Szenario S5, dem Konzept 3.5 zugleich
+     * „vollständige Verfügbarkeit" zusagte. Jetzt kommt der Körper mit, und damit ist er
+     * ein Eintrittspunkt, der geprüft gehört.
+     */
+    public function testNoSensitiveValueFromAJsonBodyReachesTheWire(): void
+    {
+        $body = $this->wireBody('json-wire', $this->jsonRequest());
+
+        foreach (self::JSON_SECRETS as $bezeichnung => $wert) {
+            self::assertStringNotContainsString(
+                $wert,
+                $body,
+                \sprintf('Der Wert "%s" steht im Klartext auf der Leitung', $bezeichnung),
+            );
+        }
+    }
+
+    /**
+     * Die Gegenprobe zum vorigen Test — sonst wäre er auch grün, wenn der Körper gar
+     * nicht erfasst würde. Genau das war der Zustand vorher.
+     */
+    public function testAJsonBodyActuallyArrivesWithItsFieldNames(): void
+    {
+        $body = $this->wireBody('json-gegenprobe', $this->jsonRequest());
+
+        self::assertStringContainsString(self::JSON_HARMLESS, $body, 'Der Körper muss überhaupt ankommen');
+        self::assertStringContainsString('"password"', $body, 'Konzept 4.5.1: Feldnamen bleiben erhalten');
+        self::assertStringContainsString(Cleaner::DEFAULT_PLACEHOLDER, $body);
     }
 
     /**
@@ -343,12 +394,34 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         return $request;
     }
 
-    private function wireBody(string $variant): string
+    /**
+     * Dieselbe Route wie {@see loadedRequest()}, aber mit rohem JSON-Körper.
+     *
+     * `Request::create()` mit `$content` lässt `$request->request` leer — genau der
+     * Zustand, in dem eine echte API-Anfrage ankommt.
+     */
+    private function jsonRequest(): Request
+    {
+        $content = (string) json_encode([
+            'password' => self::JSON_SECRETS['json-password'],
+            'auth' => ['refresh_token' => self::JSON_SECRETS['json-nested-token']],
+            'api_key' => self::JSON_SECRETS['json-api-key'],
+            'kommentar' => self::JSON_HARMLESS,
+        ], \JSON_THROW_ON_ERROR);
+
+        $request = Request::create('/geschuetzt', 'POST', [], [], [], [], $content);
+        $request->headers->set('Content-Type', 'application/json');
+        $request->headers->set('Content-Length', (string) \strlen($content));
+
+        return $request;
+    }
+
+    private function wireBody(string $variant, ?Request $request = null): string
     {
         $kernel = $this->boot($variant, 'in-memory://');
         $services = $this->services($kernel);
 
-        $request = $this->loadedRequest();
+        $request ??= $this->loadedRequest();
         $response = $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true);
         $kernel->terminate($request, $response);
 

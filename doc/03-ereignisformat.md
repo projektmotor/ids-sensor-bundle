@@ -45,7 +45,7 @@ Eigenschaften der *Sendung*, nicht einer *Beobachtung*.
 
 Die Verzeichnisse des Formatpakets spiegeln genau diese Verschachtelung:
 `Frame/`, `Event/`, `Payload/` und `Vocabulary/`. Siehe
-[struktur.md](struktur.md#das-ereignisformat-ist-ein-eigenes-paket).
+[concept/structure.md](concept/structure.md#das-ereignisformat-ist-ein-eigenes-paket).
 
 ## Ein Event, wie es ankommt
 
@@ -132,13 +132,41 @@ fehlgeschlagenen Request viermal fast dasselbe:
 
 | `event_type` | Inhalt von `raw` |
 |---|---|
-| `kernel.response` | der gesamte Austausch: Anfrage-Header, Query, Formularfelder, Cookie-**Namen**, Antwort-Header |
+| `kernel.response` | der gesamte Austausch: Anfrage-Header, Query, Formularfelder, **JSON-Körper**, Cookie-**Namen**, Antwort-Header |
 | `kernel.exception` | die Aufrufkette und der Exception-Verlauf |
 | `kernel.request` | **nichts** — das Event ist immer `info` und trüge `raw` nie |
 | Security-Events | nichts; ihr `payload` ist vollständig |
+| Business-Events | der `payload` unbereinigt und redigiert, dazu `invalid_severity_hint`, falls `getSeverityHint()` unbrauchbar war |
 
 Die Verkettung der Events eines Requests läuft über die `correlation_id` — das ist der
 Zweck der Feldredundanz aus (*3.2*).
+
+### Der Anfragekörper
+
+Formularkodierte Körper stehen in `request_params` — das ist, was Symfony geparst hat.
+**JSON-Körper parst Symfony nicht**, sie landen nie in `$request->request`. Sie stehen
+deshalb in `request_body`, gelesen vom Sensor selbst und durch dieselbe Denylist geführt.
+
+Gelesen wird nur unter drei Bedingungen, und sie sind der Grund, warum das (*3.5*) nicht
+widerspricht: nach dem Absenden der Antwort, nur bei `warning`/`critical`, und erst nachdem
+`Content-Length` gegen `raw.max_request_body_bytes` geprüft wurde. Weder ist die Nutzlast
+der Anwendung betroffen noch die Menge unbegrenzt.
+
+Kommt der Körper **nicht** mit, steht der Grund in `request_body_omitted`:
+
+| Wert | Bedeutung |
+|---|---|
+| `disabled` | `raw.include_request_body: false` |
+| `multipart` | Datei-Upload, siehe `raw.skip_multipart` |
+| `not_json` | anderer Medientyp — ohne Struktur greift die Denylist nicht |
+| `unknown_length` | chunked übertragen, die Länge steht vor dem Lesen nicht fest |
+| `too_large` | über `raw.max_request_body_bytes` |
+| `undecodable` | als JSON deklariert, aber nicht dekodierbar |
+| `unreadable` | der Körper war nicht mehr zu bekommen |
+
+Der Vermerk ist kein Beiwerk: Ein fehlendes Feld ist von „die Anfrage hatte keinen Körper"
+nicht zu unterscheiden, und bei einem Deserialisierungsversuch (*Szenario S5*) ist genau das
+der Unterschied zwischen einer leeren Anfrage und einem blinden Fleck.
 
 Was in `raw` unkenntlich gemacht wird und was nicht, steht in
 [06 — Vertraulichkeit](06-vertraulichkeit.md).

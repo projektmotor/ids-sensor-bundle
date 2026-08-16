@@ -45,6 +45,7 @@ final class CapturedEventBinder
     public function __construct(
         private readonly RequestSnapshotRegistry $registry,
         private readonly ActorFactory $actorFactory,
+        private readonly ConsoleCorrelation $consoleCorrelation,
     ) {
     }
 
@@ -75,7 +76,7 @@ final class CapturedEventBinder
             return;
         }
 
-        $captured->setCorrelationId('');
+        $captured->setCorrelationId($this->correlationWithoutRequest());
         $captured->setActor(Actor::anonymous());
     }
 
@@ -91,7 +92,7 @@ final class CapturedEventBinder
             return;
         }
 
-        $captured->setCorrelationId('');
+        $captured->setCorrelationId($this->correlationWithoutRequest());
         $captured->setActor($this->actorFactory->forCli());
     }
 
@@ -101,5 +102,17 @@ final class CapturedEventBinder
     public function currentUser(): ?string
     {
         return $this->actorFactory->currentUser();
+    }
+
+    /**
+     * Die Korrelation außerhalb eines Requests: die des Console-Laufs, sonst leer.
+     *
+     * Der Leerstring bleibt für Prozesse, die weder Request noch Command sind — ein
+     * eingebundenes Skript, ein Test. Konzept 2.2.4 legt ihn ausdrücklich als „kein
+     * zuordenbarer Durchlauf" fest; ein `null` verbietet 4.2.1 (`TEXT NOT NULL`).
+     */
+    private function correlationWithoutRequest(): string
+    {
+        return $this->consoleCorrelation->correlationId() ?? '';
     }
 }

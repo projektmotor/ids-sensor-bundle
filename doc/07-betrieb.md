@@ -78,13 +78,31 @@ Eine Störung des IDS darf die überwachte Anwendung **unter keinen Umständen**
 beeinträchtigen (*4.*). Jeder Fehler wird verschluckt. Der Preis: **Events können verloren
 gehen** — deshalb wird jeder Verlust gezählt und reist im Frame sowie im Heartbeat mit.
 
+Die Zähler sind nach der Phase geordnet, in der der Verlust entsteht. Sie sind bewusst
+feiner geschnitten, als es zum Zählen nötig wäre: Jeder Zähler steht für **eine** Ursache
+und damit für ein anderes Gegenmittel — eine gemeinsame Zahl ließe nicht erkennen, welches
+greift.
+
+**Erfassung (Phase A, im Request):**
+
 | Zähler | Bedeutung | Gegenmittel |
 |---|---|---|
-| `dropped_capture_budget` | Erfassungsbudget im Request erschöpft | `budget.capture_us` erhöhen oder `access_decision` abschalten |
+| `dropped_capture_budget` | Erfassungsbudget im Request erschöpft — die Zeit war alle | `budget.capture_us` erhöhen oder `access_decision` abschalten |
+| `dropped_capture_error` | die Erfassung selbst hat geworfen — der Sensor ist defekt | Fehlerbericht; das Log nennt die Ausnahme |
 | `dropped_decision_cap` | mehr `isGranted()` als `max_decisions_per_request` | Cap erhöhen — oder prüfen, ob die Seite wirklich so viele Voter braucht |
 | `dropped_buffer_full` | mehr Events als der Puffer aufnimmt | `budget.max_events_per_request` |
+| `dropped_reset` | der Puffer war beim Service-Reset noch gefüllt | ein Flush-Punkt fehlt; siehe [04](04-request-lebenszyklus.md) |
+
+**Verarbeitung und Versand (Phase B, nach der Antwort):**
+
+| Zähler | Bedeutung | Gegenmittel |
+|---|---|---|
 | `dropped_sampling` | absichtlich weggesampelt (*4.2.3*) | `sampling.info_rate` |
+| `dropped_no_normalizer` | für die Ebene ist kein Normalisierer registriert | die Ebene ist abgeschaltet, das Event aber erfasst worden — `setup-check` |
+| `dropped_normalize_error` | die Normalisierung ist fehlgeschlagen | Fehlerbericht; betrifft meist einen Payload der Anwendung |
+| `dropped_frame_too_large` | die Sendung überschreitet `flush.max_frame_bytes` | Payload untersuchen — nicht Plattenplatz, sondern Inhalt |
 | `dropped_spool_full` | Spool voll, Frame verworfen | `spool.max_bytes`, häufiger drainen |
+| `dropped_spool_unreadable` | unlesbare Spool-Zeile oder dauerhaft unversendbarer Frame | ein zweiter Versuch scheitert gleich; Spool-Datei prüfen |
 | `ship_failed` | Broker nicht erreichbar | Broker prüfen; der Frame ging in den Spool |
 | `heartbeat_failed` | Lebenszeichen konnte nicht gesendet werden | wie `ship_failed` |
 
@@ -157,6 +175,21 @@ gesetzt, ist `actor.ip` bei **jedem** Event die Proxy-IP. Alle IP-basierten Rege
 
 `ids:sensor:setup-check` bitte **nicht** mit `|| true` entschärfen. Der Sinn ist, dass eine
 Fehlkonfiguration im Deploy auffällt und nicht erst bei der Nachanalyse eines Vorfalls.
+
+Der Command unterscheidet **Befunde** (die Erkennung ist wirkungslos — Rückgabewert 1) von
+**Hinweisen** (etwas ist eingeschränkt, aber möglicherweise gewollt — Rückgabewert 0).
+`--strict` behandelt Hinweise wie Befunde:
+
+```console
+$ php bin/console ids:sensor:setup-check --strict
+```
+
+Das ist der Schalter für Deployments, die jede Einschränkung ausdrücklich abnicken wollen.
+Er ist praktisch immer rot, und das ist Absicht: Der Hinweis auf die fehlende
+Business-Instrumentierung erscheint **unabhängig** von jeder Konfiguration, weil der Sensor
+nicht wissen kann, ob die Anwendung Events auslöst. Wer `--strict` grün haben will, muss
+die Business-Ebene tatsächlich anbinden — siehe
+[09 — Business-Ebene](09-business-ebene.md).
 
 ## Fehlersuche
 

@@ -13,10 +13,163 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
-Ergebnis eines zweiten Tiefenchecks, diesmal gegen `doc/konzept-v1.md`. Drei der
+Ergebnis eines zweiten Tiefenchecks, diesmal gegen `doc/concept/concept-v1.md`. Drei der
 Befunde sind stille Erkennungsausfälle, und zwei davon standen im Changelog zu 0.1.1
 bereits als erledigt — siehe „Berichtigt" am Ende dieses Abschnitts. Jede
 Verhaltensänderung trägt einen Test, der ohne sie fehlschlägt.
+
+### Changed — Konzept und Dokumentationsreihe gegeneinander abgeglichen
+
+Ein Abgleich von `doc/concept/concept-v1.md`, der Reihe `doc/01`–`doc/09` und dem Quellcode hat 22
+Abweichungen ergeben. Drei davon sind oben als Code-Änderungen aufgeführt; die übrigen
+betreffen die Dokumente. Die wichtigsten:
+
+- **`doc/04` beschrieb `budget.max_events_per_process`** als gültige Option. Der Schlüssel
+  ist entfallen und lässt den Container heute scheitern — wer der Dokumentation folgte,
+  bekam kein wirkungsloses Setting, sondern eine Anwendung, die nicht bootet. Der Abschnitt
+  nennt jetzt stattdessen die Pflicht-Event-Reserve und erklärt, warum es keine
+  Prozessgrenze gibt.
+- **Die Security-Event-Namen in `doc/02` und `doc/04`** waren Konstantennamen
+  (`security.auth_success`) statt der übertragenen Werte
+  (`security.authentication.success`). Diese Zeichenketten sind Paketgrenze; ein Filter
+  nach der alten Angabe trifft nichts, und zwar lautlos.
+- **Der V-Katalog in `doc/02`** stimmte weder in Nummerierung noch in Inhalt mit Konzept
+  2.1.3 überein: V1 und V4 waren vertauscht, V2 (Kontoübernahme) fehlte vollständig, und
+  V6 führte den User-Switch als Katalogeintrag, obwohl das im Konzept ein offener Punkt
+  ist. Die Nummern sind Querverweisanker aus 4.3.6.
+- **Die `raw`-Zusage „für alle Events, die einen Alert ausgelöst haben"** ist im Konzept
+  gestrichen. Der Sensor kann sie nicht erfüllen — der Alert entsteht erst im Collector,
+  und die Rechtetrennung schließt aus, dass der Sensor davon erfährt. Die Folge steht als
+  offener Punkt OB11.
+- **Die offenen Punkte im Konzept tragen jetzt das Präfix `OB`.** `B1`–`B10` kollidierten
+  mit den Batch-Regeln aus 4.3.2/4.3.3, und 6.2 verwies für O3 bereits auf die falsche.
+- **Sechs Bausteine der Umsetzung sind ins Konzept nachgezogen:** Erfassungsbudget und
+  Circuit Breaker (2.1), Sub-Requests, fatale Fehler und `ignored_paths` (2.1.1),
+  `environment_map`/`environment_fallback` (2.2.1).
+- **`IdsResourceIdentifier`** — bisher öffentliche API ohne Nutzerdokumentation — ist in
+  `doc/02` erklärt, samt der Verbindung zu Regel B7/P1/P2 und dem offenen Punkt O2.
+- **`--strict`** und die sechs bis dahin nicht aufgeführten Verlustzähler stehen in
+  `doc/07`; die Zählertabelle war die einzige Stelle, die dem Betreiber sagt, was ein
+  Zählerstand im Heartbeat bedeutet, und las sich als vollständig.
+
+Dazu kleinere Berichtigungen: der Kürzungsvermerk heißt `__truncated` und nicht
+`_ids_truncated` (`doc/09`), die `raw`-Tabelle in `doc/03` führt die Business-Zeile, die
+Redaktionsliste in Konzept 4.5.1 steht auf `version: 2`, der `alerts`-Index liegt auf
+`first_seen` statt auf einer Spalte `created_at`, die es nie gab, und Verweise auf einen
+„Abschnitt 5" zeigen auf 4.3.6.
+
+### Fixed — Events ohne Request tragen jetzt eine eigene `correlation_id`
+
+Konzept Abschnitt 3 führt `correlation_id` als Pflichtfeld, 4.2.1 als `TEXT NOT NULL`.
+Außerhalb eines Requests gab es dafür keinen Wert: der Sensor setzte den Leerstring. Der
+Constraint hielt damit, die Semantik nicht — **alle** Events aller Console-Läufe und aller
+Worker trugen dieselbe Kennung, und der `correlation_id`-Self-Join aus Konzept 3.2, im
+Collector über `idx_evr_correlation_id` (4.2.2) indiziert, führte sie zu einer einzigen
+„Anfrage" zusammen, die mit jedem Lauf weiter wuchs.
+
+Ein Console-Lauf ist die Entsprechung zum Request: ein abgeschlossener Durchlauf mit einem
+Anfang. `Sensor\Context\ConsoleCorrelationListener` erzeugt an `console.command` eine
+UUIDv7 — dieselbe Form wie im Request-Pfad —, `Sensor\Context\ConsoleCorrelation` hält sie
+für den Lauf, und `CapturedEventBinder` setzt sie an jedes Event ohne Request. Ein
+verschachtelter Command behält die Kennung des äußeren; eine zweite risse die Events eines
+Durchlaufs auseinander.
+
+**Benannte Grenze:** `messenger:consume` ist ein Command. Ein Worker, der Stunden läuft,
+bündelt damit alle seine Events unter einer Kennung. Gegenüber dem Leerstring ist das ein
+Gewinn — die Spur endet am Prozess statt an der Installation —, aber es ist keine Kennung
+je Nachricht. Konzept 2.2.4 führt das ausdrücklich als solche Grenze.
+
+Der Leerstring bleibt für Prozesse, die weder Request noch Command sind, und bedeutet dort
+„kein zuordenbarer Durchlauf".
+
+### Fixed — `setup-check` meldet die abgeschaltete Business-Ebene
+
+`doc/02` und `doc/04` sagen beide zu: „`ids:sensor:setup-check` meldet eine abgeschaltete
+Ebene als Befund." Für `layers.business.enabled: false` stimmte das nicht — es gab weder
+Befund noch Hinweis auf den Schalter. Das traf ausgerechnet die Ebene, deren Ausfall
+`doc/02` selbst als die wichtigste Aussage der Dokumentation bezeichnet, und der
+Deploy-Check schwieg dazu.
+
+Zu unterscheiden sind zwei Dinge, die vorher zusammenfielen: dass die Business-Ebene ohne
+Anwendungscode wirkungslos ist, ist die im Konzept 2. beschriebene **Asymmetrie** — kein
+Fehler, deshalb weiterhin ein unbedingter Hinweis. Dass jemand die Ebene **abgeschaltet**
+hat, ist ein Befund wie bei Kernel und Security.
+
+### Fixed — `drain_interval_s` nannte sich selbst wirkungslos
+
+Die `->info()` im Konfigurationsbaum sagte „Nur Dokumentationswert: reist im Heartbeat
+mit". Der Wert ist an vier Stellen wirksam verdrahtet: er versiegelt die aktive
+Spool-Datei (`FileSpool::$sealAfterSeconds`), lässt ruhende Dateien fremder Prozesse
+adoptieren (`SpoolDrainer::$sealIdleAfterSeconds`), ist im `setup-check` die Schwelle für
+„Spool zu alt" — und reist außerdem im Heartbeat mit. `doc/08` beschrieb ihn immer schon
+korrekt als „den Takt"; falsch war allein die Stelle, an der Betreiber nachschlagen:
+`config:dump-reference ids_sensor`.
+
+### Fixed — der Test für die beschädigte Breaker-Zustandsdatei übersprang sich immer
+
+`SharedStateStoreTest::testACorruptStateFileReadsAsClosed` begann mit
+`markTestSkipped('Mit aktivem APCu wird die Datei gar nicht gelesen.')`. Die Testumgebung
+aktiviert APCu in der CLI ausdrücklich (`.github/workflows/ci.yml`), also übersprang sich
+der Test in **jedem** Lauf — der Dateirückfall wurde nie gegen eine beschädigte Datei
+geprüft.
+
+Es ist dieselbe Lücke, vor der zwei Methoden weiter oben wörtlich gewarnt wird: „Ein Test,
+der sich hier überspringt, prüfte genau in der Konstellation nichts, in der der Fehler
+steckte." Und sie ist nicht theoretisch: Der Rückfall ist der Pfad, den jede Installation
+ohne APCu dauerhaft benutzt, und eine halb geschriebene `breaker.state` ist nach einem
+abgebrochenen Deploy oder auf voller Platte der Normalfall. Läse sie als „offen", spoolte
+der Sensor durchgehend, obwohl der Broker längst wieder läuft.
+
+Geprüft wird jetzt im Unterprozess mit `-d apc.enable_cli=0`, wie bei den beiden
+Nachbartests — mit einer vorgeschalteten Gegenprobe auf eine GÜLTIGE Datei, damit „closed"
+nicht auch dann grün ist, wenn der Unterprozess die Datei gar nicht anfasst. Der Testlauf
+hat damit keine übersprungenen Tests mehr.
+
+### Added — der JSON-Anfragekörper kommt in `raw` mit (Konzeptwiderspruch aufgelöst)
+
+Zwei Festlegungen des Konzepts waren nicht gleichzeitig erfüllbar. Abschnitt 3.5 sagte
+„gelesen wird ausschließlich, was das Framework bereits geparst hat; der rohe
+Eingabestrom wird nicht angefasst" — Szenario S5 sagte für denselben Beleg zu, „der
+ursprüngliche Payload ist für die forensische Nachanalyse vollständig verfügbar".
+
+Symfony parst nur **formularkodierte** Körper in `$request->request`. Ein JSON-Körper
+landet dort nie. Für jede API-Anfrage blieb `raw.request_params` also leer — und
+Deserialisierungs-Angriffe, um die es in S5 geht, kommen über JSON-APIs. Die Zusage war
+dort nicht ungenau, sondern unerfüllt, und zwar unbemerkt: Ein leeres Feld sieht aus wie
+„die Anfrage hatte keinen Körper".
+
+**3.5 ist präzisiert statt zurückgenommen.** Der Satz schützte vor zwei Schäden, und
+beide hängen an Bedingungen, nicht am Vorgang — die Nutzlast wegzulesen, die die
+Anwendung noch braucht, und unbegrenzt viel zu lesen. Gelesen wird deshalb nur, wenn der
+Körper als JSON deklariert ist, seine Länge bekannt ist und unter
+`raw.max_request_body_bytes` liegt. Das geschieht in der `raw`-Closure, also **nach** dem
+Absenden der Antwort und nur für `warning`/`critical`: Der `info`-Pfad, die Masse aller
+Events, zahlt dafür nichts.
+
+Der dekodierte Körper steht als `raw.request_body` und läuft durch **dieselbe** Denylist
+wie Formularfelder und Business-Payload — der sechste Eintrittspunkt derselben Liste.
+Getrennt von `request_params`, damit die Herkunft ablesbar bleibt: dort steht, was das
+Framework gelesen hat, hier das, was der Sensor selbst gelesen hat.
+
+Jede Ablehnung nennt ihren Grund in `raw.request_body_omitted` — `disabled`, `multipart`,
+`not_json`, `unknown_length`, `too_large`, `undecodable`, `unreadable`. Ohne den Vermerk
+wäre „wir haben weggesehen" von „es gab nichts" nicht zu unterscheiden, und genau das war
+der Zustand vorher. Ein Formular erzeugt **keinen** Vermerk: Dort ist nichts ausgelassen.
+
+Ein nicht dekodierbarer Körper geht ausdrücklich **nicht** als Text mit. Die Redaktion aus
+4.5.1 greift über Feldnamen; ohne Struktur gibt es keine, und ein roher Textkörper wäre
+der eine Eintrittspunkt, an dem die Liste nichts ausrichtet. XML und PHP-serialisierte
+Körper bleiben aus demselben Grund draußen — eine Grammatik je Format wäre eine zweite
+Redaktionsimplementierung.
+
+Neue Option `raw.max_request_body_bytes` (Vorgabe `32768`), geprüft am `Content-Length`
+**vor** dem Lesen. Sie greift mit `raw.max_bytes` ineinander: Bei gleichen Vorgaben
+überleben Körper bis etwa 28 KiB, darüber verwirft die Kappung sie wieder. Ist die
+Körpergrenze **größer** als das raw-Budget, ist jeder Körper an der Grenze garantiert
+verloren — das meldet `ids:sensor:setup-check` als Hinweis.
+
+`doc/concept/concept-v1.md` trägt die Änderung als datierten Eintrag im Kopf; sie ist die erste,
+die inhaltlich etwas verschiebt und nicht nur Wörter angleicht.
 
 ### Fixed — `actor.session_id_hash` blieb bei eigenem Session-Cookie-Namen immer `null`
 

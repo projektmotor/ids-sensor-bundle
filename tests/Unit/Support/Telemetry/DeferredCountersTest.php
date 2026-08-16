@@ -11,6 +11,8 @@ use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\Context\ActorFactory;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
 use ProjektMotor\IdsSensor\Sensor\Context\ClientFingerprinter;
+use ProjektMotor\IdsSensor\Sensor\Context\ConsoleCorrelation;
+use ProjektMotor\IdsSensor\Sensor\Context\CorrelationIdFactory;
 use ProjektMotor\IdsSensor\Sensor\Context\RequestSnapshotRegistry;
 use ProjektMotor\IdsSensor\Sensor\Context\SessionIdHasher;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
@@ -126,6 +128,7 @@ final class DeferredCountersTest extends TestCase
                     new ClientFingerprinter(enabled: false),
                     new TokenStorage(),
                 ),
+                new ConsoleCorrelation(new CorrelationIdFactory()),
             ),
             new ResourceIdentifierResolver(),
             new CaptureBudget(0),

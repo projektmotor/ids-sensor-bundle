@@ -18,6 +18,12 @@ use ProjektMotor\IdsSensor\Tests\Fixtures\OrderAmountOverridden;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use ProjektMotor\IdsSensor\Tests\Fixtures\UnnamedBusinessEvent;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\ConsoleEvents;
+use Symfony\Component\Console\Event\ConsoleCommandEvent;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -312,6 +318,47 @@ final class BusinessLayerTest extends IntegrationTestCase
     }
 
     /**
+     * Ein Business-Event ohne Request trägt die Kennung seines Console-Laufs.
+     *
+     * Konzept 2.2.4: `correlation_id` ist auch auf der Business-Ebene Pflichtfeld. Vorher
+     * stand hier der Leerstring — und der `correlation_id`-Self-Join aus Konzept 3.2 führte
+     * damit sämtliche Console- und Worker-Events aller Läufe zu einer einzigen „Anfrage"
+     * zusammen, die mit jedem Lauf weiter wuchs.
+     */
+    public function testABusinessEventWithoutARequestCarriesTheConsoleRunIdentifier(): void
+    {
+        $kernel = $this->boot('business-dispatcher');
+        $services = $this->services($kernel);
+
+        // Mit Application, weil Symfonys eigener DebugHandlersListener am selben Event
+        // hängt und sie anfordert — ein Command ohne Anwendung gibt es im Betrieb nicht.
+        $command = new Command('ids:test');
+        $command->setApplication(new Application());
+
+        $this->dispatcher($services)->dispatch(
+            new ConsoleCommandEvent($command, new ArrayInput([]), new NullOutput()),
+            ConsoleEvents::COMMAND,
+        );
+        $this->dispatcher($services)->dispatch(new OrderAmountOverridden());
+
+        self::assertNotSame('', $this->firstNormalized($services)[EventSchema::FIELD_CORRELATION_ID]);
+    }
+
+    /**
+     * Und ohne Console-Lauf bleibt es beim Leerstring.
+     *
+     * Konzept 4.2.1 führt die Spalte als `TEXT NOT NULL`; ein `null` ist also keine
+     * Option. Der Leerstring bedeutet ausdrücklich „kein zuordenbarer Durchlauf" — ein
+     * eingebundenes Skript, ein Test —, und der Collector joint nicht darauf.
+     */
+    public function testWithoutAnyRunTheCorrelationIdStaysEmpty(): void
+    {
+        $event = $this->normalizeThrough('business-dispatcher', new OrderAmountOverridden());
+
+        self::assertSame('', $event[EventSchema::FIELD_CORRELATION_ID]);
+    }
+
+    /**
      * @return array<string, mixed> das erste normalisierte Event als Array
      */
     private function normalizeThrough(string $variant, object $event): array
@@ -321,6 +368,14 @@ final class BusinessLayerTest extends IntegrationTestCase
 
         $this->dispatcher($services)->dispatch($event);
 
+        return $this->firstNormalized($services);
+    }
+
+    /**
+     * @return array<string, mixed> das erste erfasste Event, normalisiert
+     */
+    private function firstNormalized(ContainerInterface $services): array
+    {
         $captured = $this->collector($services)->all();
         self::assertNotSame([], $captured, 'Es wurde nichts erfasst');
 

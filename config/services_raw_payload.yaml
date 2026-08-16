@@ -24,3 +24,7 @@ services:
             $includeRequestBody: '%ids_sensor.raw.include_request_body%'
             $skipMultipart: '%ids_sensor.raw.skip_multipart%'
             $maxBytes: '%ids_sensor.raw.max_bytes%'
+            # Geprueft am Content-Length VOR dem Lesen — das ist der Unterschied zwischen
+            # "der Koerper ist begrenzt" und "wir lesen erst und messen dann". Konzept 3.5
+            # erlaubt den Zugriff auf den Eingabestrom genau unter dieser Bedingung.
+            $maxRequestBodyBytes: '%ids_sensor.raw.max_request_body_bytes%'

@@ -80,11 +80,15 @@ Zwei Voreinstellungen, die überraschen können und Absicht sind:
 
 Beobachtet die Security-Komponente, sofern das SecurityBundle registriert ist.
 
-| Ereignis | Erfasst | Klasse |
+| Ereignis | `event_type` | Klasse |
 |---|---|---|
-| Anmeldung erfolgreich | `security.auth_success` | `Sensor\Security\AuthenticationSensor` |
-| Anmeldung gescheitert | `security.auth_failure` | `Sensor\Security\AuthenticationSensor` |
+| Anmeldung erfolgreich | `security.authentication.success` | `Sensor\Security\AuthenticationSensor` |
+| Anmeldung gescheitert | `security.authentication.failure` | `Sensor\Security\AuthenticationSensor` |
 | Autorisierungsentscheidung | `security.access_decision` | `Sensor\Security\AccessDecisionSensor` |
+
+Die Spalte trägt den **übertragenen** Wert, nicht den Namen der PHP-Konstante. Diese
+Zeichenketten sind Paketgrenze: der Collector wertet genau sie aus (*3.1.2*), und wer eine
+Auswertung oder einen Filter auf einen anderen Wert baut, trifft nichts — lautlos.
 
 `AccessDecisionSensor` dekoriert den `AccessDecisionManagerInterface` und feuert damit bei
 **jedem** `isGranted()`. Das ist der teuerste Sensor des Bundles. Abgesichert ist er durch
@@ -92,23 +96,67 @@ zwei Grenzen: identische Entscheidungen werden entdoppelt, und
 `max_decisions_per_request` (Vorgabe 200) deckelt hart — eine Übersichtsseite mit einem
 Voter pro Zeile erzeugt sonst beliebig viele.
 
+### Die Ressourcenkennung — der eine Punkt, an dem auch hier Anwendungscode hilft
+
+(*3.1.2*) verlangt für `payload.resource` einen Identifier-String der Form `Klasse#ID` und
+ausdrücklich „niemals das vollständige Objekt". Das Subjekt einer Autorisierungsprüfung ist
+aber alles, was die Anwendung an `isGranted()` übergibt — eine Entity, ein Request, ein
+Skalar, ein Enum oder `null`. Ohne Mitwirkung **rät** der Sensor: er versucht `getId()` und
+fällt auf den Klassennamen zurück. Nachladen darf er dabei unter keinen Umständen, weil das
+Latenzbudget aus (*2.1*) jede Abfrage im Request-Pfad verbietet — ein uninitialisierter
+Doctrine-Proxy liefert deshalb nur seinen Klassennamen.
+
+Wer das nicht dem Raten überlassen will, implementiert an seinen Aggregatwurzeln
+`Contract\IdsResourceIdentifier`:
+
+```php
+use ProjektMotor\IdsSensor\Contract\IdsResourceIdentifier;
+
+final class Order implements IdsResourceIdentifier
+{
+    public function getIdsResourceId(): ?string
+    {
+        return 'Order#'.$this->id;
+    }
+}
+```
+
+Die Methode **muss ohne Datenbankzugriff auskommen**; `null` bedeutet „keine Kennung
+verfügbar", dann greift die übliche Auflösung. Mehr als Kosmetik ist das, weil die
+Erkennung von Rechteausweitung daran hängt: Regel B7 sucht „numerisch benachbarte
+Ressourcen-Identifier desselben Typs", P1 und P2 vergleichen sie gegen die Historie eines
+Nutzers. Steht dort überall nur der Klassenname, laufen alle drei ins Leere — es ist
+derselbe offene Punkt, den (*6.2*) als **O2** führt.
+
+Das Interface liegt in `Contract/` und ist damit Teil der Semver-Fläche des Bundles; es zu
+implementieren erzeugt keine Laufzeitabhängigkeit auf das Bundle über diese eine
+Methode hinaus.
+
 ## Business-Ebene (*2.1.3*)
 
 Die einzige Signalklasse für erfolgreiche Angriffe — und die einzige, die Anwendungscode
 verlangt. Wie sie angebunden wird, steht in
 [09 — Business-Ebene](09-business-ebene.md).
 
-Konzept 2.1.3 nennt sechs Vorfälle, die eine Anwendung selbst melden muss. Was fehlt, wenn
-sie es nicht tut:
+Konzept 2.1.3 nennt sechs **Vorgangsklassen**, die eine Anwendung selbst melden sollte —
+bewusst keine festen Event-Namen, damit der Katalog projektunabhängig bleibt. Nummern und
+Reihenfolge sind die des Konzepts; sie sind Querverweisanker, unter anderem aus (*4.3.6*).
+Was fehlt, wenn eine Klasse nicht instrumentiert wird:
 
-| | Vorfall | Konsequenz ohne Meldung |
-|---|---|---|
-| V1 | Manuelle Preis- oder Rabattänderung über einer Schwelle | Betrug durch berechtigte Nutzer bleibt unsichtbar |
-| V2 | Massenexport von Daten | Datenabfluss über die reguläre Oberfläche ist nicht erkennbar |
-| V3 | Zugriff auf fremde Ressourcen trotz Berechtigung | IDOR mit gültiger Berechtigung erzeugt kein Signal |
-| V4 | Änderung von Berechtigungen und Rollen | Rechteausweitung durch einen Administrator bleibt unbemerkt |
-| V5 | Stornierungen oder Rückerstattungen über einer Schwelle | Finanzieller Missbrauch ist nicht auffällig |
-| V6 | Übernahme einer anderen Identität (User-Switch) | Nachvollziehbarkeit fehlt — wer hat als wen gehandelt? |
+| | Vorgangsklasse | Beispiel | Konsequenz ohne Meldung |
+|---|---|---|---|
+| V1 | Änderung von Berechtigungen und Rollen | `user.roles_changed` | Rechteausweitung bleibt unbemerkt — Mass Assignment auf Rollenfelder (*Szenario S6*) erzeugt keinerlei Signal |
+| V2 | Änderung sicherheitsrelevanter Kontodaten | `user.email_changed`, `user.password_changed` | Kontoübernahme wird nicht bemerkt: Session stehlen → E-Mail ändern → Passwort zurücksetzen läuft vollständig unsichtbar ab |
+| V3 | Zugriff auf Daten fremder Eigentümer | `resource.accessed_cross_owner` | IDOR ohne Voter (*Szenario S7*) bleibt unentdeckt — ohne `denied`-Event ist dies die einzige verbleibende Erkennungsmöglichkeit |
+| V4 | Wertverändernde Vorgänge über einer Schwelle | `order.amount_overridden`, `payment.refund_issued` | Preis- und Betragsmanipulation wird nicht erkannt; ein auf 0,01 € gesetzter Bestellbetrag ist technisch einwandfrei |
+| V5 | Massenoperationen | `export.bulk_generated`, `record.bulk_deleted` | Datenabfluss über legitime Exportfunktionen bleibt unsichtbar — auf Kernel-Ebene ist ein Massenexport ein Einzelabruf |
+| V6 | Administrative Funktionen | `admin.action_performed` | Missbrauch privilegierter Funktionen nach erfolgreichem Rechteerwerb wird nicht erfasst (zweiter Teil der Kette in Regel X3) |
+
+**Nicht im Katalog, aber ein blinder Fleck:** Symfonys `SwitchUserListener` erzeugt keines
+der Events aus (*2.1.1*) bis (*2.1.3*) — ein Administrator, der die Identität eines Kunden
+übernimmt, hinterlässt im IDS keine Spur. Das Konzept führt das als offenen Punkt **OB10**
+und verlangt bis zu dessen Klärung, es über ein Business-Event der Klasse V6 abzudecken.
+Wer User-Switch benutzt, sollte diese Meldung also selbst auslösen.
 
 ## Eine Ebene abschalten? Nein.
 

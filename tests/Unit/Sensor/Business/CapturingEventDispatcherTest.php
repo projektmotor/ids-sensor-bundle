@@ -12,6 +12,8 @@ use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\Context\ActorFactory;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
 use ProjektMotor\IdsSensor\Sensor\Context\ClientFingerprinter;
+use ProjektMotor\IdsSensor\Sensor\Context\ConsoleCorrelation;
+use ProjektMotor\IdsSensor\Sensor\Context\CorrelationIdFactory;
 use ProjektMotor\IdsSensor\Sensor\Context\RequestSnapshotRegistry;
 use ProjektMotor\IdsSensor\Sensor\Context\SessionIdHasher;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
@@ -117,6 +119,7 @@ final class CapturingEventDispatcherTest extends TestCase
                     new SessionIdHasher(null, null, false),
                     new ClientFingerprinter(enabled: false),
                 ),
+                new ConsoleCorrelation(new CorrelationIdFactory()),
             ),
             new CaptureBudget(0),
             new RequestStack(),

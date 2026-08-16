@@ -7,7 +7,7 @@ und landeten dort in Queues, Logs und Spool-Dateien.
 Die Feldnamen bleiben erhalten: dass eine Anfrage ein Feld `password` mitbrachte, ist
 forensisch relevant; sein Inhalt nicht.
 
-## Fünf Eintrittspunkte, eine Liste
+## Sechs Eintrittspunkte, eine Liste
 
 ```mermaid
 flowchart LR
@@ -16,6 +16,7 @@ flowchart LR
         h["Request- und<br/>Response-Header"]
         q["payload.query"]
         f["Formularfelder<br/>in raw"]
+        j["JSON-Anfragekörper<br/>in raw"]
         b["Business-Payload"]
         m["payload.exception_message<br/>und payload.referer"]
     end
@@ -29,6 +30,7 @@ flowchart LR
 
     h -->|"RawPayload\\Builder"| cleaner
     f -->|"RawPayload\\Builder"| cleaner
+    j -->|"RawPayload\\Builder"| cleaner
     q -->|"QueryNormalizer"| cleaner
     b -->|"PayloadSanitizer"| cleaner
     m -->|"KernelEventNormalizer"| cleaner
@@ -41,14 +43,14 @@ flowchart LR
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
     classDef data fill:#EEEDFE,stroke:#534AB7,color:#332C7A
-    class h,q,f,b,m data
+    class h,q,f,j,b,m data
     class rules,cleaner,loader transport
     class out capture
     style inputs fill:#FCFCFF,stroke:#534AB7,color:#332C7A
     style chain fill:#FBFBF9,stroke:#5F5E5A,color:#3A3936
 ```
 
-Fünf verschiedene Wege führen in **denselben** `Cleaner` mit **derselben** Liste. Das ist
+Sechs verschiedene Wege führen in **denselben** `Cleaner` mit **derselben** Liste. Das ist
 Absicht: eine zweite Liste wäre eine zweite Gelegenheit, sie unvollständig zu halten.
 
 Die Liste wird zur **Container-Compile-Zeit** gelesen, nicht pro Request — eine YAML-Datei
@@ -104,6 +106,32 @@ ausschließen will.
 Aus demselben Grund wird die Session-ID nie übertragen, sondern nur ihr HMAC. Der
 Schlüssel dafür ist ausdrücklich **nicht** `APP_SECRET`: die überwachte Anwendung kennt
 `APP_SECRET` und könnte aus einer gestohlenen Event-Datenbank die Hashes nachrechnen.
+
+## Der JSON-Anfragekörper
+
+Symfony parst nur **formularkodierte** Körper in `$request->request`. Ein JSON-Körper
+landet dort nie — für jede API-Anfrage blieb `raw.request_params` deshalb leer, und mit ihm
+der Beleg für *Szenario S5* (Deserialisierung über API-Payloads), dem das Konzept an anderer
+Stelle „vollständige Verfügbarkeit" zusagte.
+
+Der Körper wird deshalb gelesen, und zwar unter drei Bedingungen — sie sind der Grund,
+warum das die Regel aus (*3.5*) nicht bricht, sondern präzisiert:
+
+1. **nach** dem Absenden der Antwort (die `raw`-Closure läuft in Phase B), die Nutzlast der
+   Anwendung ist also nicht betroffen;
+2. nur für `warning`/`critical`, also nicht im Regelverkehr;
+3. erst nachdem `Content-Length` gegen `raw.max_request_body_bytes` geprüft wurde — gelesen
+   wird nie unbegrenzt.
+
+Der dekodierte Körper läuft danach durch **dieselbe** Denylist wie Formularfelder und der
+Business-Payload. Er steht in `raw.request_body`, getrennt von `request_params`, damit die
+Herkunft ablesbar bleibt: dort steht, was das Framework gelesen hat, hier das, was der
+Sensor selbst gelesen hat.
+
+**Ein nicht dekodierbarer Körper kommt nicht als Text mit.** Die Redaktion greift über
+Feldnamen; ohne Struktur gibt es keine Feldnamen und damit keine Redaktion. Übertragen wird
+dann der Grund (`raw.request_body_omitted: undecodable`), nicht der Inhalt. Dasselbe gilt
+für alles, was kein JSON ist.
 
 ## URLs sind ein eigener Eintrittspunkt
 
@@ -173,6 +201,17 @@ Pakets. Der reguläre Testlauf sieht sie nicht; `make test-lowest` schon.
 Der Ordner heißt `PayloadConfidentialityCleanup` und nicht `Privacy`, und das ist kein
 Zufall: er stellt **Vertraulichkeit von Zugangsdaten** her, nicht Datenschutz. Ein Feld
 `geburtsdatum` steht danach immer noch im Klartext in `raw`.
+
+**Diese Formate erreicht die Liste nicht**, und das ist eine Entscheidung: XML- und
+PHP-serialisierte Anfragekörper werden nicht dekodiert und deshalb auch nicht übertragen —
+eine Grammatik je Format wäre eine zweite Redaktionsimplementierung mit einer zweiten
+Gelegenheit, sie unvollständig zu halten. `multipart/form-data` bleibt ebenfalls draußen
+(`raw.skip_multipart`). In allen drei Fällen nennt `raw.request_body_omitted` den Grund; die
+Größe des Körpers steht ohnehin als `payload.content_length` im Event, die *Signatur* eines
+Deserialisierungsversuchs geht also nicht verloren.
+
+Umgekehrt gilt: Ein JSON-Körper enthält in der Regel **mehr** personenbezogene Daten als ein
+Formular, nicht weniger. Der offene Punkt zum Datenschutz unten wird dadurch größer.
 
 `raw` enthält personenbezogene Daten. Die Entscheidung, Datenschutzaspekte dort nachrangig
 zu behandeln, ist im Konzept bewusst getroffen (Priorität auf forensische Vollständigkeit)

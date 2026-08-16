@@ -84,6 +84,7 @@
                 ],
                 "max_bytes": 32768,
                 "include_request_body": true,
+                "max_request_body_bytes": 32768,
                 "skip_multipart": true
             },
             "payload_confidentiality_cleanup": {
@@ -217,6 +218,7 @@
         "ids_sensor.raw.enabled": true,
         "ids_sensor.raw.include_request_body": true,
         "ids_sensor.raw.max_bytes": 32768,
+        "ids_sensor.raw.max_request_body_bytes": 32768,
         "ids_sensor.raw.severities": [
             "warning",
             "critical"

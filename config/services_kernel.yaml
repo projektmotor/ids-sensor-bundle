@@ -57,6 +57,19 @@ services:
             $fingerprinter: '@ids_sensor.client_fingerprinter'
             $untrackedTokenStorage: '@?security.untracked_token_storage'
 
+    # Die correlation_id eines Console-Laufs (Konzept 2.2.4). Ohne sie trugen alle Events
+    # ohne Request denselben Leerstring — und der Self-Join aus Konzept 3.2 führte sie zu
+    # einer einzigen, unbegrenzt wachsenden „Anfrage" zusammen.
+    ids_sensor.console_correlation:
+        class: ProjektMotor\IdsSensor\Sensor\Context\ConsoleCorrelation
+        arguments:
+            $factory: '@ids_sensor.correlation_id_factory'
+
+    ids_sensor.console_correlation_listener:
+        class: ProjektMotor\IdsSensor\Sensor\Context\ConsoleCorrelationListener
+        arguments:
+            $correlation: '@ids_sensor.console_correlation'
+
     # Nimmt den fünf Sensoren ab, was bei allen gleich war: Korrelation und Akteur an ein
     # erfasstes Event heften. Liegt in dieser Datei, weil er Registry und ActorFactory
     # braucht — die Security- und Business-Dateien werden ohnehin nur bei aktiver
@@ -66,6 +79,7 @@ services:
         arguments:
             $registry: '@ids_sensor.request_snapshot_registry'
             $actorFactory: '@ids_sensor.actor_factory'
+            $consoleCorrelation: '@ids_sensor.console_correlation'
 
     ids_sensor.kernel_options:
         class: ProjektMotor\IdsSensor\Sensor\Kernel\Options

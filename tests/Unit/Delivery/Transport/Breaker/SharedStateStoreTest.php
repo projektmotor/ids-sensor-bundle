@@ -189,17 +189,82 @@ final class SharedStateStoreTest extends TestCase
     /**
      * Eine beschädigte Zustandsdatei darf den Sensor nicht mitreißen — und nicht dazu
      * führen, dass der Breaker offen zu sein behauptet.
+     *
+     * IM UNTERPROZESS, NICHT ÜBERSPRUNGEN
+     *
+     * Hier stand ein `markTestSkipped('Mit aktivem APCu wird die Datei gar nicht
+     * gelesen.')`. Das war dieselbe Lücke, vor der
+     * {@see testWithApcuDisabledInCliTheStateGoesToDisk()} zwei Methoden weiter oben
+     * ausdrücklich warnt: „Ein Test, der sich hier überspringt, prüfte genau in der
+     * Konstellation nichts, in der der Fehler steckte." Die Testumgebung aktiviert APCu in
+     * der CLI (siehe `.github/workflows/ci.yml`), also übersprang sich der Test in JEDEM
+     * Lauf — der Dateirückfall wurde nie gegen eine beschädigte Datei geprüft.
+     *
+     * Das ist nicht theoretisch: Der Rückfall ist der Pfad, den eine Installation ohne
+     * APCu dauerhaft benutzt, und eine halb geschriebene `breaker.state` ist nach einem
+     * abgebrochenen Deploy oder einer vollen Platte der Normalfall. Läse sie als „offen",
+     * spoolte der Sensor durchgehend, obwohl der Broker läuft.
+     *
+     * Die Gegenprobe mit einer GÜLTIGEN Datei steht davor: Ohne sie wäre „closed" auch
+     * dann grün, wenn der Unterprozess die Datei gar nicht anfasst.
      */
     public function testACorruptStateFileReadsAsClosed(): void
     {
-        if (\function_exists('apcu_enabled') && @apcu_enabled()) {
-            self::markTestSkipped('Mit aktivem APCu wird die Datei gar nicht gelesen.');
+        if (!\function_exists('apcu_enabled')) {
+            self::markTestSkipped('Ohne APCu-Erweiterung gibt es die fragliche Unterscheidung nicht.');
         }
 
         @mkdir($this->directory, 0o775, true);
-        file_put_contents($this->directory.'/breaker.state', '{kein gueltiges json');
+        $stateFile = $this->directory.'/breaker.state';
 
-        self::assertFalse($this->store()->read()->isOpenAt(microtime(true)));
+        file_put_contents($stateFile, (string) json_encode(
+            (new BreakerState(3, microtime(true) + 30, 1))->toArray(),
+            \JSON_THROW_ON_ERROR,
+        ));
+
+        self::assertSame(
+            'open',
+            $this->readWithoutApcu(),
+            'Vorbedingung: der Dateirückfall muss überhaupt gelesen werden, sonst beweist der '
+            .'zweite Teil nichts',
+        );
+
+        file_put_contents($stateFile, '{kein gueltiges json');
+
+        self::assertSame(
+            'closed',
+            $this->readWithoutApcu(),
+            'Eine unlesbare Zustandsdatei muss als geschlossen gelten — „offen" hieße: dauerhaft '
+            .'spoolen, obwohl der Broker läuft',
+        );
+    }
+
+    /**
+     * Liest den Zustand in einem Unterprozess OHNE speicherndes APCu.
+     *
+     * Dieser Prozess hat APCu und läse von dort statt von der Platte — der Rückfall wäre
+     * unerreichbar. Dieselbe Vorkehrung wie in
+     * {@see testWithApcuDisabledInCliTheStateGoesToDisk()}.
+     */
+    private function readWithoutApcu(): string
+    {
+        $skript = \sprintf(
+            'require %s; $s = new %s(%s, %s); echo $s->read()->isOpenAt(microtime(true)) ? "open" : "closed";',
+            var_export(__DIR__.'/../../../../../vendor/autoload.php', true),
+            SharedStateStore::class,
+            var_export($this->directory, true),
+            var_export($this->scopeKey, true),
+        );
+
+        exec(\sprintf(
+            '%s -d apc.enabled=1 -d apc.enable_cli=0 -r %s 2>&1',
+            escapeshellarg(\PHP_BINARY),
+            escapeshellarg($skript),
+        ), $ausgabe, $rueckgabe);
+
+        self::assertSame(0, $rueckgabe, 'Der Unterprozess ist gescheitert: '.implode("\n", $ausgabe));
+
+        return implode('', $ausgabe);
     }
 
     /**

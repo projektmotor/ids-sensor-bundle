@@ -167,8 +167,17 @@ die `correlation_id` eines Opfers übernehmen und die forensische Zuordnung verg
 | `enabled` | `true` | `false` lässt das Feld ganz weg |
 | `severities` | `warning`, `critical` | lässt sich nur **verkleinern**, nicht erweitern; unbekannte Stufen werden beim Kompilieren abgelehnt |
 | `max_bytes` | `32768` | Kappungsgrenze je `raw` |
-| `include_request_body` | `true` | der sensibelste Teil, deshalb ein eigener Schalter |
+| `include_request_body` | `true` | der sensibelste Teil, deshalb ein eigener Schalter — gilt für Formularfelder **und** JSON-Körper |
 | `skip_multipart` | `true` | Datei-Uploads würden den Frame sprengen |
+| `max_request_body_bytes` | `32768` | Obergrenze des JSON-Körpers, geprüft am `Content-Length` **vor** dem Lesen; `0` nimmt keinen Körper auf |
+
+**`max_request_body_bytes` und `max_bytes` greifen ineinander.** Die erste Grenze lässt den
+Körper herein, die zweite wirft ihn wieder hinaus — bei der Kappung steht `request_body` an
+erster Stelle der Abbaureihenfolge. Bei den Vorgaben (beide `32768`) überleben Körper bis
+etwa 28 KiB; darüber werden sie gelesen, redigiert und dann verworfen. Wer größere Körper
+wirklich behalten will, hebt `max_bytes` mit an. Ist `max_request_body_bytes` **größer** als
+`max_bytes`, meldet `ids:sensor:setup-check` einen Hinweis: Dann ist jeder Körper, der die
+erste Grenze ausschöpft, garantiert verloren.
 
 ## `payload_confidentiality_cleanup`
 

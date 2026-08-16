@@ -29,16 +29,16 @@ falschen Stelle:
 | Dokument | Leser | Frage |
 |---|---|---|
 | `01`–`09` (diese Reihe) | wer das Bundle **benutzt** oder betreibt | Was tut es, und warum so? |
-| [`konzept-v1.md`](konzept-v1.md) | wer beide Bundles **entwirft** | Was *soll* das System können? |
-| [`struktur.md`](struktur.md) | wer am Bundle **mitarbeitet** | Wie ist `src/` geschnitten, und warum? |
+| [`concept/concept-v1.md`](concept/concept-v1.md) | wer beide Bundles **entwirft** | Was *soll* das System können? |
+| [`concept/structure.md`](concept/structure.md) | wer am Bundle **mitarbeitet** | Wie ist `src/` geschnitten, und warum? |
 
-[`konzept-v1.md`](konzept-v1.md) ist die Spezifikation für **beide** Bundles — also
+[`concept/concept-v1.md`](concept/concept-v1.md) ist die Spezifikation für **beide** Bundles — also
 inklusive Collector, Datenbankschema und Erkennungsregeln, die dieses Repository gar nicht
 enthält. Die Reihe 01–09 beschreibt, was das Sensor-Bundle *tut*; das Konzept legt fest,
 was es *soll*. Wo beide dasselbe beschreiben, gewinnt das Konzept — es ist die
 gesicherte Fassung, auf die sich der Collector verlässt.
 
-Alle Abschnittsverweise in Klammern, etwa (*2.1*), beziehen sich auf `konzept-v1.md`.
+Alle Abschnittsverweise in Klammern, etwa (*2.1*), beziehen sich auf `concept/concept-v1.md`.
 
 ## Zu den Diagrammen
 

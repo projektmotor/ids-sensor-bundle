@@ -63,7 +63,7 @@ Jede Codezeile wird öfter gelesen als geschrieben. Ziel ist Code, der sich selb
 ### 1.6 Fehlerbehandlung
 
 - Exceptions statt Rückgabecodes. Eigene Exception-Hierarchie im Bundle (`Vendor\BundleName\Exception\...`), abgeleitet von aussagekräftigen Basisklassen.
-  - **Ausgenommen: dieses Bundle ist fail-open** (`doc/konzept-v1.md` Abschnitt 4: „Eine Störung des IDS darf die überwachte Anwendung unter keinen Umständen beeinträchtigen"). Wer nach außen grundsätzlich nicht wirft, braucht keinen Typ zum Fangen — die übrigen `throw`-Stellen liegen in der Compile-Zeit oder in Programmierfehler-Pfaden und benutzen bewusst SPL- und Symfony-Typen. Eine eigene Klasse gibt es genau dort, wo eine Entscheidung daran hängt: `Exception\UnshippableFrameException` sagt dem Spool-Drainer, dass ein erneuter Versuch zwecklos ist.
+  - **Ausgenommen: dieses Bundle ist fail-open** (`doc/concept/concept-v1.md` Abschnitt 4: „Eine Störung des IDS darf die überwachte Anwendung unter keinen Umständen beeinträchtigen"). Wer nach außen grundsätzlich nicht wirft, braucht keinen Typ zum Fangen — die übrigen `throw`-Stellen liegen in der Compile-Zeit oder in Programmierfehler-Pfaden und benutzen bewusst SPL- und Symfony-Typen. Eine eigene Klasse gibt es genau dort, wo eine Entscheidung daran hängt: `Exception\UnshippableFrameException` sagt dem Spool-Drainer, dass ein erneuter Versuch zwecklos ist.
 - Kontext in Exceptions mitgeben (was ist passiert, mit welchen Werten).
 - `try/catch` nicht zur Steuerung des normalen Kontrollflusses missbrauchen.
 - Keine `null`-Rückgaben, wo ein leeres Objekt/Collection oder eine Exception klarer ist (Null Object Pattern erwägen).
@@ -108,7 +108,7 @@ Code gilt als "clean", wenn er in dieser Priorität:
 
 ### 2.1 Struktur
 
-Geschnitten wird nach den Phasen der Pipeline, nicht nach technischen Schubladen. Ausführliche Begründung je Namensraum: [`doc/struktur.md`](doc/struktur.md).
+Geschnitten wird nach den Phasen der Pipeline, nicht nach technischen Schubladen. Ausführliche Begründung je Namensraum: [`doc/concept/structure.md`](doc/concept/structure.md).
 
 ```
 src/
@@ -194,5 +194,7 @@ Eine Änderung gilt erst als fertig, wenn:
 - Bei Unsicherheit zwischen "funktioniert schnell" und "clean, aber etwas mehr Aufwand": **Clean Code hat Vorrang**, außer explizit anders vom Nutzer gewünscht.
 - Immer passende Tests mitliefern oder vorschlagen, wenn neue Logik entsteht.
 - Immer die zugehörige Dokumentation anpassen, sofern eine existiert.
-- Immer wenn eine Definition of Done erfüllt ist, wird ein neuer Commit mit aussagekräftigem aber kompakten (max 300 Zeichen) Kommentar erstellt
+- Immer wenn eine Definition of Done erfüllt ist, wird ein neuer Commit mit aussagekräftigem aber kompakten (max 300 Zeichen) Kommentar erstellt - NENNE DICHT NICHT ALS CO-AUTHOR ODER AUTHOR!!!
 - WICHTIG: es ist STRENGSTENS VERBOTEN, dass Claude Code selbstständig in das remote repository pushed 
+- es herrscht ein direkter, inhaltlicher Zusammenhamg zwischen dem Konzept(doc/concept/concept-v1.md) <-> Dokumentation (doc-Verzeichnis) <-> Quellcode, FOLGERUNG: Änderst du den Quellcode, müssen die Änderungen in Dokumentation & Konzept auch angepasst werden
+- Vermeidung von Ping-Ping-Änderungen: vor Änderungen prüfe das CHANGELOG.md, ob die Entscheidung zuvor bewusst anders getroffen wurde

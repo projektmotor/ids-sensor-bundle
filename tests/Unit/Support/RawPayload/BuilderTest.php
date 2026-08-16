@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit\Support\RawPayload;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsSensor\Support\RawPayload\Builder;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
@@ -208,6 +209,168 @@ final class BuilderTest extends TestCase
         self::assertSame('[confidential]', $raw['response_headers']['x-debug-exception']);
     }
 
+    /**
+     * Der JSON-Körper kommt redigiert an — die Auflösung des Widerspruchs aus Konzept M4.
+     *
+     * Konzept 3.5 las „ausschließlich, was das Framework bereits geparst hat", und Symfony
+     * parst nur formularkodierte Körper. Für Szenario S5 — Deserialisierung über
+     * API-Payloads — war `raw` damit immer leer, obwohl das Konzept dort zusagt, der
+     * Payload sei „vollständig verfügbar". Ein leeres Feld war von „kein Körper" nicht zu
+     * unterscheiden.
+     */
+    public function testAJsonBodyIsCapturedAndRedacted(): void
+    {
+        $raw = ($this->builder()->forExchange($this->jsonRequest([
+            'kommentar' => 'harmlos',
+            'password' => 'hunter2',
+        ]), new Response()))();
+
+        self::assertSame('harmlos', $raw[Builder::FIELD_REQUEST_BODY]['kommentar']);
+        self::assertSame('[confidential]', $raw[Builder::FIELD_REQUEST_BODY]['password']);
+        self::assertStringNotContainsString('hunter2', json_encode($raw, \JSON_THROW_ON_ERROR));
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY_OMITTED, $raw);
+    }
+
+    /**
+     * `application/merge-patch+json` und `application/ld+json` sind JSON.
+     *
+     * `Request::getContentTypeFormat()` vergleicht exakte Typen und kennt beide nicht —
+     * genau die Endpunkte von API Platform und JSON-Patch, an denen S5 stattfindet, wären
+     * damit durchgefallen.
+     */
+    public function testJsonSuffixMediaTypesCount(): void
+    {
+        $request = $this->jsonRequest(['feld' => 'wert'], 'application/merge-patch+json');
+
+        self::assertSame(['feld' => 'wert'], ($this->builder()->forExchange($request, new Response()))()[Builder::FIELD_REQUEST_BODY]);
+    }
+
+    /**
+     * Ein Formular steht in `request_params` — und wird NICHT als ausgelassen vermerkt.
+     *
+     * Ein „omitted" neben dem vorhandenen Inhalt wäre schlicht falsch und träfe den
+     * häufigsten Fall überhaupt.
+     */
+    public function testAFormBodyStaysInRequestParamsWithoutAnOmissionMarker(): void
+    {
+        $raw = ($this->builder()->forExchange($this->beladenerRequest(), new Response()))();
+
+        self::assertSame(['kommentar' => 'harmlos'], $raw['request_params']);
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY, $raw);
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY_OMITTED, $raw);
+    }
+
+    /**
+     * Ohne Körper gibt es nichts zu melden — sonst stünde der Vermerk an jedem GET.
+     */
+    public function testARequestWithoutABodyCarriesNoMarker(): void
+    {
+        $raw = ($this->builder()->forExchange(Request::create('/ok'), new Response()))();
+
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY_OMITTED, $raw);
+    }
+
+    /**
+     * Jede Ablehnung nennt ihren Grund. Ein fehlendes Feld wäre von „kein Körper" nicht zu
+     * unterscheiden, und bei einem Deserialisierungsversuch ist das der Unterschied
+     * zwischen „die Anfrage war leer" und „wir haben weggesehen".
+     *
+     * @param \Closure(): Request $request
+     */
+    #[DataProvider('abgelehnteKoerper')]
+    public function testARefusedBodyNamesItsReason(\Closure $request, string $grund, ?Builder $builder = null): void
+    {
+        $raw = (($builder ?? $this->builder())->forExchange($request(), new Response()))();
+
+        self::assertSame($grund, $raw[Builder::FIELD_REQUEST_BODY_OMITTED] ?? null);
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY, $raw);
+    }
+
+    /**
+     * @return iterable<string, array{0: \Closure(): Request, 1: string, 2?: Builder}>
+     */
+    public static function abgelehnteKoerper(): iterable
+    {
+        yield 'kein JSON' => [
+            static fn (): Request => self::rohkoerper('<xml/>', 'application/xml'),
+            Builder::OMITTED_NOT_JSON,
+        ];
+
+        yield 'chunked, Länge unbekannt' => [
+            static function (): Request {
+                $request = self::rohkoerper('{"a":1}', 'application/json');
+                $request->headers->remove('Content-Length');
+                $request->headers->set('Transfer-Encoding', 'chunked');
+
+                return $request;
+            },
+            Builder::OMITTED_UNKNOWN_LENGTH,
+        ];
+
+        yield 'zu groß' => [
+            static fn (): Request => self::rohkoerper(
+                (string) json_encode(['gross' => str_repeat('x', 4000)]),
+                'application/json',
+            ),
+            Builder::OMITTED_TOO_LARGE,
+            new Builder(TestCleaner::default(), maxRequestBodyBytes: 512),
+        ];
+
+        yield 'kaputtes JSON' => [
+            static fn (): Request => self::rohkoerper('{"a":', 'application/json'),
+            Builder::OMITTED_UNDECODABLE,
+        ];
+    }
+
+    /**
+     * Ein nicht dekodierbarer Körper darf NICHT als Text mitkommen.
+     *
+     * Die Redaktion aus Konzept 4.5.1 ist eine Denylist über Feldnamen. Ohne Struktur gibt
+     * es keine Feldnamen — ein roher Textkörper wäre der eine Eintrittspunkt, an dem die
+     * Liste nichts ausrichtet.
+     */
+    public function testAnUndecodableBodyLeavesNoTextBehind(): void
+    {
+        $request = self::rohkoerper('{"password": "hunter2-geheim", kaputt', 'application/json');
+
+        $raw = ($this->builder()->forExchange($request, new Response()))();
+
+        self::assertStringNotContainsString('hunter2-geheim', json_encode($raw, \JSON_THROW_ON_ERROR));
+        self::assertSame(Builder::OMITTED_UNDECODABLE, $raw[Builder::FIELD_REQUEST_BODY_OMITTED]);
+    }
+
+    public function testIncludeRequestBodyFalseAlsoDropsTheJsonBody(): void
+    {
+        $builder = new Builder(TestCleaner::default(), includeRequestBody: false);
+
+        $raw = ($builder->forExchange($this->jsonRequest(['feld' => 'wert']), new Response()))();
+
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY, $raw);
+        self::assertSame(Builder::OMITTED_DISABLED, $raw[Builder::FIELD_REQUEST_BODY_OMITTED]);
+    }
+
+    /**
+     * Die Wechselwirkung der beiden Grenzen, festgehalten statt erklärt.
+     *
+     * `max_request_body_bytes` lässt den Körper herein, `max_bytes` wirft ihn wieder
+     * hinaus — er steht als erstes in der Abbaureihenfolge. Bei gleichen Vorgaben (beide
+     * 32768) trifft das Körper nahe der Grenze. Das ist die dokumentierte Folge und keine
+     * Fehlfunktion; `ids:sensor:setup-check` meldet nur den Fall, in dem die Körpergrenze
+     * ECHT größer ist.
+     */
+    public function testABodyWithinItsOwnLimitCanStillLoseToTheRawCap(): void
+    {
+        $builder = new Builder(TestCleaner::default(), maxBytes: 256, maxRequestBodyBytes: 4096);
+
+        $raw = ($builder->forExchange(
+            self::rohkoerper((string) json_encode(['gross' => str_repeat('x', 1000)]), 'application/json'),
+            new Response(),
+        ))();
+
+        self::assertArrayNotHasKey(Builder::FIELD_REQUEST_BODY, $raw);
+        self::assertTrue($raw[Builder::FIELD_TRUNCATED]);
+    }
+
     private function builder(): Builder
     {
         return new Builder(TestCleaner::default());
@@ -217,6 +380,30 @@ final class BuilderTest extends TestCase
     {
         $request = Request::create('/suche?suche=schuhe', 'POST', ['kommentar' => 'harmlos']);
         $request->cookies->set('PHPSESSID', 'sitzungswert');
+
+        return $request;
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function jsonRequest(array $body, string $contentType = 'application/json'): Request
+    {
+        return self::rohkoerper((string) json_encode($body, \JSON_THROW_ON_ERROR), $contentType);
+    }
+
+    /**
+     * Ein Request mit rohem Körper — so, wie eine API-Anfrage tatsächlich ankommt.
+     *
+     * `Request::create()` mit `$content` lässt `$request->request` LEER, genau wie Symfony
+     * es im Betrieb tut: geparst wird nur formularkodiert. Das ist der Zustand, in dem
+     * `raw.request_params` bis hierher immer leer blieb.
+     */
+    private static function rohkoerper(string $content, string $contentType): Request
+    {
+        $request = Request::create('/api/orders', 'POST', [], [], [], [], $content);
+        $request->headers->set('Content-Type', $contentType);
+        $request->headers->set('Content-Length', (string) \strlen($content));
 
         return $request;
     }

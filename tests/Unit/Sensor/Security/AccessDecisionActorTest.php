@@ -9,6 +9,8 @@ use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\Context\ActorFactory;
 use ProjektMotor\IdsSensor\Sensor\Context\CapturedEventBinder;
 use ProjektMotor\IdsSensor\Sensor\Context\ClientFingerprinter;
+use ProjektMotor\IdsSensor\Sensor\Context\ConsoleCorrelation;
+use ProjektMotor\IdsSensor\Sensor\Context\CorrelationIdFactory;
 use ProjektMotor\IdsSensor\Sensor\Context\RequestSnapshotRegistry;
 use ProjektMotor\IdsSensor\Sensor\Context\SessionIdHasher;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
@@ -103,6 +105,7 @@ final class AccessDecisionActorTest extends TestCase
             new CapturedEventBinder(
                 new RequestSnapshotRegistry(),
                 new ActorFactory(new SessionIdHasher(null, null, false), new ClientFingerprinter(enabled: false), $storage),
+                new ConsoleCorrelation(new CorrelationIdFactory()),
             ),
             new ResourceIdentifierResolver(),
             new CaptureBudget(0),

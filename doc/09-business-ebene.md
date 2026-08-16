@@ -122,11 +122,17 @@ Log, damit eine Fehlkonfiguration neben dem Event sichtbar bleibt, das sie betri
 | `_ids_event_name_raw` | Der Name musste bereinigt werden; hier steht das Original |
 | `_ids_severity_hint_raw` | `getSeverityHint()` war unbrauchbar; hier steht der Originalwert |
 | `_ids_unreadable` | Diese Getter haben **geworfen** — ein Defekt in der Anwendung, nicht ein leerer Wert |
-| `_ids_truncated` | Es wurden Elemente weggelassen |
 
 `_ids_unreadable` ist der Unterschied zwischen „die Anwendung hat ihr Event nicht
 benannt" und „`getEventName()` ist kaputt". Beide ergeben `business.unnamed`; nur einer
 davon ist ein Fehler, den jemand beheben sollte.
+
+**Der Kürzungsvermerk heißt `__truncated` und trägt den Präfix bewusst nicht.** Er steht
+für „hier wurden Elemente weggelassen" und wird nicht nur vom Business-Weg gesetzt,
+sondern auch von der Query- und der Rohdatenbereinigung — er gehört keinem der drei allein.
+Reserviert ist er trotzdem: Eine Anwendung, die ihn selbst mitliefert, könnte einen
+Vollständigkeitsverlust vortäuschen, den es nie gab, und wird deshalb in einem eigenen
+Zweig gefiltert.
 
 ## Der Payload
 
@@ -142,11 +148,13 @@ Stufen:
 Die Grenzen der beiden Stufen laufen nicht auseinander, sie sind **gestaffelt**: Die
 engeren des Sanitizers binden das Schema aus (*3*), an das sich der Collector halten
 können muss. Die weiteren des Cleaners gelten für `raw` — die forensische Kopie, für die
-(*2.1.3*) ausdrücklich mehr Tiefe vorsieht und die nur eine Größengrenze einzuhalten hat.
-In `raw` steht deshalb absichtlich der **unbereinigte** Payload, nur redigiert.
+(*3.5*) den unbereinigten Payload ausdrücklich vorsieht und die nur eine Größengrenze
+einzuhalten hat. In `raw` steht deshalb absichtlich der **unbereinigte** Payload, nur
+redigiert. Für den Payload im Event selbst empfiehlt (*3.1.3*) umgekehrt eine flache
+Struktur — die beiden Empfehlungen widersprechen sich nicht, sie betreffen zwei Felder.
 
 Auch der Business-Payload läuft also durch dieselbe Denylist wie alles andere — siehe
-[06 — Vertraulichkeit](06-vertraulichkeit.md#fünf-eintrittspunkte-eine-liste).
+[06 — Vertraulichkeit](06-vertraulichkeit.md#sechs-eintrittspunkte-eine-liste).
 
 ## Ergänzte Felder
 

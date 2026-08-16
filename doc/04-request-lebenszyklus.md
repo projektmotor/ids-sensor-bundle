@@ -79,15 +79,33 @@ dauerhaft überprüfbar, nicht nur im Benchmark.
 Cache, keine Datei, keine Queue — ein Netzwerk-Roundtrip zum Broker würde das 5-ms-Budget
 allein aufbrauchen.
 
-Zwei Obergrenzen:
+Eine Obergrenze, und eine Reserve dahinter:
 
 | Grenze | Vorgabe | Wozu |
 |---|---|---|
 | `budget.max_events_per_request` | 64 | verhindert, dass eine Schleife mit vielen Autorisierungsprüfungen den Speicher füllt |
-| `budget.max_events_per_process` | 200 | greift in langlebigen Prozessen, in denen kein `kernel.terminate` den Puffer leert |
+| `EventBuffer::MANDATORY_RESERVE` | 8 | Plätze **oberhalb** dieser Grenze, ausschließlich für Pflicht-Events |
 
-Ist der Puffer voll, wird verworfen und gezählt (`dropped_buffer_full`) — niemals
-stillschweigend.
+Die Reserve ist nicht konfigurierbar und aus demselben Grund vorhanden wie ihr Gegenstück
+im Erfassungsbudget: Die Zahl der Autorisierungsentscheidungen ist nach oben offen, die der
+Kernel- und Anmeldeereignisse konstruktionsbedingt nicht. Ohne sie verdrängte eine
+Übersichtsseite mit 64 Rechteprüfungen den `kernel.response` — und damit `http_status`, an
+dem die Severity-Ableitung und die Scanning-Erkennung über gehäufte 403/404 hängen. Der
+`ResponseSensor` läuft bei Priorität −2048 zuletzt und fiele als Erster heraus. Ausführlich
+in [08 — Konfiguration](08-konfiguration.md#budget).
+
+Auch die Reserve ist endlich. Ist der Puffer voll, wird verworfen und gezählt
+(`dropped_buffer_full`) — niemals stillschweigend.
+
+**Eine Grenze pro Prozess gibt es nicht.** Sie stand hier einmal als
+`budget.max_events_per_process: 200` und ist entfallen, weil sie keine kohärente Bedeutung
+hatte: Als Grenze für den aktuellen Inhalt wäre sie wirkungslos — der Flush leert den
+Puffer, sein Inhalt liegt ohnehin immer unter 64. Als kumulative Grenze über die
+Prozesslebenszeit wäre sie schädlich: ein Messenger-Worker hätte nach 200 Events dauerhaft
+aufgehört zu erfassen. Der Fall, den sie abdecken sollte, tritt nicht ein — der
+`FlushListener` hängt zusätzlich an `console.terminate` und den Worker-Ereignissen. Wer den
+Schlüssel heute setzt, bekommt keine wirkungslose Einstellung, sondern eine Anwendung, die
+nicht mehr bootet.
 
 ## Sampling: einen Teil gar nicht erst senden
 
@@ -137,7 +155,7 @@ flowchart LR
 
     e1["kernel.request<br/><small>kernel · info</small>"]
     e2["kernel.response<br/><small>kernel · info</small>"]
-    e3["security.auth_success<br/><small>security · info</small>"]
+    e3["security.authentication.success<br/><small>security · info</small>"]
 
     e1 & e2 -->|"Kandidat"| gate
     e3 -->|"nie Kandidat —<br/>nur kernel+info ist sampelbar"| immer

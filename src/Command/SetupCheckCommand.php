@@ -111,6 +111,7 @@ final class SetupCheckCommand extends Command
         $this->checkIdentity($io);
         $this->checkEnvironment($io);
         $this->checkSessionHash($io);
+        $this->checkRawLimits();
         $this->checkTransport($io);
         $this->checkTrustedProxies($io);
         $this->checkRuntime($io);
@@ -267,6 +268,55 @@ final class SetupCheckCommand extends Command
                 $minimum,
             );
         }
+    }
+
+    /**
+     * Zwei Grenzen, die sich gegenseitig aufheben können.
+     *
+     * `max_request_body_bytes` begrenzt den JSON-Körper VOR dem Lesen,
+     * `max_bytes` das fertige `raw` danach. Sind sie gleich groß, füllt ein Körper an der
+     * Grenze das ganze Budget allein — `RawPayload\Builder::capped()` wirft ihn dann als
+     * erstes wieder weg. Gelesen, redigiert, verworfen: Der Betreiber sieht ein gekürztes
+     * `raw` und keinen Grund dafür.
+     *
+     * Ein Hinweis und kein Befund, weil nichts kaputt ist: Der Körper fehlt, die Erkennung
+     * läuft weiter (sie arbeitet auf `payload`, nicht auf `raw`). Nur die forensische
+     * Tiefe, für die die Option da ist, bleibt aus.
+     *
+     * GEMELDET WIRD ERST BEI ECHT GRÖSSER, NICHT BEI GLEICH
+     *
+     * Beide Vorgaben stehen auf 32768, und ein Deploy-Check, der sich über die
+     * mitgelieferte Konfiguration beschwert, ist keiner — „ein Fehlerkanal, der
+     * ununterbrochen meldet, meldet nichts mehr" (dieselbe Begründung wie beim
+     * HeartbeatCommand). Bei gleichen Grenzen überleben Körper bis etwa 28 KiB; nur die
+     * darüber werden gelesen und wieder verworfen. Das ist die dokumentierte Folge der
+     * Vorgabe, keine Fehlkonfiguration.
+     *
+     * Ein Körper-Limit ÜBER dem raw-Budget kann dagegen niemand gewollt haben: Dort ist
+     * jeder Körper, der die eine Grenze ausschöpft, von der anderen garantiert zum
+     * Verwerfen verurteilt.
+     */
+    private function checkRawLimits(): void
+    {
+        /** @var array{enabled: bool, max_bytes: int, include_request_body: bool, max_request_body_bytes: int} $raw */
+        $raw = $this->config['raw'];
+
+        if (!$raw['enabled'] || !$raw['include_request_body'] || 0 === $raw['max_request_body_bytes']) {
+            return;
+        }
+
+        if (0 === $raw['max_bytes'] || $raw['max_request_body_bytes'] <= $raw['max_bytes']) {
+            return;
+        }
+
+        $this->hints[] = \sprintf(
+            'raw.max_request_body_bytes (%d) ist größer als raw.max_bytes (%d). Ein JSON-Körper, '
+            .'der die erste Grenze ausschöpft, überschreitet damit zwangsläufig die zweite und '
+            .'wird von der Kappung wieder verworfen — gelesen, redigiert, nie angekommen. '
+            .'Entweder max_request_body_bytes senken oder max_bytes anheben.',
+            $raw['max_request_body_bytes'],
+            $raw['max_bytes'],
+        );
     }
 
     private function checkTransport(SymfonyStyle $io): void
@@ -627,9 +677,17 @@ final class SetupCheckCommand extends Command
                 .'Rechteausweitung hängen.';
         }
 
-        // KEIN Befund: dass die Business-Ebene ohne Anwendungscode wirkungslos ist, ist die
-        // im Konzept 2. beschriebene Asymmetrie und kein Fehler. Ungesagt bleiben darf sie
-        // trotzdem nicht.
+        if (false === $layers['business']['enabled']) {
+            $this->findings[] =
+                'Die Business-Ebene ist abgeschaltet. Sie ist die einzige Signalklasse für ERFOLGREICHE '
+                .'Angriffe, die die Anwendung bestimmungsgemäß benutzen (Konzept 2.1.3, Szenarien S6, '
+                .'S7 ohne Voter, S9) — abgeschaltet erkennt das Bundle nur noch gescheiterte Versuche.';
+        }
+
+        // Der Hinweis darunter ist bewusst UNABHÄNGIG vom Schalter und deshalb kein Befund:
+        // er beschreibt die fehlende Instrumentierung, also die im Konzept 2. beschriebene
+        // Asymmetrie — kein Fehler, aber auch nichts, was ungesagt bleiben darf. Der Befund
+        // oben beschreibt etwas anderes: dass jemand die Ebene aktiv abgeschaltet hat.
         $this->hints[] =
             'Die Business-Ebene liefert nur Signale, wenn die Anwendung Events auslöst, die '
             .'SecurityRelevantBusinessEvent implementieren. Ohne sie erzeugen ERFOLGREICHE Angriffe, '

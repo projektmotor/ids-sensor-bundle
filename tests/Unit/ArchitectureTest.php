@@ -7,7 +7,7 @@ namespace ProjektMotor\IdsSensor\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Hält die Struktur aus doc/struktur.md fest.
+ * Hält die Struktur aus doc/concept/structure.md fest.
  *
  * WOZU
  *
@@ -257,7 +257,7 @@ final class ArchitectureTest extends TestCase
     /**
      * Die Namensräume von src/ bilden eine Schichtung, keine Wolke.
      *
-     * Zyklenfreiheit war schon vor diesem Test wahr — sie stand nur in doc/struktur.md
+     * Zyklenfreiheit war schon vor diesem Test wahr — sie stand nur in doc/concept/structure.md
      * und war damit eine Momentaufnahme. Ein einziger Import in die Gegenrichtung
      * bricht nichts und fällt in keinem Review auf; erst der zweite schließt den Kreis,
      * und dann ist die Reparatur teuer. Genau so sind die beiden Zyklen entstanden, die

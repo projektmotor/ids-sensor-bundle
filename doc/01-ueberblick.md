@@ -89,7 +89,7 @@ Phase A läuft unter einem harten Budget: **1500 µs voreingestellt, 5 ms als Ob
 eines Worker-Prozesses.
 
 Das ist keine Optimierung, sondern die Zusage, auf der alles andere aufbaut. Sie ist am
-Verzeichnisbaum ablesbar (siehe [struktur.md](struktur.md)) und wird von
+Verzeichnisbaum ablesbar (siehe [concept/structure.md](concept/structure.md)) und wird von
 `ArchitectureTest::testSensorDoesNotKnowProcessing()` maschinell festgehalten: `Sensor/`
 darf `Processing/` nicht einmal importieren.
 

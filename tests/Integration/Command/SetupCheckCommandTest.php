@@ -172,6 +172,22 @@ final class SetupCheckCommandTest extends TestCase
     }
 
     /**
+     * Die abgeschaltete Ebene dagegen IST ein Befund — wie bei Kernel und Security.
+     *
+     * Der Unterschied zum Test darüber ist der Unterschied zwischen „niemand hat
+     * instrumentiert" (Asymmetrie, kein Fehler) und „jemand hat abgeschaltet". Ohne diesen
+     * Befund schwieg der Deploy-Check ausgerechnet bei der Ebene, deren Ausfall doc/02
+     * selbst als die wichtigste Aussage der Dokumentation bezeichnet.
+     */
+    public function testADisabledBusinessLayerIsAFinding(): void
+    {
+        $tester = $this->setupCheck('business-aus', ['layers' => ['business' => ['enabled' => false]]]);
+
+        self::assertSame(Command::FAILURE, $tester->getStatusCode());
+        self::assertStringContainsString('Business-Ebene ist abgeschaltet', $tester->getDisplay());
+    }
+
+    /**
      * --strict macht aus Hinweisen Befunde. Weil der Business-Hinweis immer erscheint, ist
      * --strict praktisch immer rot — das ist Absicht: es ist der Schalter für Deployments,
      * die jede Einschränkung ausdrücklich abnicken wollen.
@@ -280,6 +296,38 @@ final class SetupCheckCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode(), $tester->getDisplay());
         self::assertStringContainsString('spool.max_bytes ist 0', $tester->getDisplay());
+    }
+
+    /**
+     * Eine Körpergrenze über dem raw-Budget kann niemand gewollt haben.
+     *
+     * `max_request_body_bytes` lässt den JSON-Körper herein, `max_bytes` wirft ihn danach
+     * wieder hinaus — er steht als erstes in der Abbaureihenfolge von `capped()`. Ist die
+     * erste Grenze größer, ist jeder Körper, der sie ausschöpft, garantiert verloren:
+     * gelesen, redigiert, nie angekommen.
+     */
+    public function testABodyLimitAboveTheRawBudgetIsAHint(): void
+    {
+        $tester = $this->setupCheck('raw-grenzen', [
+            'raw' => ['max_bytes' => 8192, 'max_request_body_bytes' => 65536],
+        ]);
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), 'Kaputt ist nichts — nur wirkungslos');
+        self::assertStringContainsString('raw.max_request_body_bytes', $tester->getDisplay());
+    }
+
+    /**
+     * Die mitgelieferten Vorgaben sind beide 32768 — und dürfen NICHT warnen.
+     *
+     * Ein Deploy-Check, der sich über die Standardkonfiguration beschwert, wird beim
+     * ersten Mal gelesen und danach nie wieder. Bei gleichen Grenzen überleben Körper bis
+     * etwa 28 KiB; das ist die dokumentierte Folge der Vorgabe, keine Fehlkonfiguration.
+     */
+    public function testEqualRawLimitsAreNotReported(): void
+    {
+        $tester = $this->setupCheck('raw-gleich');
+
+        self::assertStringNotContainsString('raw.max_request_body_bytes', $tester->getDisplay());
     }
 
     /**

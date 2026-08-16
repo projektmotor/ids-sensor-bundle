@@ -362,7 +362,21 @@ final class ConfigurationTree
                 ->integerNode('max_bytes')->defaultValue(32768)->min(0)->end()
                 ->booleanNode('include_request_body')
                     ->defaultTrue()
-                    ->info('Der Body ist der sensibelste Teil und hat deshalb einen eigenen Schalter.')
+                    ->info(
+                        'Der Body ist der sensibelste Teil und hat deshalb einen eigenen Schalter. '
+                        .'Gilt für Formularfelder UND für den JSON-Körper.'
+                    )
+                ->end()
+                ->integerNode('max_request_body_bytes')
+                    ->defaultValue(32768)
+                    ->min(0)
+                    ->info(
+                        'Obergrenze des JSON-Körpers, geprüft am Content-Length VOR dem Lesen. '
+                        .'0 nimmt keinen Körper auf. SOLLTE KLEINER ALS max_bytes SEIN: sonst füllt '
+                        .'ein großer Körper das ganze raw-Budget allein, und die Kappung wirft ihn '
+                        .'anschließend wieder weg — gelesen, redigiert, verworfen. '
+                        .'ids:sensor:setup-check meldet diesen Fall.'
+                    )
                 ->end()
                 ->booleanNode('skip_multipart')
                     ->defaultTrue()
@@ -561,7 +575,12 @@ final class ConfigurationTree
                 ->integerNode('drain_interval_s')
                     ->defaultValue(30)
                     ->min(0)
-                    ->info('Nur Dokumentationswert: reist im Heartbeat mit, damit der Collector die normale Verzögerung kennt.')
+                    ->info(
+                        'Der erwartete Takt des Drainers. Versiegelt die aktive Spool-Datei nach Ablauf, '
+                        .'lässt ruhende Dateien fremder Prozesse adoptieren, ist die Schwelle für '
+                        .'„Spool zu alt" im setup-check — und reist im Heartbeat mit, damit der Collector '
+                        .'die normale Verzögerung kennt.'
+                    )
                 ->end()
                 ->integerNode('drain_max_files_per_run')->defaultValue(2)->min(0)->end()
                 ->integerNode('stale_after_s')->defaultValue(300)->min(0)->end()

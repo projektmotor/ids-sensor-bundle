@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Support\RawPayload;
 
 use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Cleaner;
+use Symfony\Component\HttpFoundation\Exception\JsonException;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -80,11 +81,56 @@ final class Builder
     /** Wird gesetzt, wenn wegen max_bytes Teile entfallen sind. */
     public const FIELD_TRUNCATED = '_truncated';
 
+    /** Der dekodierte und redigierte Anfragekörper — nur bei JSON. */
+    public const FIELD_REQUEST_BODY = 'request_body';
+
+    /**
+     * Warum der Anfragekörper NICHT mitgekommen ist.
+     *
+     * Ein fehlendes Feld ist von „es gab keinen Körper" nicht zu unterscheiden. Bei einem
+     * Deserialisierungsversuch (Konzept Szenario S5) ist das der Unterschied zwischen „die
+     * Anfrage war leer" und „wir haben weggesehen" — und nur die zweite Auskunft führt zu
+     * einer Konfigurationsänderung.
+     */
+    public const FIELD_REQUEST_BODY_OMITTED = 'request_body_omitted';
+
+    /** Der Schalter `raw.include_request_body` steht auf false. */
+    public const OMITTED_DISABLED = 'disabled';
+
+    /** multipart/form-data — Datei-Uploads würden den Frame sprengen. */
+    public const OMITTED_MULTIPART = 'multipart';
+
+    /** Kein JSON: ohne Struktur gibt es keine Feldnamen, an denen die Denylist greift. */
+    public const OMITTED_NOT_JSON = 'not_json';
+
+    /** Chunked übertragen — die Länge ist vor dem Lesen nicht bekannt. */
+    public const OMITTED_UNKNOWN_LENGTH = 'unknown_length';
+
+    /** Über `raw.max_request_body_bytes`. */
+    public const OMITTED_TOO_LARGE = 'too_large';
+
+    /** Als JSON deklariert, aber nicht dekodierbar. */
+    public const OMITTED_UNDECODABLE = 'undecodable';
+
+    /** Der Körper war nicht mehr lesbar — etwa weil die Anwendung ihn als Ressource nahm. */
+    public const OMITTED_UNREADABLE = 'unreadable';
+
+    /**
+     * JSON-Medientypen mit Suffix, die `Request::getContentTypeFormat()` NICHT kennt.
+     *
+     * Dessen Abbildung vergleicht exakte Typen; `application/merge-patch+json` und
+     * `application/ld+json` — beides gängig bei API Platform und JSON-Patch-Endpunkten —
+     * fallen dort durch. Genau solche Endpunkte sind aber der Ort, an dem Szenario S5
+     * stattfindet.
+     */
+    private const JSON_SUFFIX = '+json';
+
     public function __construct(
         private readonly Cleaner $cleaner,
         private readonly bool $includeRequestBody = true,
         private readonly bool $skipMultipart = true,
         private readonly int $maxBytes = 32768,
+        private readonly int $maxRequestBodyBytes = 32768,
     ) {
     }
 
@@ -130,6 +176,11 @@ final class Builder
                 $raw['request_params'] = $this->cleaner->cleanParameters($parameters);
             }
 
+            // Der Anfragekörper, sofern er als JSON ankam. Getrennt von `request_params`,
+            // damit die Herkunft ablesbar bleibt: dort steht, was Symfony geparst hat, hier
+            // das, was der Sensor selbst gelesen hat.
+            $this->appendRequestBody($raw, $request);
+
             // Nur die NAMEN. Der Cookie-Header ist bereits über die Denylist redigiert;
             // die Namen einzeln zu übertragen ist der Kompromiss, mit dem sichtbar bleibt,
             // welche Sitzungs- und Tracking-Cookies eine Anfrage mitbrachte, ohne einen
@@ -141,12 +192,178 @@ final class Builder
                 $raw['cookie_names'] = \array_slice(array_map('strval', $cookieNames), 0, self::MAX_COOKIE_NAMES);
             }
 
-            return $this->capped($raw, ['request_params', 'query', 'request_headers', 'response_headers']);
+            // `request_body` zuerst: das größte Element und das am wenigsten
+            // unverzichtbare — die Anfrageseite steht in Umrissen schon in `query`,
+            // `request_params` und `content_length`.
+            return $this->capped($raw, [
+                self::FIELD_REQUEST_BODY,
+                'request_params',
+                'query',
+                'request_headers',
+                'response_headers',
+            ]);
         };
     }
 
     /**
+     * Nimmt den Anfragekörper auf — oder sagt, warum nicht.
+     *
+     * WARUM DAS DEM KONZEPT NICHT WIDERSPRICHT
+     *
+     * Konzept 3.5 sagte „der rohe Eingabestrom wird nicht angefasst", und das schützte vor
+     * zwei Schäden: die Nutzlast wegzulesen, die die Anwendung noch braucht, und unbegrenzt
+     * viel zu lesen. Beide hängen an Bedingungen, nicht am Vorgang:
+     *
+     *  - Diese Methode läuft in der raw-Closure, also NACH dem Absenden der Antwort und nur
+     *    für `warning`/`critical`. Die Anwendung ist zu diesem Zeitpunkt fertig.
+     *  - Gelesen wird erst, nachdem `Content-Length` gegen `raw.max_request_body_bytes`
+     *    geprüft wurde.
+     *
+     * Damit ist die Zusage aus Szenario S5 einlösbar, die ohne den Körper leer blieb: Ein
+     * Deserialisierungsversuch kommt über einen API-Payload, und der ist JSON — in
+     * `$request->request` landet er nie, weil Symfony nur formularkodierte Körper parst.
+     *
+     * WARUM EIN NICHT DEKODIERBARER KÖRPER NICHT ALS TEXT MITKOMMT
+     *
+     * Die Redaktion aus Konzept 4.5.1 ist eine Denylist über FELDNAMEN. Ohne Struktur gibt
+     * es keine Feldnamen, also auch keine Redaktion — ein roher Textkörper wäre der eine
+     * Eintrittspunkt, an dem die Liste nichts ausrichtet. Übertragen wird dann der Grund,
+     * nicht der Inhalt.
+     *
+     * @param array<string, mixed> $raw
+     */
+    private function appendRequestBody(array &$raw, Request $request): void
+    {
+        $contentType = (string) $request->headers->get('Content-Type', '');
+
+        // Die Reihenfolge ist wesentlich: Keine dieser Prüfungen fasst den Eingabestrom
+        // an, und jede ist billiger als die folgende.
+        if (!$this->includeRequestBody) {
+            if (self::hasBody($request)) {
+                $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_DISABLED;
+            }
+
+            return;
+        }
+
+        if ($this->skipMultipart && str_contains($contentType, 'multipart/')) {
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_MULTIPART;
+
+            return;
+        }
+
+        // Formularkodiert: Der Körper steht bereits in `request_params`. Kein zweiter Weg
+        // zu denselben Daten — und ausdrücklich KEIN Vermerk, denn ausgelassen wurde
+        // nichts. Ein „omitted" neben dem vorhandenen Inhalt wäre schlicht falsch.
+        if ($request->request->count() > 0) {
+            return;
+        }
+
+        if (!self::hasBody($request)) {
+            return;
+        }
+
+        if (!self::isJson($contentType)) {
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_NOT_JSON;
+
+            return;
+        }
+
+        $length = $request->headers->get('Content-Length');
+
+        if (!is_numeric($length)) {
+            // Chunked: die Länge steht erst fest, wenn alles gelesen ist — also zu spät.
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_UNKNOWN_LENGTH;
+
+            return;
+        }
+
+        if ((int) $length > $this->maxRequestBodyBytes) {
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_TOO_LARGE;
+
+            return;
+        }
+
+        try {
+            $body = $request->getPayload()->all();
+        } catch (JsonException) {
+            // Symfonys JsonException, NICHT \JsonException: sie erbt von
+            // UnexpectedValueException und wäre von einem Catch auf die SPL-Klasse nicht
+            // erfasst worden — der Fall „kaputtes JSON" hätte dann den Grund `unreadable`
+            // getragen und den Betreiber auf die falsche Fährte geschickt.
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_UNDECODABLE;
+
+            return;
+        } catch (\Throwable) {
+            // Etwa LogicException: die Anwendung hat den Körper als Ressource genommen,
+            // dann ist er ein zweites Mal nicht zu bekommen.
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_UNREADABLE;
+
+            return;
+        }
+
+        if ([] === $body) {
+            return;
+        }
+
+        $cleaned = $this->cleaner->cleanParameters($body);
+
+        // Zweite Längenprüfung am tatsächlich Gelesenen. `Content-Length` ist eine
+        // Behauptung des Clients; in der Praxis kappt der Webserver den Eingabestrom
+        // daran, aber darauf beruht hier keine Zusage. Die Kappung in capped() würde den
+        // Zweig ohnehin verwerfen — dieser Vergleich sagt zusätzlich WARUM.
+        if (self::size($cleaned) > $this->maxRequestBodyBytes) {
+            $raw[self::FIELD_REQUEST_BODY_OMITTED] = self::OMITTED_TOO_LARGE;
+
+            return;
+        }
+
+        $raw[self::FIELD_REQUEST_BODY] = $cleaned;
+    }
+
+    /**
+     * Brachte die Anfrage überhaupt einen Körper mit?
+     *
+     * Entscheidet, ob ein Ablehnungsgrund vermerkt wird. Ohne diese Frage stünde er an
+     * jedem GET, und ein Vermerk, der immer da ist, sagt nichts.
+     */
+    private static function hasBody(Request $request): bool
+    {
+        if ($request->request->count() > 0) {
+            return true;
+        }
+
+        $length = $request->headers->get('Content-Length');
+
+        if (is_numeric($length) && (int) $length > 0) {
+            return true;
+        }
+
+        // Chunked: kein Content-Length, aber ein Transfer-Encoding.
+        return null !== $request->headers->get('Transfer-Encoding');
+    }
+
+    /**
+     * `application/json` und alles mit `+json`-Suffix.
+     *
+     * `Request::getContentTypeFormat()` allein genügt nicht — es vergleicht exakte Typen
+     * und kennt weder `application/merge-patch+json` noch `application/ld+json`.
+     */
+    private static function isJson(string $contentType): bool
+    {
+        $type = strtolower(trim(explode(';', $contentType, 2)[0]));
+
+        return 'application/json' === $type
+            || 'application/x-json' === $type
+            || str_ends_with($type, self::JSON_SUFFIX);
+    }
+
+    /**
      * Der Formular-Body — nur, was Symfony ohnehin geparst hat.
+     *
+     * Für JSON-Körper, die Symfony NICHT parst, ist {@see appendRequestBody()} zuständig.
+     * Zwei Methoden, weil es zwei Herkünfte sind: hier steht, was das Framework gelesen
+     * hat, dort das, was der Sensor selbst gelesen hat.
      *
      * Zwei Schalter, weil der Body der sensibelste und der größte Teil ist:
      *

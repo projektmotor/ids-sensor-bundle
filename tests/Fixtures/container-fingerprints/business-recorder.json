@@ -84,6 +84,7 @@
                 ],
                 "max_bytes": 32768,
                 "include_request_body": true,
+                "max_request_body_bytes": 32768,
                 "skip_multipart": true
             },
             "payload_confidentiality_cleanup": {
@@ -217,6 +218,7 @@
         "ids_sensor.raw.enabled": true,
         "ids_sensor.raw.include_request_body": true,
         "ids_sensor.raw.max_bytes": 32768,
+        "ids_sensor.raw.max_request_body_bytes": 32768,
         "ids_sensor.raw.severities": [
             "warning",
             "critical"
@@ -332,7 +334,8 @@
             "synthetic": false,
             "arguments": [
                 "@ids_sensor.request_snapshot_registry",
-                "@ids_sensor.actor_factory"
+                "@ids_sensor.actor_factory",
+                "@ids_sensor.console_correlation"
             ],
             "tags": {
                 "container.hot_path": [
@@ -504,6 +507,42 @@
                     ]
                 ]
             ]
+        },
+        "ids_sensor.console_correlation": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\ConsoleCorrelation",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.correlation_id_factory"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.console_correlation_listener": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\ConsoleCorrelationListener",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.console_correlation"
+            ],
+            "tags": {
+                "container.no_preload": [
+                    [],
+                    []
+                ],
+                "kernel.event_subscriber": [
+                    []
+                ]
+            }
         },
         "ids_sensor.correlation_id_factory": {
             "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\CorrelationIdFactory",
@@ -1029,6 +1068,7 @@
                 "@ids_sensor.payload_confidentiality_cleanup.cleaner",
                 true,
                 true,
+                32768,
                 32768
             ],
             "tags": {

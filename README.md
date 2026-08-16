@@ -242,7 +242,7 @@ a diagram per concept. Written in German.
 | [Operations](doc/07-betrieb.md) | [Configuration](doc/08-konfiguration.md) | [Business layer](doc/09-business-ebene.md) |
 
 The full specification of both bundles — including the collector, its database schema and
-the detection rules — is [`doc/konzept-v1.md`](doc/konzept-v1.md).
+the detection rules — is [`doc/concept/concept-v1.md`](doc/concept/concept-v1.md).
 
 ## Public API and versioning
 
@@ -278,7 +278,7 @@ make test-redis  # against a real broker
 ```
 
 How `src/` is laid out and why — which namespace belongs to which section of the concept,
-and when its code runs — is documented in [`doc/struktur.md`](doc/struktur.md). Read it
+and when its code runs — is documented in [`doc/concept/structure.md`](doc/concept/structure.md). Read it
 before moving anything: the layout carries five promises that
 [`ArchitectureTest`](tests/Unit/ArchitectureTest.php) enforces.
 
