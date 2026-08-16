@@ -235,7 +235,7 @@
         "ids_sensor.session_hash.enabled": true,
         "ids_sensor.session_hash.framework_cookie_name": null,
         "ids_sensor.session_hash.key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
-        "ids_sensor.spool.dir": "/app/tests/Fixtures/var/ids-spool",
+        "ids_sensor.spool.dir": "<project_dir>/var/ids-spool",
         "ids_sensor.spool.drain_interval_s": 30,
         "ids_sensor.spool.drain_max_files_per_run": 2,
         "ids_sensor.spool.max_bytes": 16777216,
@@ -298,7 +298,7 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "/app/tests/Fixtures/var/ids-spool",
+                "<project_dir>/var/ids-spool",
                 "shop-api"
             ],
             "tags": {
@@ -1309,7 +1309,7 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "/app/tests/Fixtures/var/ids-spool",
+                "<project_dir>/var/ids-spool",
                 16777216,
                 4194304,
                 "@ids_sensor.logger",

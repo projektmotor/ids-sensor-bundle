@@ -39,7 +39,12 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: json, mbstring, redis, apcu
-          ini-values: apc.enable_cli=1
+          # memory_limit gleichgezogen mit docker/php/php.ini. setup-php legt
+          # php.ini-production zugrunde, und deren 128M reichen der Suite nicht: ein
+          # Integrationslauf bootet gut zwei Dutzend Container-Varianten und steht am Ende
+          # bei rund 150 MB. Das Limit riss den Lauf mit einem Fatal Error mitten aus der
+          # Suite — kein Testfehler, sondern ein abgeschnittener Prozess.
+          ini-values: apc.enable_cli=1, memory_limit=512M
           coverage: none
 
       # Erst nach dem Checkout, weil die ACL-Datei aus dem Repo kommt. Der Sensor
@@ -175,7 +180,10 @@ jobs:
           git archive --format=tar HEAD > /tmp/dist.tar
           echo "--- Inhalt des Dist-Archivs ---"
           tar -tf /tmp/dist.tar
-          for unerwuenscht in tests/ doc/ docker/ Makefile CLAUDE.md phpunit.xml.dist; do
+          # `doc/` steht bewusst NICHT in dieser Liste: es wird mit ausgeliefert, weil die
+          # README elfmal dorthin verweist — Begründung in .gitattributes, durchgesetzt von
+          # DocumentationTest::testNoLinkedDirectoryIsExcludedFromTheDistArchive().
+          for unerwuenscht in tests/ docker/ Makefile CLAUDE.md phpunit.xml.dist; do
             if tar -tf /tmp/dist.tar | grep -q "^${unerwuenscht}"; then
               echo "FEHLER: ${unerwuenscht} wird mit ausgeliefert — export-ignore fehlt in .gitattributes"
               exit 1

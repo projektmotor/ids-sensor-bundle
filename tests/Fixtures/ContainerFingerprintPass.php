@@ -59,6 +59,15 @@ final class ContainerFingerprintPass implements CompilerPassInterface
     private const EXCLUDED = 'ProjektMotor\\IdsSensor\\Tests\\';
 
     /**
+     * Steht im Abdruck anstelle des Projektverzeichnisses.
+     *
+     * Bewusst keine Symfony-Parameter-Schreibweise (`%kernel.project_dir%`): der Wert IST
+     * an dieser Stelle bereits aufgelöst, und eine Prozentschreibweise läse sich wie ein
+     * Parameter, der versehentlich unaufgelöst blieb.
+     */
+    private const PROJECT_DIR_PLACEHOLDER = '<project_dir>';
+
+    /**
      * Fremde IDs, deren Auflösung mitprotokolliert wird.
      *
      * Jede davon ist eine Stelle, an der eine Typauflösung etwas anderes liefert als die
@@ -147,6 +156,19 @@ final class ContainerFingerprintPass implements CompilerPassInterface
         foreach ($fingerprint as &$section) {
             ksort($section);
         }
+
+        unset($section);
+
+        $projectDir = $container->getParameterBag()->get('kernel.project_dir');
+
+        // Kein stiller Rückfall auf den Leerstring: der wäre eine Suchzeichenkette, die
+        // nichts trifft, und die Maskierung wäre lautlos abgeschaltet — genau die
+        // Fehlerklasse, gegen die dieser Abdruck antritt.
+        if (!\is_string($projectDir)) {
+            throw new \LogicException('kernel.project_dir ist keine Zeichenkette — der Abdruck kann den Pfad nicht maskieren.');
+        }
+
+        $fingerprint = self::maskProjectDir($fingerprint, $projectDir);
 
         $directory = \dirname($this->file);
 
@@ -244,6 +266,33 @@ final class ContainerFingerprintPass implements CompilerPassInterface
 
         if (\is_object($value)) {
             return get_debug_type($value);
+        }
+
+        return $value;
+    }
+
+    /**
+     * Ersetzt das Projektverzeichnis durch einen Platzhalter.
+     *
+     * Der Abdruck hält die VERDRAHTUNG fest, nicht den Ort des Checkouts. Ohne diese
+     * Maskierung trägt er absolute Pfade — `ids_sensor.spool.dir` ist aus
+     * `kernel.project_dir` zusammengesetzt und lautete im Entwickler-Container
+     * `/app/tests/Fixtures/var/ids-spool`. Alle 15 Referenzdateien banden damit an genau
+     * ein Arbeitsverzeichnis: auf einem CI-Runner (`/home/runner/work/...`) und bei jedem
+     * Mitwirkenden, der das Repository woanders auscheckt, schlugen sie fehl — mit einem
+     * Unterschied, der wie eine geänderte Verdrahtung aussieht, aber keine ist.
+     */
+    private static function maskProjectDir(mixed $value, string $projectDir): mixed
+    {
+        if (\is_string($value)) {
+            return str_replace($projectDir, self::PROJECT_DIR_PLACEHOLDER, $value);
+        }
+
+        if (\is_array($value)) {
+            return array_map(
+                static fn (mixed $item): mixed => self::maskProjectDir($item, $projectDir),
+                $value,
+            );
         }
 
         return $value;

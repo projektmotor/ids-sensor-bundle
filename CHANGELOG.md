@@ -18,6 +18,30 @@ Befunde sind stille Erkennungsausfälle, und zwei davon standen im Changelog zu 
 bereits als erledigt — siehe „Berichtigt" am Ende dieses Abschnitts. Jede
 Verhaltensänderung trägt einen Test, der ohne sie fehlschlägt.
 
+### Fixed — die CI lief seit ihrem ersten Durchlauf rot
+
+Kein Lauf des Workflows war je grün. Drei Ursachen, alle in der Testumgebung und keine im
+ausgelieferten Code — die statische Analyse war durchgehend grün:
+
+- **`memory_limit`.** `shivammathur/setup-php` legt `php.ini-production` zugrunde, also
+  128 MB. Ein Integrationslauf steht am Ende bei rund 150 MB und wurde deshalb mitten aus
+  der Suite mit einem Fatal Error abgeschnitten — das sah nach einem Testfehler aus, war
+  aber ein abgebrochener Prozess. Der Workflow zieht den Wert jetzt mit
+  `docker/php/php.ini` gleich (512 MB); im Entwickler-Container stand er immer schon dort,
+  weshalb lokal nichts auffiel.
+- **Die Container-Abdrücke banden an ein Arbeitsverzeichnis.** `ids_sensor.spool.dir` ist
+  aus `kernel.project_dir` zusammengesetzt, und der Pfad landete wörtlich in allen 15
+  Referenzdateien — als `/app/...`, dem Pfad im Entwickler-Container. Auf dem Runner liegt
+  das Repository unter `/home/runner/work/...`, also schlugen alle 15 Varianten fehl, mit
+  einem Unterschied, der wie eine geänderte Verdrahtung aussieht. `ContainerFingerprintPass`
+  maskiert das Projektverzeichnis jetzt als `<project_dir>`. Das traf nicht nur die CI:
+  jeder Mitwirkende außerhalb von `/app` sah dieselben 15 Fehlschläge.
+- **Die Prüfung des Dist-Archivs führte `doc/` als unerwünscht.** Sie stammt aus der Zeit,
+  als `/doc` auf `export-ignore` stand. Seit der Wiederaufnahme — die README verweist
+  elfmal dorthin, siehe `.gitattributes` — widersprach der Workflow einer Zusage, die
+  `DocumentationTest::testNoLinkedDirectoryIsExcludedFromTheDistArchive()` aktiv
+  durchsetzt. Der Job scheiterte damit an der richtigen Auslieferung.
+
 ### Changed — Konzept und Dokumentationsreihe gegeneinander abgeglichen
 
 Ein Abgleich von `doc/concept/concept-v1.md`, der Reihe `doc/01`–`doc/09` und dem Quellcode hat 22
