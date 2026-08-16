@@ -13,7 +13,13 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
-Nichts.
+### Documented — was `heartbeat.interval_s: 0` bedeutet
+
+Dass die 0 das automatische Senden einstellt, stand nur im Docblock eines Unit-Tests;
+`doc/08` sagte „Drosselungsintervall". Dort steht jetzt, wie sich die drei Wege
+unterscheiden, den Heartbeat leiser zu stellen — `enabled: false`, `interval_s: 0` und
+`mode: command` bedeuten für den Collector Verschiedenes. `ids:sensor:heartbeat --force`
+sendet weiterhin; die Option sagt ausdrücklich, dass sie das Intervall übergeht.
 
 ## [0.1.1] — 2026-08-16
 

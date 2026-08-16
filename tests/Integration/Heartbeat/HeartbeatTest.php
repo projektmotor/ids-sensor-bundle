@@ -7,6 +7,7 @@ namespace ProjektMotor\IdsSensor\Tests\Integration\Heartbeat;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Emitter;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
+use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\Heartbeat;
 use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
@@ -303,6 +304,41 @@ final class HeartbeatTest extends IntegrationTestCase
         }
 
         return $heartbeats;
+    }
+
+    /**
+     * Bei offenem Breaker findet KEIN Verbindungsversuch statt — auch nicht für ein
+     * Lebenszeichen.
+     *
+     * Der Zweig ist der einzige des Emitters, der bislang nur indirekt geprüft war. Er
+     * ist heikler, als er aussieht: Der Heartbeat ist die Stelle, an der ein Sensor
+     * meldet, dass es ihn gibt. Ihn bei offenem Breaker zu unterdrücken, heißt, dass der
+     * Collector während eines Broker-Ausfalls `ids.sensor_silent` meldet — richtig, denn
+     * er hört tatsächlich nichts mehr. Falsch wäre, es NICHT zu zählen: Dann sähe der
+     * Ausfall aus wie ein toter Sensor, und niemand könnte die beiden unterscheiden.
+     */
+    public function testAnOpenBreakerSuppressesTheHeartbeatButCountsIt(): void
+    {
+        $kernel = $this->boot('breaker-offen', ['circuit_breaker' => ['failure_threshold' => 1, 'open_for_s' => 30]]);
+        $services = $this->services($kernel);
+
+        /** @var CircuitBreaker $breaker */
+        $breaker = $services->get('ids_sensor.circuit_breaker');
+        $breaker->recordFailure();
+
+        self::assertTrue($breaker->isOpen(), 'Vorbedingung: der Breaker ist offen');
+
+        /** @var Emitter $emitter */
+        $emitter = $services->get('ids_sensor.heartbeat.emitter');
+        /** @var Counters $counters */
+        $counters = $services->get('ids_sensor.counters');
+        /** @var Scheduler $scheduler */
+        $scheduler = $services->get('ids_sensor.heartbeat.scheduler');
+
+        self::assertFalse($emitter->emit(Mode::Command));
+        self::assertSame([], $this->heartbeats($services), 'Kein Versuch heißt: nichts auf der Leitung');
+        self::assertSame(1, $counters->get(Counters::HEARTBEAT_FAILED), 'Aber gezählt — sonst ist der Ausfall unsichtbar');
+        self::assertNull($scheduler->lastSentAt(), 'Und kein Stempel, damit der nächste Lauf es erneut versucht');
     }
 
     /**

@@ -270,8 +270,22 @@ Die Zustandsübergänge stehen in
 |---|---|---|
 | `enabled` | `true` | |
 | `mode` | `auto` | `auto` · `request` · `command` · `off` |
-| `interval_s` | `60` | Drosselungsintervall |
+| `interval_s` | `60` | Drosselungsintervall; **`0` stellt das automatische Senden ein** |
 | `stamp_file` | `null` | Rückfallablage neben APCu |
+
+**Drei Wege, den Heartbeat leiser zu stellen — sie bedeuten Verschiedenes:**
+
+| Einstellung | Wirkung | Was der Collector sieht |
+|---|---|---|
+| `enabled: false` | Die Dienste werden gar nicht erst registriert | Dauerhaft `ids.sensor_silent` |
+| `interval_s: 0` | Dienste bleiben, es wird nichts mehr von selbst gesendet | Dauerhaft `ids.sensor_silent` |
+| `mode: command` | Nur der cron sendet, der Request-Pfad nicht | Nichts, **solange der cron läuft** |
+
+`interval_s: 0` ist damit ein Abschaltweg und keine Drosselung auf „so oft wie möglich".
+`ids:sensor:heartbeat --force` sendet weiterhin — die Option sagt ausdrücklich, dass sie
+das Intervall übergeht, und wer sie tippt, will senden. Für einen dauerhaft stillen
+Sensor ist `enabled: false` der ehrlichere Weg: Er entfernt die Dienste, statt sie
+wirkungslos mitlaufen zu lassen.
 
 Details in [07 — Betrieb](07-betrieb.md#der-heartbeat-ist-nicht-optional).
 

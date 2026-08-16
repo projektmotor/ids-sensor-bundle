@@ -76,6 +76,30 @@ final class HeartbeatCommandTest extends TestCase
     }
 
     /**
+     * `interval_s: 0` stellt das automatische Senden ein — `--force` übergeht es.
+     *
+     * Die Bedeutung stand bis zuletzt NUR im Docblock eines Unit-Tests. In `doc/08`
+     * hieß es „Drosselungsintervall", und ein Betreiber erfuhr nirgends, dass die 0
+     * ein Abschaltweg ist und wie er sich von `enabled: false` unterscheidet. Beides
+     * steht jetzt dort, und dieser Test hält es fest.
+     */
+    public function testAnIntervalOfZeroStopsAutomaticSendingButNotForce(): void
+    {
+        $ohneForce = $this->heartbeat('interval-null', ['heartbeat' => ['interval_s' => 0]]);
+
+        self::assertSame(Command::SUCCESS, $ohneForce->getStatusCode(), 'Abgeschaltet ist kein Fehler');
+        self::assertStringContainsString('Noch nicht fällig', $ohneForce->getDisplay());
+
+        $mitForce = $this->heartbeat('interval-null-force', ['heartbeat' => ['interval_s' => 0]], ['--force' => true]);
+
+        self::assertStringContainsString(
+            'Heartbeat gesendet',
+            $mitForce->getDisplay(),
+            '--force sagt ausdrücklich, dass es das Intervall übergeht — wer es tippt, will senden',
+        );
+    }
+
+    /**
      * @param array<string, mixed> $overrides
      * @param array<string, mixed> $input
      */
