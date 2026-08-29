@@ -11,7 +11,7 @@ use Symfony\Component\Uid\Uuid;
  * Erzeugt die correlation_id.
  *
  * Konzept Abschnitt 3 führt correlation_id als Pflichtfeld, Konzept 6.3 (offener
- * Punkt B6) lässt aber offen, wer sie erzeugt und ob eine vorhandene Request-ID eines
+ * Punkt OB6) lässt aber offen, wer sie erzeugt und ob eine vorhandene Request-ID eines
  * Reverse-Proxy übernommen wird. Diese Umsetzung entscheidet: selbst erzeugen,
  * Übernahme nur ausdrücklich eingeschaltet.
  *

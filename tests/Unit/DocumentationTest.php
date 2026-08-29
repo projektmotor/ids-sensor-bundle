@@ -87,6 +87,14 @@ final class DocumentationTest extends TestCase
      * enthält die Zeichenkette „sampl" gerade NICHT, weshalb eine Suche nach „sampling"
      * fünf Fundstellen übersah.
      *
+     * Der letzte Eintrag bewacht keinen Begriff, sondern eine Kennung. Konzept 6 hat die
+     * offenen Betriebspunkte von `B*` auf `OB*` umbenannt, weil `B1`–`B10` mit den
+     * Batch-Regeln aus 4.3.2 kollidierten. Zwei Verweise blieben trotzdem stehen — einer
+     * in `doc/06`, einer im Docblock von {@see \ProjektMotor\IdsSensor\Sensor\Context\CorrelationIdFactory} —
+     * und zeigten danach lautlos auf eine Regel statt auf den gemeinten Punkt. Genau die
+     * Verwechslung, gegen die die Umbenennung gemacht war. Das Konzept selbst steht in
+     * {@see self::AUSGENOMMEN}: Es muss beide Kennungen nennen dürfen.
+     *
      * @var array<string, string>
      */
     private const ABGESCHAFFT = [
@@ -97,6 +105,7 @@ final class DocumentationTest extends TestCase
         '\binstance_id\b' => 'Heißt seit Fassung 2 sensor_id (Konzept 1).',
         '\benvironment_(map|fallback)\b' => 'Ersatzlos entfallen; der Collector vergibt environment_id (Konzept 2.2.1).',
         '\bdiscarded_(full|unwritable|unencodable)\b' => 'Heißt dropped_* und steht bei den Zählern (Konzept 3.4).',
+        'Punkte?\s+\*{0,2}B\d+' => 'Offene Punkte heißen seit der Umbenennung OB*; B\d sind die Batch-Regeln aus Konzept 4.3.2.',
     ];
 
     /**

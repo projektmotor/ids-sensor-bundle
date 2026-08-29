@@ -220,7 +220,7 @@ Formular, nicht weniger. Der offene Punkt zum Datenschutz unten wird dadurch gr�
 `raw` enthält personenbezogene Daten. Die Entscheidung, Datenschutzaspekte dort nachrangig
 zu behandeln, ist im Konzept bewusst getroffen (Priorität auf forensische Vollständigkeit)
 und **vor einem produktiven Einsatz mit echten Nutzerdaten erneut zu prüfen** — betroffen
-sind Rechtsgrundlage, Aufbewahrungsfristen und Auskunftsfähigkeit. Offener Punkt B8 in
+sind Rechtsgrundlage, Aufbewahrungsfristen und Auskunftsfähigkeit. Offener Punkt OB8 in
 (*6.3*).
 
 Wer `raw` ganz vermeiden will: `raw.enabled: false`. Wer nur den sensibelsten Teil

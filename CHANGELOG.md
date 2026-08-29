@@ -13,6 +13,25 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Fixed — Zwei Verweise zeigten auf die falsche Kennung
+
+Konzept 6 hat die offenen Betriebspunkte von `B*` auf `OB*` umbenannt, weil `B1`–`B10`
+mit den Batch-Regeln aus 4.3.2 kollidierten. Die Kollision war nicht theoretisch — die
+Umbenennung selbst begründet sich mit einem Verweis, der `B1` als Scanning-Regel las
+statt als Teststrategie. Zwei Verweise blieben trotzdem in der alten Form stehen und
+zeigten seitdem lautlos auf eine Regel:
+
+| Stelle | vorher | gemeint |
+|---|---|---|
+| `doc/06-vertraulichkeit.md` | „Offener Punkt **B8**" | `OB8` — die Datenschutz-Entscheidung |
+| `Sensor\Context\CorrelationIdFactory` (Docblock) | „offener Punkt **B6**" | `OB6` — die `correlation_id`-Erzeugung |
+
+Beides sind Verweise, die sich nicht als Fehler bemerkbar machen: Sie lesen sich richtig
+und führen zum falschen Absatz. `DocumentationTest::ABGESCHAFFT` bewacht die Form jetzt
+über `doc/` und `src/` hinweg — der bestehende Mechanismus trug den Eintrag ohne neue
+Testmethode. Ausgenommen bleibt das Konzept selbst: Es muss beide Kennungen nennen
+dürfen, um die Umbenennung überhaupt begründen zu können.
+
 ### Fixed — Tiefenabgleich Konzept ↔ Quellcode ↔ Dokumentation
 
 Ein vollständiger Abgleich der drei Parteien hat 16 Abweichungen in fünf Gruppen ergeben.
