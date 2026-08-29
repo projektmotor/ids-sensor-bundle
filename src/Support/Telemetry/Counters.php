@@ -99,15 +99,6 @@ final class Counters
     /** Verworfen, weil auch der Spool nichts mehr aufnehmen konnte. */
     public const DROPPED_SPOOL_FULL = 'dropped_spool_full';
 
-    /**
-     * Absichtlich weggesampelte Events (Konzept 4.2.3).
-     *
-     * Auch ein gewollter Verlust wird gezählt. Ohne diesen Zähler wäre eine zu niedrig
-     * gesetzte info_rate von einem Sensordefekt nicht zu unterscheiden — man sähe nur, dass
-     * weniger ankommt als erwartet.
-     */
-    public const DROPPED_SAMPLING = 'dropped_sampling';
-
     /** Versand fehlgeschlagen (Broker nicht erreichbar, ACL, Timeout). */
     public const SHIP_FAILED = 'ship_failed';
 

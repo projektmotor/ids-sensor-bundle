@@ -24,7 +24,7 @@ final class CountersTest extends TestCase
     {
         $counters = new Counters();
 
-        self::assertSame(0, $counters->get(Counters::DROPPED_SAMPLING));
+        self::assertSame(0, $counters->get(Counters::DROPPED_BUFFER_FULL));
         self::assertSame([], $counters->all(), 'Ein nie berührter Zähler steht nicht im Frame');
     }
 

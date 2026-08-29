@@ -11,18 +11,30 @@ use Symfony\Contracts\Service\ResetInterface;
  * Bildet actor.session_id_hash nach Konzept 2.2.4 — Bildung der
  * Sitzungskontext-Felder.
  *
- * Zwei Eigenschaften sind hier wesentlich und beide leicht falsch zu machen:
+ * Die Session-ID wird NIEMALS im Klartext übertragen. Andernfalls wäre die
+ * Event-Datenbank selbst ein Session-Hijacking-Vektor und würde genau die
+ * Angriffsfläche vergrößern, die sie überwachen soll. Der Hash erfüllt den Zweck —
+ * Events derselben Sitzung über mehrere Requests hinweg verketten, Grundlage der
+ * Regeln B8/B9 — vollständig, ohne die Sitzung übernehmbar zu machen.
  *
- * 1. Die Session-ID wird NIEMALS im Klartext übertragen. Andernfalls wäre die
- *    Event-Datenbank selbst ein Session-Hijacking-Vektor und würde genau die
- *    Angriffsfläche vergrößern, die sie überwachen soll. Der HMAC erfüllt den Zweck
- *    — Events derselben Sitzung verketten — vollständig, ohne die Sitzung
- *    übernehmbar zu machen.
+ * WARUM EIN BLANKER SHA-256 UND KEIN HMAC
  *
- * 2. Der Schlüssel ist ein eigener IDS-Schlüssel und ausdrücklich NICHT APP_SECRET.
- *    Die überwachte Anwendung kennt APP_SECRET, ein Angreifer mit Codeausführung
- *    also auch — er könnte aus einer gestohlenen Event-Datenbank die Hashes
- *    nachrechnen und wäre wieder am Ausgangspunkt.
+ * Getragen wird die Einwegbeziehung von der Entropie der Session-ID, nicht von einem
+ * Schlüssel. PHP erzeugt vorgabemäßig 26 bis 32 Zeichen zu je 5 Bit, also 130 bis 160
+ * Bit — ein SHA-256 darüber ist nicht durchprobierbar. `ids:sensor:setup-check` prüft
+ * genau diese Voraussetzung, weil ohne Schlüssel alles daran hängt.
+ *
+ * Ein dedizierter HMAC-Schlüssel stand hier bis Fassung 2 und ist entfallen, weil seine
+ * beiden Begründungen nicht trugen. „Sonst lässt sich die ID zurückrechnen" gilt nur für
+ * schwache IDs, und gegen die hilft ein Schlüssel auch nicht — sie hätte dann in jedem
+ * Fall zu wenig Entropie. Und „die Anwendung kennt APP_SECRET" traf den IDS-Schlüssel
+ * genauso: Er steht in der Konfiguration derselben Anwendung, sonst könnte der Sensor
+ * nicht hashen. Gegen einen Angreifer mit Codeausführung — das Bedrohungsmodell aus
+ * Konzept Abschnitt 2 — wirkte er also nie. Er schützte allein gegen jemanden, der die
+ * Event-Datenbank hat, aber nicht die Anwendung, und kostete dafür den einzigen
+ * Kompilierzeit-Abbruch in einem fail-open-Bundle und einen Rotationsweg, den es nicht
+ * gab. Der Nachbar {@see ClientFingerprinter} hasht ohnehin ungeschlüsselt, und zwar
+ * über deutlich schwächere Entropie.
  *
  * Gelesen wird der Cookie-Wert, NICHT $request->getSession()->getId(). Der
  * Unterschied ist keine Feinheit: getSession() materialisiert die Lazy-Factory und
@@ -50,7 +62,6 @@ final class SessionIdHasher implements ResetInterface
     private ?string $memoHash = null;
 
     public function __construct(
-        private readonly ?string $key,
         private readonly ?string $cookieName = null,
         private readonly bool $enabled = true,
     ) {
@@ -58,7 +69,7 @@ final class SessionIdHasher implements ResetInterface
 
     public function forRequest(Request $request): ?string
     {
-        if (!$this->enabled || null === $this->key || '' === $this->key) {
+        if (!$this->enabled) {
             return null;
         }
 
@@ -79,7 +90,7 @@ final class SessionIdHasher implements ResetInterface
 
         $this->memoRawId = $rawId;
 
-        return $this->memoHash = hash_hmac('sha256', $rawId, $this->key);
+        return $this->memoHash = hash('sha256', $rawId);
     }
 
     /**
@@ -115,8 +126,8 @@ final class SessionIdHasher implements ResetInterface
      *
      * Ohne das überlebte die ID im KLARTEXT in einem Instanzfeld — in einer
      * Worker-Laufzeit (FrankenPHP, RoadRunner, Swoole) bis zum nächsten Request, der
-     * eine andere ID mitbringt. Genau die Klartext-Speicherung, die Punkt 1 im Docblock
-     * dieser Klasse als „niemals" bezeichnet, nur eine Ebene tiefer. Alle Nachbarn im
+     * eine andere ID mitbringt. Genau die Klartext-Speicherung, die der Docblock dieser
+     * Klasse als „niemals" bezeichnet, nur eine Ebene tiefer. Alle Nachbarn im
      * Erfassungspfad — {@see CaptureBudget}, {@see EventBuffer},
      * {@see RequestSnapshotRegistry} — setzen sich längst zurück; diese Klasse hatte es
      * am nötigsten und tat es als einzige nicht.
@@ -132,6 +143,6 @@ final class SessionIdHasher implements ResetInterface
 
     public function isEnabled(): bool
     {
-        return $this->enabled && null !== $this->key && '' !== $this->key;
+        return $this->enabled;
     }
 }

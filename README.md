@@ -133,8 +133,8 @@ return [
 
 ### Minimal configuration
 
-Four values are mandatory. The collector hands you the three UUIDs and the credentials
-when you register:
+Three identifiers and the collector credentials are mandatory. The collector hands you all
+of them when you register:
 
 ```yaml
 # config/packages/ids_sensor.yaml
@@ -142,8 +142,6 @@ ids_sensor:
     application_id: '%env(IDS_APPLICATION_ID)%'
     environment_id: '%env(IDS_ENVIRONMENT_ID)%'
     sensor_id: '%env(IDS_SENSOR_ID)%'
-    session_hash:
-        key: '%env(IDS_SESSION_HASH_KEY)%'
     collector:
         base_uri: '%env(IDS_COLLECTOR_URL)%'
         username: '%env(IDS_COLLECTOR_USER)%'
@@ -154,13 +152,6 @@ ids_sensor:
 share the identifier they are indistinguishable, and a silent sensor goes unnoticed. In
 Kubernetes all replicas of a Deployment share a ConfigMap — take this one from a per-pod
 secret or the Downward API instead.
-
-Generate the HMAC key — a **dedicated** one, at least 32 characters, deliberately *not*
-`APP_SECRET`:
-
-```bash
-php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'
-```
 
 Then verify the installation:
 

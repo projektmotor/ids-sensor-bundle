@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Integration\Command;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Command\Command;
@@ -179,7 +178,6 @@ final class SetupCheckCommandTest extends TestCase
             'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
             'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
             'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
             'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
         ], 'setup-check-ohne-spool-dir');
         $kernel->boot();
@@ -199,47 +197,32 @@ final class SetupCheckCommandTest extends TestCase
     }
 
     /**
-     * Die Prüfung, auf die die Compile-Zeit ausdrücklich verweist.
+     * Die Prüfung, die den entfallenen HMAC-Schlüssel ersetzt.
      *
-     * `IdsSensorBundle::assertSessionHashKeyIsUsable()` kann einen Schlüssel hinter einer
-     * Umgebungsvariable nicht bewerten — beim Kompilieren steht dort ein Platzhalter, nicht
-     * der Wert. Beide Kommentare dort verweisen für diesen Fall auf diesen Command;
-     * eingelöst war das nicht, geprüft wurde hier ausschließlich `session_hash.enabled`.
-     *
-     * Das traf genau den empfohlenen Weg: Die Fehlermeldung des Bundles und `doc/08:25`
-     * schlagen `key: '%env(IDS_SESSION_HASH_KEY)%'` vor. Wer der Empfehlung folgte, hatte
-     * WEDER die Längen- NOCH die APP_SECRET-Prüfung.
+     * `actor.session_id_hash` ist seit Fassung 2 ein blanker SHA-256 (Konzept 2.2.4).
+     * Damit trägt allein die Entropie der Session-ID, dass sich der Hash nicht
+     * durchprobieren lässt — und diese Voraussetzung wird nirgends sonst geprüft. Wer
+     * `session.sid_length` nach unten dreht, bekommt deshalb einen Befund und keinen
+     * Hinweis: Dieselbe Einstellung schwächt die Sitzungssicherheit der Anwendung mit.
      */
-    public function testAShortKeyBehindAnEnvPlaceholderIsAFinding(): void
+    public function testAWeakSessionIdEntropyIsAFinding(): void
     {
-        $tester = $this->setupCheckMitSchluessel('kurz-env', 'geheim');
+        $tester = $this->setupCheckMitSessionEntropie('schwache-id', laenge: 22, bitsJeZeichen: 4);
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode(), $tester->getDisplay());
-        self::assertStringContainsString('mindestens 32', $tester->getDisplay());
+        self::assertStringContainsString('88 Bit Entropie', $tester->getDisplay());
     }
 
     /**
-     * APP_SECRET als IDS-Schlüssel öffnet genau den Session-Hijacking-Vektor, den das
-     * Hashen verhindern soll — die überwachte Anwendung kennt APP_SECRET, ein Angreifer
-     * mit Codeausführung also auch (Konzept 2.2.4).
+     * Die PHP-Vorgaben müssen grün bleiben — sonst beschwert sich der Deploy-Check über
+     * eine Einstellung, die niemand vorgenommen hat.
      */
-    public function testAKeyIdenticalToAppSecretBehindAnEnvPlaceholderIsAFinding(): void
+    public function testTheDefaultSessionIdEntropyIsGreen(): void
     {
-        $tester = $this->setupCheckMitSchluessel('secret-env', 'test-app-secret');
-
-        self::assertSame(Command::FAILURE, $tester->getStatusCode(), $tester->getDisplay());
-        self::assertStringContainsString('identisch mit APP_SECRET', $tester->getDisplay());
-    }
-
-    /**
-     * Ein tragfähiger Schlüssel hinter einer Umgebungsvariable bleibt grün — sonst wäre
-     * die Prüfung ein Ärgernis statt einer Hilfe.
-     */
-    public function testAViableKeyBehindAnEnvPlaceholderIsGreen(): void
-    {
-        $tester = $this->setupCheckMitSchluessel('gut-env', IntegrationTestCase::SESSION_KEY);
+        $tester = $this->setupCheckMitSessionEntropie('starke-id', laenge: 32, bitsJeZeichen: 5);
 
         self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertStringNotContainsString('Bit Entropie', $tester->getDisplay());
     }
 
     /**
@@ -293,18 +276,22 @@ final class SetupCheckCommandTest extends TestCase
     }
 
     /**
-     * Der Schlüssel kommt über eine Umgebungsvariable — nur so entsteht die Lage, für die
-     * es die Laufzeitprüfung gibt.
+     * Setzt die beiden ini-Werte, aus denen der Command die Entropie rechnet, und stellt
+     * sie danach wieder her — sonst trüge der nächste Test die Einstellung mit.
      */
-    private function setupCheckMitSchluessel(string $variant, string $schluessel): CommandTester
+    private function setupCheckMitSessionEntropie(string $variant, int $laenge, int $bitsJeZeichen): CommandTester
     {
-        $variable = 'IDS_TEST_HASH_KEY_'.strtoupper(str_replace('-', '_', $variant));
-        $_ENV[$variable] = $schluessel;
+        $vorherLaenge = \ini_get('session.sid_length');
+        $vorherBits = \ini_get('session.sid_bits_per_character');
+
+        ini_set('session.sid_length', (string) $laenge);
+        ini_set('session.sid_bits_per_character', (string) $bitsJeZeichen);
 
         try {
-            return $this->setupCheck($variant, ['session_hash' => ['key' => '%env('.$variable.')%']]);
+            return $this->setupCheck($variant);
         } finally {
-            unset($_ENV[$variable]);
+            ini_set('session.sid_length', false === $vorherLaenge ? '32' : $vorherLaenge);
+            ini_set('session.sid_bits_per_character', false === $vorherBits ? '4' : $vorherBits);
         }
     }
 
@@ -318,7 +305,6 @@ final class SetupCheckCommandTest extends TestCase
             'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
             'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
             'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
             'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir, 'drain_interval_s' => 30],
         ], $overrides), 'setup-check-'.$variant);

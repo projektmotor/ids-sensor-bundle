@@ -13,6 +13,79 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Breaking — Sampling entfällt, der Sitzungshash kommt ohne Schlüssel aus
+
+Die acht zurückgestellten Befunde der Tiefenprüfung sind eingearbeitet (Konzept 2.2.4, 2.3,
+3.7, 4.2.1–4.2.4, 4.3, 4.3.5, 4.5.3, 6.2). Zwei davon lösen sich durch eine Entscheidung
+auf statt durch eine Ergänzung — nur diese beiden berühren den Quellcode.
+
+**Die Konfigurationsfläche schrumpft, und alle `ids_sensor`-Schlüssel gehören zur
+öffentlichen API:**
+
+| entfällt | Ersatz |
+|---|---|
+| `sampling.info_rate` | keiner — siehe unten |
+| `sampling.keep_if_request_relevant` | keiner |
+| `session_hash.key` | keiner; es gibt keinen Schlüssel mehr |
+| `session_hash.min_key_length` | keiner |
+
+Wer einen der vier Schlüssel gesetzt hat, bekommt beim Kompilieren eine Meldung über eine
+unbekannte Option — kein stilles Ignorieren.
+
+**Sampling ist vollständig entfernt (Befund S-1).** `Delivery\Dispatch\CoherentInfoSampler`,
+der Zähler `dropped_sampling` und das Ereignisfeld `sampling_rate` fallen weg. Der Grund:
+Eine Rate lässt sich hochrechnen, ein verpasster Signaturtreffer nicht. Bei R2b und X4 gibt
+es keinen Schwellwert, den man hochrechnen könnte — und ausgerechnet dort liegt der Treffer
+auf einem 200er, sodass der ganze Request nur aus `info` besteht und `keep_if_request_relevant`
+nicht greift. Die **bestätigte Exposition**, der schwerwiegendste Befund des Konzepts, wäre
+also genau der gewesen, den Sampling verschluckt. Der einzige Gegenschnitt, der ohne die
+collectorseitige Pfad-Wissensbasis auskäme („nie sampeln, was keine aufgelöste Route trifft"),
+hilft dort ebenfalls nicht: Ein erreichbarer `/_profiler` bedeutet, dass `WebProfilerBundle`
+geladen ist — die Route löst auf.
+
+Als Stellräder gegen Volumen bleiben `layers.security.access_decision`,
+`layers.security.capture_granted` und `layers.kernel.ignored_paths`. Alle drei nehmen etwas
+**Benanntes** weg; Sampling nahm einen zufälligen Anteil von allem weg.
+
+**`actor.session_id_hash` ist jetzt ein ungeschlüsselter SHA-256 (Befund S-5).** Der
+dedizierte HMAC-Schlüssel ist entfallen, weil beide Begründungen nicht trugen: „Sonst lässt
+sich die ID zurückrechnen" gilt nur für schwache IDs (PHP erzeugt vorgabemäßig 130–160 Bit),
+und „die Anwendung kennt `APP_SECRET`" traf den IDS-Schlüssel genauso — er steht in
+derselben Konfiguration, sonst könnte der Sensor nicht hashen. Gegen einen Angreifer mit
+Codeausführung wirkte er nie.
+
+Damit fällt der **einzige Kompilierzeit-Abbruch** dieses Bundles weg: Es ist zur Laufzeit
+durchgängig fail-open. An die Stelle der Schlüsselprüfung tritt in `ids:sensor:setup-check`
+eine Prüfung der Session-ID-Entropie (`session.sid_length × session.sid_bits_per_character`,
+Untergrenze 128 Bit) — ein Befund mit Rückgabewert 1. Und die Frage nach einem
+Rotationsweg, die S-5 überhaupt aufwarf, entfällt mit dem Schlüssel.
+
+> **Beim Update ändert sich jeder `actor_session_hash` einmalig.** B8 und B9 sehen für die
+> Dauer der längsten laufenden Sitzung einen Sitzungswechsel, wo keiner ist. Das ist
+> derselbe Effekt, den eine Schlüsselrotation gehabt hätte — nur einmal statt bei jeder
+> Rotation.
+
+**`capture_granted` war falsch dokumentiert.** `doc/04`, `doc/08` und der Konfigurationsbaum
+sagten, `false` koste die Positivpfad-Regeln. Das stimmt nicht: P1/P2 lesen `kernel.response`
+mit 200, P3 Business-Events — keine liest die Voter-Entscheidung. Es kostet keine heutige
+Regel, aber die Historie für den neuen offenen Punkt E6 (Befund S-2).
+
+**Abhängigkeit:** `projektmotor/ids-event-data` steigt auf `^0.3.0` — dort entfallen
+`EventSchema::FIELD_SAMPLING_RATE`, `NormalizedEvent::$samplingRate` und
+`withSamplingRate()`. **`schema_version` bleibt bei 2:** Ein optionales Feld zu entfernen,
+dessen Fehlen bereits „nicht gesampelt, Faktor 1" bedeutete, ist nach den Bump-Regeln
+additiv — die Regel ist in Konzept 3.7 jetzt ausgeschrieben.
+
+**Nur im Konzept, ohne Codeanteil:** `granted`-Entscheidungen bekommen ihren benannten
+Zustand samt offenem Punkt E6 (S-2); gefälschte Events gegen Dritte sind als verbindliche
+Randbedingung von E5 geführt (S-3); die Anomalieschwelle bekommt Mindestfallzahl,
+Streuungsuntergrenze und Median/MAD als Alternative, und `metric_baselines.sample_count`
+bekommt endlich einen Zweck (S-4); der GIN-Index auf `payload` weicht Ausdrucksindizes, weil
+`jsonb_ops` `->>`-Vergleiche nachweislich nicht bedient (P-1); `events_info` bekommt einen
+eigenen, kleineren Indexsatz mit benanntem Leser je Index (P-2); `realtime_counters` bekommt
+`fillfactor = 70` und ein eigenes Autovacuum, weil beim Fensterwechsel kein HOT-Update mehr
+möglich ist (P-4).
+
 ### Breaking — Umsetzung: REST-Transport, drei UUID-Kennungen, schema_version 2
 
 Der Quellcode zieht das Konzept nach. Die beiden vorherigen Einträge beschreiben die

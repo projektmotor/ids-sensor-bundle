@@ -167,7 +167,7 @@ final class AccessDecisionSensorSignatureTest extends TestCase
             new CapturedEventBinder(
                 new RequestSnapshotRegistry(),
                 new ActorFactory(
-                    new SessionIdHasher(null, null, false),
+                    new SessionIdHasher(null, false),
                     new ClientFingerprinter(enabled: false),
                     $tokenStorage,
                 ),

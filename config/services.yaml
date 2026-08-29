@@ -146,21 +146,7 @@ services:
             $config: '%ids_sensor.config%'
             $spool: '@ids_sensor.spool'
             $heartbeatScheduler: '@?ids_sensor.heartbeat.scheduler'
-            # Die AUFGELÖSTEN Werte. Genau darin liegt der Zweck: Die Prüfungen in
-            # IdsSensorBundle::assertSessionHashKeyIsUsable() überspringen jeden Schlüssel
-            # mit %env()%-Platzhalter — er ist beim Kompilieren noch nicht aufgelöst — und
-            # verweisen dafür auf diesen Command. Hier steht der Wert, den der HMAC
-            # tatsächlich benutzt.
-            $sessionHashKey: '%ids_sensor.session_hash.key%'
             $sessionCookieName: '%ids_sensor.session_hash.cookie_name%'
-            $appSecret: '%kernel.secret%'
-
-    # Volumen-Stellrad aus Konzept 4.2.3. Bei der Vorgabe 1.0 wird nicht einmal gezogen.
-    ids_sensor.sampler:
-        class: ProjektMotor\IdsSensor\Delivery\Dispatch\CoherentInfoSampler
-        arguments:
-            $infoRate: '%ids_sensor.sampling.info_rate%'
-            $keepIfRequestRelevant: '%ids_sensor.sampling.keep_if_request_relevant%'
 
     # Entscheidet über Broker oder Spool. Bewusst NICHT lazy und ohne Arbeit im
     # Konstruktor: der Dienst wird vom FlushListener in kernel.terminate angefordert,
@@ -187,7 +173,6 @@ services:
             $counters: '@ids_sensor.counters'
             $deferredCounters: '@ids_sensor.deferred_counters'
             $latencyRecorder: '@ids_sensor.latency_recorder'
-            $sampler: '@ids_sensor.sampler'
 
     # Flush auf kernel.terminate — NACH dem Absenden der Antwort. Zusätzlich auf
     # console.terminate und nach jeder Worker-Nachricht, weil dort kein terminate feuert.

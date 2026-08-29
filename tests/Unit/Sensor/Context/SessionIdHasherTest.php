@@ -11,15 +11,13 @@ use Symfony\Component\HttpFoundation\Request;
 
 final class SessionIdHasherTest extends TestCase
 {
-    private const KEY = 'ein-dedizierter-ids-schluessel-mit-32-zeichen';
-
     private const SESSION_ID = 'abc123def456ghi789';
 
-    public function testBuildsHmacOverTheCookieValue(): void
+    public function testBuildsSha256OverTheCookieValue(): void
     {
         $hash = $this->hasher()->forRequest($this->requestWithSession(self::SESSION_ID));
 
-        self::assertSame(hash_hmac('sha256', self::SESSION_ID, self::KEY), $hash);
+        self::assertSame(hash('sha256', self::SESSION_ID), $hash);
         self::assertSame(64, \strlen((string) $hash), 'SHA256 als Hex sind 64 Zeichen');
     }
 
@@ -34,21 +32,6 @@ final class SessionIdHasherTest extends TestCase
 
         self::assertNotNull($hash);
         self::assertStringNotContainsString(self::SESSION_ID, $hash);
-    }
-
-    /**
-     * Der zweite Teil derselben Zusage: der Schlüssel ist ein eigener und
-     * ausdrücklich NICHT APP_SECRET. Verschiedene Schlüssel müssen verschiedene
-     * Hashes ergeben — sonst wäre der Schlüssel wirkungslos.
-     */
-    public function testDifferentKeysYieldDifferentHashes(): void
-    {
-        $request = $this->requestWithSession(self::SESSION_ID);
-
-        $a = (new SessionIdHasher('schluessel-a-mit-ausreichender-laenge'))->forRequest($request);
-        $b = (new SessionIdHasher('schluessel-b-mit-ausreichender-laenge'))->forRequest($request);
-
-        self::assertNotSame($a, $b);
     }
 
     /**
@@ -143,15 +126,7 @@ final class SessionIdHasherTest extends TestCase
 
     public function testDisabledReturnsNull(): void
     {
-        $hasher = new SessionIdHasher(self::KEY, 'PHPSESSID', enabled: false);
-
-        self::assertNull($hasher->forRequest($this->requestWithSession(self::SESSION_ID)));
-        self::assertFalse($hasher->isEnabled());
-    }
-
-    public function testAMissingKeyReturnsNull(): void
-    {
-        $hasher = new SessionIdHasher(null);
+        $hasher = new SessionIdHasher('PHPSESSID', enabled: false);
 
         self::assertNull($hasher->forRequest($this->requestWithSession(self::SESSION_ID)));
         self::assertFalse($hasher->isEnabled());
@@ -162,9 +137,9 @@ final class SessionIdHasherTest extends TestCase
         $request = Request::create('/');
         $request->cookies->set('MEINE_SESSION', self::SESSION_ID);
 
-        $hasher = new SessionIdHasher(self::KEY, 'MEINE_SESSION');
+        $hasher = new SessionIdHasher('MEINE_SESSION');
 
-        self::assertSame(hash_hmac('sha256', self::SESSION_ID, self::KEY), $hasher->forRequest($request));
+        self::assertSame(hash('sha256', self::SESSION_ID), $hasher->forRequest($request));
     }
 
     /**
@@ -191,7 +166,7 @@ final class SessionIdHasherTest extends TestCase
 
     private function hasher(): SessionIdHasher
     {
-        return new SessionIdHasher(self::KEY, 'PHPSESSID');
+        return new SessionIdHasher('PHPSESSID');
     }
 
     private function requestWithSession(string $sessionId): Request

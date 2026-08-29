@@ -69,7 +69,7 @@ final class ActorFactoryTest extends TestCase
     private function factory(): ActorFactory
     {
         return new ActorFactory(
-            new SessionIdHasher(null, null, false),
+            new SessionIdHasher(null, false),
             new ClientFingerprinter(),
         );
     }

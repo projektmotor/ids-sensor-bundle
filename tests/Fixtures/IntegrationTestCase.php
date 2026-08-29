@@ -22,15 +22,6 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 abstract class IntegrationTestCase extends TestCase
 {
     /**
-     * Der Sitzungsschlüssel der Tests.
-     *
-     * Muss mindestens 32 Zeichen haben (ConfigurationTree) und darf laut Konzept 2.2.4
-     * ausdrücklich nicht APP_SECRET sein — IdsSensorBundle bricht sonst die
-     * Kompilierung ab. Stand vorher in siebzehn Dateien wörtlich.
-     */
-    public const SESSION_KEY = 'ein-dedizierter-ids-schluessel-mit-32-zeichen';
-
-    /**
      * Der Testcontainer, über den auch private Services erreichbar sind.
      *
      * Das Bundle registriert seine Dienste ausdrücklich als `public: false` — ohne

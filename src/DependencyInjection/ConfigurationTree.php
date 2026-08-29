@@ -108,7 +108,6 @@ final class ConfigurationTree
                 ->append(self::layersNode())
                 ->append(self::rawNode())
                 ->append(self::payloadConfidentialityCleanupNode())
-                ->append(self::samplingNode())
                 ->append(self::budgetNode())
                 ->append(self::flushNode())
                 ->append(self::collectorNode())
@@ -125,19 +124,9 @@ final class ConfigurationTree
         $node = new ArrayNodeDefinition('session_hash');
         $node
             ->addDefaultsIfNotSet()
-            ->info('HMAC der Session-ID. Die Session-ID selbst wird niemals übertragen.')
+            ->info('SHA-256 der Session-ID. Die Session-ID selbst wird niemals übertragen.')
             ->children()
                 ->booleanNode('enabled')->defaultTrue()->end()
-                ->scalarNode('key')
-                    ->defaultNull()
-                    ->cannotBeEmpty()
-                    ->info(
-                        'Dedizierter IDS-Schlüssel. Laut Konzept 2.2.4 ausdrücklich NICHT APP_SECRET: '
-                        .'die überwachte Anwendung kennt APP_SECRET, könnte also aus einer gestohlenen '
-                        .'Event-Datenbank die Session-Hashes nachrechnen.'
-                    )
-                ->end()
-                ->integerNode('min_key_length')->defaultValue(32)->min(0)->end()
                 ->scalarNode('cookie_name')
                     ->defaultNull()
                     ->info('Name des Session-Cookies. null ermittelt ihn aus der Framework-Konfiguration.')
@@ -275,7 +264,11 @@ final class ConfigurationTree
                         ->end()
                         ->booleanNode('capture_granted')
                             ->defaultTrue()
-                            ->info('false erfasst nur Denials — halbiert das Volumen, kostet aber die Positivpfad-Regeln.')
+                            ->info(
+                                'false erfasst nur Denials — halbiert das Volumen. Kostet keine Regel des '
+                                .'Konzepts: P1/P2 lesen kernel.response mit 200, P3 Business-Events. Kostet '
+                                .'aber die Historie, auf die der offene Punkt E6 später zurückgreifen soll.'
+                            )
                         ->end()
                         ->integerNode('max_decisions_per_request')->defaultValue(200)->min(0)->end()
                     ->end()
@@ -390,33 +383,6 @@ final class ConfigurationTree
                     ->info('false ersetzt die mitgelieferte Liste vollständig (nötig, um sie zu verkleinern).')
                 ->end()
                 ->scalarNode('replacement')->defaultValue('[confidential]')->cannotBeEmpty()->end()
-            ->end();
-
-        return $node;
-    }
-
-    private static function samplingNode(): ArrayNodeDefinition
-    {
-        $node = new ArrayNodeDefinition('sampling');
-        $node
-            ->addDefaultsIfNotSet()
-            ->children()
-                ->floatNode('info_rate')
-                    ->defaultValue(1.0)
-                    ->min(0.0)
-                    ->max(1.0)
-                    ->info(
-                        'Gilt ausschließlich für layer=kernel UND severity=info. Security- und '
-                        .'Business-Events werden nie gesampelt (Konzept 4.2.3).'
-                    )
-                ->end()
-                ->booleanNode('keep_if_request_relevant')
-                    ->defaultTrue()
-                    ->info(
-                        'Behält die info-Events eines Requests, der irgendein warning/critical enthält. '
-                        .'Sonst fehlt bei einem 500er gerade der zugehörige Request-Kontext.'
-                    )
-                ->end()
             ->end();
 
         return $node;

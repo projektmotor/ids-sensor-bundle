@@ -51,6 +51,16 @@ use Symfony\Component\HttpFoundation\Request;
 )]
 final class SetupCheckCommand extends Command
 {
+    /**
+     * Untergrenze der Session-ID-Entropie in Bit.
+     *
+     * 128 Bit ist der Wert, den PHP von sich aus liefert (32 Zeichen zu 4 Bit); die
+     * Empfehlung aus `php.ini-production` liegt mit 26 zu 5 knapp darüber. Die Grenze
+     * verlangt also nichts, was nicht ohnehin Vorgabe wäre — sie schlägt nur an, wenn
+     * jemand sie unterschritten hat.
+     */
+    private const MIN_SESSION_ID_BITS = 128;
+
     /** @var list<string> */
     private array $findings = [];
 
@@ -73,12 +83,7 @@ final class SetupCheckCommand extends Command
         // {@see \ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer}.
         private readonly FileSpool $spool,
         private readonly ?Scheduler $heartbeatScheduler = null,
-        // Der AUFGELÖSTE Schlüssel, nicht der aus %ids_sensor.config%. Genau darin liegt
-        // der Zweck: Die Compile-Zeit-Prüfungen in IdsSensorBundle überspringen jeden
-        // Wert mit einem %env()%-Platzhalter und verweisen dafür auf diesen Command.
-        private readonly ?string $sessionHashKey = null,
         private readonly ?string $sessionCookieName = null,
-        private readonly ?string $appSecret = null,
     ) {
         parent::__construct();
     }
@@ -175,21 +180,22 @@ final class SetupCheckCommand extends Command
     }
 
     /**
-     * Die Prüfung, auf die die Compile-Zeit ausdrücklich verweist.
+     * Die Prüfung, die den entfallenen HMAC-Schlüssel ersetzt.
      *
-     * `IdsSensorBundle::assertSessionHashKeyIsUsable()` überspringt jeden Schlüssel, der
-     * einen `%env()%`-Platzhalter enthält — beim Kompilieren ist er noch nicht aufgelöst.
-     * Beide Kommentare dort verweisen für diesen Fall auf diesen Command. Eingelöst war
-     * das nicht: Geprüft wurde hier ausschließlich `enabled`.
+     * `actor.session_id_hash` ist seit Fassung 2 ein blanker SHA-256 der Session-ID
+     * (Konzept 2.2.4). Damit trägt die Einwegbeziehung allein die Entropie der ID —
+     * ein Schlüssel, den die überwachte Anwendung ohnehin selbst kennen muss, tat es
+     * nie. Genau deshalb gehört diese Prüfung hierher: Sie ist die einzige Stelle, an
+     * der die Voraussetzung noch überhaupt kontrolliert wird.
      *
-     * Das traf genau den empfohlenen Weg. Die Fehlermeldung des Bundles und `doc/08:25`
-     * schlagen `key: '%env(IDS_SESSION_HASH_KEY)%'` vor — wer der Empfehlung folgte, hatte
-     * WEDER die Längen- NOCH die APP_SECRET-Prüfung. `IDS_SESSION_HASH_KEY=geheim` lief
-     * durch, und der HMAC aus Konzept 2.2.4 war entsprechend schwach.
+     * PHP erzeugt vorgabemäßig 32 Zeichen zu 4 Bit oder — nach `php.ini-production` —
+     * 26 Zeichen zu 5 Bit; beides liegt bei mindestens 128 Bit. Wer die Werte nach unten
+     * dreht, schwächt die Sitzungssicherheit der eigenen Anwendung mit und bekommt
+     * deshalb einen Befund, keinen Hinweis.
      */
     private function checkSessionHash(SymfonyStyle $io): void
     {
-        /** @var array{enabled: bool, key: string|null, min_key_length: int} $sessionHash */
+        /** @var array{enabled: bool} $sessionHash */
         $sessionHash = $this->config['session_hash'];
 
         if (false === $sessionHash['enabled']) {
@@ -205,41 +211,52 @@ final class SetupCheckCommand extends Command
             ['Session-Cookie' => $this->sessionCookieName ?? 'aus php.ini (session.name)'],
         );
 
-        $key = $this->sessionHashKey;
+        $bits = $this->sessionIdEntropyBits();
 
-        if (null === $key || '' === $key) {
-            // Beim Kompilieren wäre das ein Abbruch gewesen; hier kann es trotzdem
-            // auftreten, wenn die Umgebungsvariable zur Laufzeit leer ist.
-            $this->findings[] =
-                'session_hash.key ist zur Laufzeit leer. Die Umgebungsvariable ist offenbar nicht '
-                .'gesetzt — actor.session_id_hash bleibt dann in jedem Event null, und die Regeln '
-                .'B8/B9 sind wirkungslos.';
+        if (null === $bits) {
+            $this->hints[] =
+                'session.sid_length oder session.sid_bits_per_character sind nicht auslesbar. Der '
+                .'Sitzungshash aus Konzept 2.2.4 ist ungeschlüsselt; seine Einwegbeziehung hängt '
+                .'damit allein an der Entropie der Session-ID. Bitte einmal von Hand prüfen.';
 
             return;
         }
 
-        if (null !== $this->appSecret && '' !== $this->appSecret && $this->appSecret === $key) {
-            $this->findings[] =
-                'session_hash.key ist identisch mit APP_SECRET (Konzept 2.2.4). Die überwachte '
-                .'Anwendung kennt APP_SECRET, ein Angreifer mit Codeausführung also auch — er '
-                .'könnte aus einer gestohlenen Event-Datenbank die Session-Hashes nachrechnen und '
-                .'genau den Session-Hijacking-Vektor öffnen, den das Hashen verhindern soll.';
-
-            return;
-        }
-
-        $minimum = $sessionHash['min_key_length'];
-
-        if (mb_strlen($key) < $minimum) {
+        if ($bits < self::MIN_SESSION_ID_BITS) {
             $this->findings[] = \sprintf(
-                'session_hash.key ist zur Laufzeit %d Zeichen lang, mindestens %d sind verlangt '
-                .'(session_hash.min_key_length). Ist der Schlüssel zu kurz, lässt sich aus einer '
-                .'gestohlenen Event-Datenbank die Session-ID zurückrechnen — der '
-                .'Session-Hijacking-Vektor aus Konzept 2.2.4.',
-                mb_strlen($key),
-                $minimum,
+                'Die Session-ID trägt nur %d Bit Entropie (session.sid_length × '
+                .'session.sid_bits_per_character), mindestens %d sind verlangt. '
+                .'actor.session_id_hash ist ein ungeschlüsselter SHA-256 (Konzept 2.2.4) — bei zu '
+                .'kurzer ID lässt er sich durchprobieren und die Event-Datenbank wird zu dem '
+                .'Session-Hijacking-Vektor, den das Hashen verhindern soll. Dieselbe Einstellung '
+                .'schwächt zugleich die Sitzungssicherheit der Anwendung selbst.',
+                $bits,
+                self::MIN_SESSION_ID_BITS,
             );
         }
+    }
+
+    /**
+     * Entropie einer PHP-Session-ID in Bit, oder null wenn nicht auslesbar.
+     *
+     * Benannte Grenze: Gemessen wird, was PHP erzeugen WÜRDE. Eine Anwendung mit eigenem
+     * Session-Handler oder eigenem ID-Generator kann davon abweichen — die beiden
+     * ini-Werte sagen darüber nichts.
+     */
+    private function sessionIdEntropyBits(): ?int
+    {
+        $length = \ini_get('session.sid_length');
+        $bitsPerCharacter = \ini_get('session.sid_bits_per_character');
+
+        if (!\is_string($length) || !\is_string($bitsPerCharacter)) {
+            return null;
+        }
+
+        if ('' === $length || '' === $bitsPerCharacter) {
+            return null;
+        }
+
+        return (int) $length * (int) $bitsPerCharacter;
     }
 
     /**
@@ -664,7 +681,7 @@ final class SetupCheckCommand extends Command
             $this->findings[] =
                 'Die Kernel-Ebene ist abgeschaltet. Damit entfällt die Grundlage nahezu aller Regeln '
                 .'aus Konzept 4.3. Zum Senken der Latenz ist das der falsche Hebel: erst '
-                .'layers.security.access_decision abschalten, dann sampling.info_rate senken '
+                .'layers.security.access_decision abschalten, dann layers.security.capture_granted '
                 .'(Konzept 2.1).';
         }
 

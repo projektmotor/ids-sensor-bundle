@@ -12,7 +12,6 @@ use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\RulesLoader;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
-use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -159,8 +158,6 @@ final class IdsSensorBundle extends AbstractBundle
             return;
         }
 
-        $this->assertSessionHashKeyIsUsable($config, $builder);
-
         $builder->setParameter('ids_sensor.enabled', true);
         $builder->setParameter('ids_sensor.application_id', $config['application_id']);
         $builder->setParameter('ids_sensor.environment_id', $config['environment_id']);
@@ -207,7 +204,6 @@ final class IdsSensorBundle extends AbstractBundle
         $builder->setParameter('ids_sensor.telemetry.latency_histogram', $config['telemetry']['latency_histogram']);
 
         $builder->setParameter('ids_sensor.session_hash.enabled', $config['session_hash']['enabled']);
-        $builder->setParameter('ids_sensor.session_hash.key', $config['session_hash']['key']);
         // Ohne ausdrückliche Angabe der Name aus `framework.session.name` — NICHT
         // ini_get('session.name'), das zum Erfassungszeitpunkt noch den php.ini-Wert
         // trägt. Begründung bei {@see rawSessionCookieName()}.
@@ -339,10 +335,6 @@ final class IdsSensorBundle extends AbstractBundle
         $builder->setParameter('ids_sensor.spool.drain_interval_s', $spool['drain_interval_s']);
 
         $this->loadHeartbeat($config, $container, $builder);
-
-        $sampling = $config['sampling'];
-        $builder->setParameter('ids_sensor.sampling.info_rate', $sampling['info_rate']);
-        $builder->setParameter('ids_sensor.sampling.keep_if_request_relevant', $sampling['keep_if_request_relevant']);
 
         $flush = $config['flush'];
         $builder->setParameter('ids_sensor.flush.policy', $flush['policy']);
@@ -563,82 +555,5 @@ final class IdsSensorBundle extends AbstractBundle
         }
 
         return false;
-    }
-
-    /**
-     * Ein fehlender HMAC-Schlüssel bricht die Container-Kompilierung ab — bewusst
-     * hart, obwohl das Bundle sonst fail-open ist.
-     *
-     * Begründung: fail-open gilt für den Request-Pfad einer laufenden Anwendung.
-     * Ein fehlender Schlüssel ist dagegen ein Deployment-Fehler, und ein stilles
-     * `null` in actor.session_id_hash würde die sitzungsbezogenen Regeln B8/B9
-     * unsichtbar abschalten. Ein sichtbarer Abbruch beim Deploy ist einem
-     * lautlosen Erkennungsausfall im Betrieb vorzuziehen.
-     *
-     * Wer bewusst ohne Sitzungsverkettung arbeiten will, setzt
-     * `session_hash.enabled: false`.
-     *
-     * @param array<string, mixed> $config
-     */
-    private function assertSessionHashKeyIsUsable(array $config, ContainerBuilder $builder): void
-    {
-        /** @var array{enabled: bool, key: string|null, min_key_length: int} $sessionHash */
-        $sessionHash = $config['session_hash'];
-
-        if (false === $sessionHash['enabled']) {
-            return;
-        }
-
-        if (null === $sessionHash['key'] || '' === $sessionHash['key']) {
-            throw new InvalidConfigurationException(<<<'TXT'
-                ids_sensor.session_hash.key ist erforderlich, solange session_hash.enabled true ist.
-
-                Der Schlüssel muss ein eigener IDS-Schlüssel sein und ausdrücklich NICHT APP_SECRET
-                (Konzept 2.2.4 — Bildung der Sitzungskontext-Felder).
-
-                Empfehlung:
-                    ids_sensor:
-                        session_hash:
-                            key: '%env(IDS_SESSION_HASH_KEY)%'
-
-                Wer bewusst ohne Sitzungsverkettung arbeiten will, setzt session_hash.enabled: false.
-                Dann bleibt actor.session_id_hash immer null und die sitzungsbezogenen Regeln B8/B9
-                sind wirkungslos.
-                TXT);
-        }
-
-        // Nur bei literalen Werten prüfbar. Steckt in beiden ein %env()%-Platzhalter,
-        // übernimmt ids:sensor:setup-check die Prüfung nach der Auflösung.
-        if (!str_contains($sessionHash['key'], '%env(') && $builder->hasParameter('kernel.secret')) {
-            $appSecret = $builder->getParameter('kernel.secret');
-
-            if (\is_string($appSecret) && '' !== $appSecret && $appSecret === $sessionHash['key']) {
-                throw new InvalidConfigurationException(<<<'TXT'
-                    ids_sensor.session_hash.key ist identisch mit APP_SECRET. Das ist ausdrücklich
-                    nicht zulässig (Konzept 2.2.4 — Bildung der Sitzungskontext-Felder).
-
-                    Grund: Die überwachte Anwendung kennt APP_SECRET, ein Angreifer mit
-                    Codeausführung also auch. Er könnte damit aus einer gestohlenen Event-Datenbank
-                    die Session-Hashes nachrechnen und genau den Session-Hijacking-Vektor öffnen,
-                    den das Hashen verhindern soll.
-
-                    Bitte einen eigenen, unabhängigen Schlüssel verwenden.
-                    TXT);
-            }
-        }
-
-        // Zuletzt die dokumentierte Untergrenze. NACH der APP_SECRET-Prüfung, weil deren
-        // Meldung die hilfreichere ist: „du hast APP_SECRET benutzt" nennt die Ursache,
-        // „zu kurz" nur das Symptom — und ein APP_SECRET ist meist ohnehin zu kurz.
-        // doc/08 nennt die Grenze „Untergrenze der Prüfung", und
-        // README.md verspricht „≥ 32 Zeichen". Geprüft wurde bis hierher nichts:
-        // `key: 'geheim'` lief durch, und der HMAC aus Konzept 2.2.4 war entsprechend
-        // schwach. Nur bei literalen Werten möglich; steckt ein %env()%-Platzhalter darin,
-        // übernimmt ids:sensor:setup-check die Prüfung nach der Auflösung.
-        if (!str_contains($sessionHash['key'], '%env(')
-            && mb_strlen($sessionHash['key']) < $sessionHash['min_key_length']
-        ) {
-            throw new InvalidConfigurationException(\sprintf('ids_sensor.session_hash.key ist %d Zeichen lang, mindestens %d sind verlangt '."(ids_sensor.session_hash.min_key_length).\n\n".'Der Schlüssel schützt den Sitzungshash aus Konzept 2.2.4. Ist er zu kurz, lässt sich aus einer gestohlenen Event-Datenbank die Session-ID zurückrechnen — genau der Session-Hijacking-Vektor, den das Hashen verhindern soll.', mb_strlen($sessionHash['key']), $sessionHash['min_key_length']));
-        }
     }
 }

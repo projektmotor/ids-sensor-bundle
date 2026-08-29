@@ -22,12 +22,6 @@
             "application_id": "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31",
             "environment_id": "3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522",
             "sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
-            "session_hash": {
-                "key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
-                "enabled": true,
-                "min_key_length": 32,
-                "cookie_name": null
-            },
             "collector": {
                 "base_uri": "https://collector.test",
                 "username": "sensor",
@@ -36,6 +30,10 @@
                 "verify_tls": true
             },
             "enabled": true,
+            "session_hash": {
+                "enabled": true,
+                "cookie_name": null
+            },
             "fingerprint": {
                 "enabled": true,
                 "headers": [
@@ -92,10 +90,6 @@
                 "config": null,
                 "merge_defaults": true,
                 "replacement": "[confidential]"
-            },
-            "sampling": {
-                "info_rate": 1,
-                "keep_if_request_relevant": true
             },
             "budget": {
                 "capture_us": 1500,
@@ -204,14 +198,11 @@
             "critical"
         ],
         "ids_sensor.raw.skip_multipart": true,
-        "ids_sensor.sampling.info_rate": 1,
-        "ids_sensor.sampling.keep_if_request_relevant": true,
         "ids_sensor.schema_version": 2,
         "ids_sensor.sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
         "ids_sensor.session_hash.cookie_name": null,
         "ids_sensor.session_hash.enabled": true,
         "ids_sensor.session_hash.framework_cookie_name": null,
-        "ids_sensor.session_hash.key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
         "ids_sensor.spool.dir": "<project_dir>/var/ids-spool",
         "ids_sensor.spool.drain_interval_s": 30,
         "ids_sensor.spool.drain_max_files_per_run": 2,
@@ -482,9 +473,7 @@
                 "%ids_sensor.config%",
                 "@ids_sensor.spool",
                 "@?ids_sensor.heartbeat.scheduler",
-                "ein-dedizierter-ids-schluessel-mit-32-zeichen",
-                null,
-                "test-app-secret"
+                null
             ],
             "tags": {
                 "console.command": [
@@ -699,8 +688,7 @@
                 "@ids_sensor.counters",
                 "@ids_sensor.deferred_counters",
                 "@ids_sensor.latency_recorder",
-                "@ids_sensor.logger",
-                "@ids_sensor.sampler"
+                "@ids_sensor.logger"
             ],
             "tags": {
                 "container.hot_path": [
@@ -1136,23 +1124,6 @@
                 ]
             }
         },
-        "ids_sensor.sampler": {
-            "class": "ProjektMotor\\IdsSensor\\Delivery\\Dispatch\\CoherentInfoSampler",
-            "public": false,
-            "shared": true,
-            "lazy": false,
-            "abstract": false,
-            "synthetic": false,
-            "arguments": [
-                1,
-                true
-            ],
-            "tags": {
-                "container.hot_path": [
-                    []
-                ]
-            }
-        },
         "ids_sensor.sensor.business": {
             "class": "ProjektMotor\\IdsSensor\\Sensor\\Business\\EventSensor",
             "public": false,
@@ -1251,7 +1222,6 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "ein-dedizierter-ids-schluessel-mit-32-zeichen",
                 null,
                 true
             ],

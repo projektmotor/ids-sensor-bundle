@@ -35,7 +35,6 @@ services:
     ids_sensor.session_id_hasher:
         class: ProjektMotor\IdsSensor\Sensor\Context\SessionIdHasher
         arguments:
-            $key: '%ids_sensor.session_hash.key%'
             $cookieName: '%ids_sensor.session_hash.cookie_name%'
             $enabled: '%ids_sensor.session_hash.enabled%'
 

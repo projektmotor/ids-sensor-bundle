@@ -23,7 +23,6 @@ final class BundleBootTest extends IntegrationTestCase
         'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
         'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
         'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-        'session_hash' => ['key' => self::SESSION_KEY],
     ];
 
     public function testContainerCompilesWithMinimalConfiguration(): void
@@ -103,17 +102,27 @@ final class BundleBootTest extends IntegrationTestCase
     }
 
     /**
-     * Ein fehlender HMAC-Schlüssel bricht bewusst die Kompilierung ab. fail-open
-     * gilt für den Request-Pfad, nicht für Deployment-Fehler: ein stilles null in
-     * actor.session_id_hash würde die sitzungsbezogenen Regeln B8/B9 unsichtbar
-     * abschalten.
+     * Der Sitzungshash braucht keinen Schlüssel mehr, und das Bundle bootet ohne einen.
+     *
+     * Bis Fassung 2 stand hier der umgekehrte Test: Ein fehlender HMAC-Schlüssel brach
+     * die Kompilierung ab — die einzige Stelle, an der dieses Bundle nicht fail-open war.
+     * Der Schlüssel ist entfallen (Konzept 2.2.4), weil er gegen das Bedrohungsmodell aus
+     * Abschnitt 2 nie wirkte: Die überwachte Anwendung muss ihn lesen können, ein
+     * Angreifer mit Codeausführung hat ihn also. Getragen wird die Einwegbeziehung von der
+     * Entropie der Session-ID; geprüft wird sie in `ids:sensor:setup-check`.
      */
-    public function testAMissingSessionKeyAbortsCompilation(): void
+    public function testTheBundleBootsWithoutASessionHashKey(): void
     {
-        $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessageMatches('/session_hash\.key ist erforderlich/');
+        $kernel = $this->boot([
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
+        ], 'no-key');
 
-        $this->boot(['application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', 'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', 'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'], 'no-key');
+        self::assertTrue(
+            $kernel->getContainer()->getParameter('ids_sensor.session_hash.enabled'),
+            'Ohne Schlüssel bleibt die Sitzungsverkettung eingeschaltet',
+        );
     }
 
     public function testSessionHashingCanBeDeliberatelyDisabled(): void
@@ -126,46 +135,6 @@ final class BundleBootTest extends IntegrationTestCase
         ], 'hash-off');
 
         self::assertTrue($kernel->getContainer()->getParameter('ids_sensor.enabled'));
-    }
-
-    /**
-     * APP_SECRET als IDS-Schlüssel würde genau den Session-Hijacking-Vektor
-     * öffnen, den das Hashen verhindern soll — die überwachte Anwendung kennt
-     * APP_SECRET, ein Angreifer mit Codeausführung also auch.
-     */
-    /**
-     * Ein zu kurzer HMAC-Schlüssel muss die Kompilierung abbrechen.
-     *
-     * `doc/08:80` nennt `min_key_length` „Untergrenze der Prüfung", `README.md:154`
-     * verspricht „≥ 32 Zeichen" — geprüft wurde bis zuletzt nichts, `key: 'geheim'` lief
-     * durch. Ist der Schlüssel zu kurz, lässt sich aus einer gestohlenen Event-Datenbank
-     * die Session-ID zurückrechnen: genau der Session-Hijacking-Vektor, den das Hashen
-     * nach Konzept 2.2.4 verhindern soll.
-     */
-    public function testATooShortSessionHashKeyIsRejected(): void
-    {
-        $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessageMatches('/mindestens 32 sind verlangt/');
-
-        (new TestKernel([
-            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
-            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
-            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => 'geheim'],
-        ], 'kurzer-schluessel'))->boot();
-    }
-
-    public function testAppSecretAsKeyIsRejected(): void
-    {
-        $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessageMatches('/identisch mit APP_SECRET/');
-
-        $this->boot([
-            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
-            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
-            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => 'test-app-secret'],
-        ], 'secret-reuse');
     }
 
     public function testMissingApplicationIdIsRejected(): void
@@ -410,11 +379,8 @@ final class BundleBootTest extends IntegrationTestCase
     public function testAnExplicitCookieNameWins(): void
     {
         $kernel = new TestKernel(
-            // Die Teilkonfiguration wird GEMISCHT, nicht ersetzt: array_merge auf der
-            // obersten Ebene nähme session_hash.key mit, und ohne den bricht die
-            // Kompilierung ab.
             array_merge(self::MINIMAL_CONFIG, [
-                'session_hash' => array_merge(self::MINIMAL_CONFIG['session_hash'], ['cookie_name' => 'EIGENES']),
+                'session_hash' => ['cookie_name' => 'EIGENES'],
             ]),
             'session-name-eigen',
             sessionName: 'MYAPPSESSID',

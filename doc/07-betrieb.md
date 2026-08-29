@@ -97,7 +97,6 @@ greift.
 
 | Zähler | Bedeutung | Gegenmittel |
 |---|---|---|
-| `dropped_sampling` | absichtlich weggesampelt (*4.2.3*) | `sampling.info_rate` |
 | `dropped_no_normalizer` | für die Ebene ist kein Normalisierer registriert | die Ebene ist abgeschaltet, das Event aber erfasst worden — `setup-check` |
 | `dropped_normalize_error` | die Normalisierung ist fehlgeschlagen | Fehlerbericht; betrifft meist einen Payload der Anwendung |
 | `dropped_frame_too_large` | die Sendung überschreitet `flush.max_frame_bytes` | Payload untersuchen — nicht Plattenplatz, sondern Inhalt |

@@ -104,7 +104,7 @@ final class AccessDecisionActorTest extends TestCase
             $collector,
             new CapturedEventBinder(
                 new RequestSnapshotRegistry(),
-                new ActorFactory(new SessionIdHasher(null, null, false), new ClientFingerprinter(enabled: false), $storage),
+                new ActorFactory(new SessionIdHasher(null, false), new ClientFingerprinter(enabled: false), $storage),
                 new ConsoleCorrelation(new CorrelationIdFactory()),
             ),
             new ResourceIdentifierResolver(),

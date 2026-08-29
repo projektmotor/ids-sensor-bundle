@@ -103,9 +103,11 @@ beeinträchtigen (*4.*). Jeder Fehler im Sensor wird verschluckt. Der Preis: Eve
 verloren gehen — deshalb wird jeder Verlust gezählt und gemeldet. Siehe
 [07 — Betrieb](07-betrieb.md#fail-open-und-was-es-kostet).
 
-Genau eine Ausnahme gibt es: fehlt der HMAC-Schlüssel für die Sitzungsverkettung, bricht
-die **Container-Kompilierung** ab. fail-open gilt für den Request-Pfad einer laufenden
-Anwendung, nicht für Deployment-Fehler.
+Und zwar ausnahmslos: Seit der Sitzungshash ohne Schlüssel auskommt (*2.2.4*), gibt es
+keinen Fall mehr, in dem eine fehlende Einstellung die Anwendung am Starten hindert. Was
+weiterhin beim **Kompilieren** abbricht, sind reine Konfigurationsfehler — eine unbekannte
+`raw`-Stufe, ein ungültiges `ignored_paths`-Muster. fail-open gilt für den Request-Pfad
+einer laufenden Anwendung, nicht für einen Tippfehler in der YAML.
 
 **Kein Datenbankzugriff.** Das Bundle bekommt bewusst keine Verbindung zum Beweisspeicher.
 Trüge es die Zugangsdaten, hätte die überwachte Anwendung Zugriff auf ihre eigenen

@@ -17,7 +17,7 @@ use ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder;
 use Psr\Log\LoggerInterface;
 
 /**
- * Phase B: leert den Puffer, normalisiert, sampelt und übergibt dem
+ * Phase B: leert den Puffer, normalisiert und übergibt dem
  * {@see FrameDispatcher}, der über Broker oder Spool entscheidet.
  *
  * Läuft nach dem Absenden der Antwort. Das ist der Kern der Zweiteilung aus Konzept
@@ -46,7 +46,6 @@ final class EventFlusher
         private readonly DeferredCounters $deferredCounters,
         private readonly LatencyRecorder $latencyRecorder,
         private readonly ?LoggerInterface $logger = null,
-        private readonly ?CoherentInfoSampler $sampler = null,
     ) {
     }
 
@@ -129,27 +128,6 @@ final class EventFlusher
 
         if ([] === $normalized) {
             return 0;
-        }
-
-        // Sampling NACH dem Normalisieren: erst dort steht die endgültige severity fest,
-        // und nur mit ihr ist entscheidbar, ob dieser Request relevant ist. Vor dem
-        // Normalisieren wäre die Kohärenzregel nicht anwendbar.
-        //
-        // Bei der Vorgabe info_rate = 1.0 entfällt der Schritt vollständig — isActive()
-        // ist dann false und es wird nichts kopiert.
-        if (null !== $this->sampler && $this->sampler->isActive()) {
-            $sampled = $this->sampler->sample($normalized);
-            $dropped = $this->sampler->droppedCount($normalized, $sampled);
-
-            if ($dropped > 0) {
-                $this->counters->increment(Counters::DROPPED_SAMPLING, $dropped);
-            }
-
-            $normalized = $sampled;
-
-            if ([] === $normalized) {
-                return 0;
-            }
         }
 
         return $this->frameDispatcher->dispatch($identity, $normalized, $path);

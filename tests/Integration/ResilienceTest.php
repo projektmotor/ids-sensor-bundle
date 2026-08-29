@@ -171,7 +171,6 @@ final class ResilienceTest extends IntegrationTestCase
             'application_id' => $this->applicationId,
             'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
             'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => self::SESSION_KEY],
             // Keine gültige Adresse: weder Schema noch Host.
             'collector' => ['base_uri' => 'weder-schema-noch-host', 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir],
@@ -224,7 +223,6 @@ final class ResilienceTest extends IntegrationTestCase
             'application_id' => $this->applicationId,
             'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
             'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => self::SESSION_KEY],
             // Ein Host, den es nicht gibt: der Verbindungsversuch scheitert.
             'collector' => [
                 'base_uri' => 'https://nicht-erreichbar.invalid',

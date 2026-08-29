@@ -18,7 +18,7 @@ use Symfony\Component\Config\Definition\PrototypedArrayNode;
  * Ein Code-Check hat 16 Optionen gefunden, die im Baum stehen, in
  * `doc/08-konfiguration.md` mit Wirkung dokumentiert sind — und die niemand liest.
  * Darunter `layers.kernel.capture_fatal_errors` („synthetisiert bei Fatal Errors ein
- * kernel.exception"), `session_hash.min_key_length` („Untergrenze der Prüfung") und
+ * kernel.exception") und
  * `budget.connect_timeout_ms`, dessen Vorgabe 20 zufällig identisch mit dem hartkodierten
  * Wert ist, der tatsächlich wirkt. Wer sie ändert, bekommt eine plausible Bestätigung
  * durch `debug:config` und keine Wirkung.
@@ -73,15 +73,8 @@ final class ConfigurationReachTest extends TestCase
      */
     private const OHNE_PARAMETER = [
         'session_hash' => 'Zwischenknoten ohne eigenen Wert.',
-        'session_hash.min_key_length' => 'Wird in assertSessionHashKeyIsUsable() zur Compile-Zeit geprüft.',
         'enabled' => 'Der Kill-Schalter. Entscheidet in loadExtension(), ob überhaupt Dienste geladen werden.',
         'session_hash.enabled' => 'Entscheidet in loadExtension() über den Import von services_kernel.yaml.',
-        // `session_hash.key` stand hier mit der Begründung, ein Parameter machte den
-        // HMAC-Schlüssel per debug:container einsehbar. Die Begründung beschrieb einen
-        // Zustand, den es nicht gab: `ids_sensor.session_hash.key` IST ein Parameter und
-        // wird von services_kernel.yaml gelesen. Ein Eintrag, der eine Prüfung mit einer
-        // falschen Begründung überspringt, ist genau die Sorte Schlupfloch, gegen die
-        // dieser Test gebaut wurde — deshalb ist er entfallen, nicht korrigiert.
         'layers' => 'Zwischenknoten ohne eigenen Wert.',
         'layers.kernel' => 'Zwischenknoten.',
         'layers.kernel.events' => 'Zwischenknoten.',
@@ -93,7 +86,6 @@ final class ConfigurationReachTest extends TestCase
         'raw' => 'Zwischenknoten.',
         'payload_confidentiality_cleanup' => 'Zwischenknoten.',
         'payload_confidentiality_cleanup.merge_defaults' => 'Wird beim Laden der Redaktionsliste zur Compile-Zeit ausgewertet.',
-        'sampling' => 'Zwischenknoten.',
         'budget' => 'Zwischenknoten.',
         'flush' => 'Zwischenknoten.',
         'collector' => 'Zwischenknoten ohne eigenen Wert.',

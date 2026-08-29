@@ -335,7 +335,6 @@ final class HeartbeatTest extends IntegrationTestCase
             'application_id' => $this->applicationId,
             'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
             'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
-            'session_hash' => ['key' => self::SESSION_KEY],
             'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir],
             'budget' => ['capture_us' => 0],

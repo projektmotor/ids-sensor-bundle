@@ -13,7 +13,7 @@ php bin/console debug:config ids_sensor
 
 ## Mindestkonfiguration
 
-Vier Angaben sind Pflicht:
+Drei Kennungen und die Collector-Zugangsdaten sind Pflicht:
 
 ```yaml
 # config/packages/ids_sensor.yaml
@@ -21,8 +21,6 @@ ids_sensor:
     application_id: '%env(IDS_APPLICATION_ID)%'
     environment_id: '%env(IDS_ENVIRONMENT_ID)%'
     sensor_id: '%env(IDS_SENSOR_ID)%'
-    session_hash:
-        key: '%env(IDS_SESSION_HASH_KEY)%'
     collector:
         base_uri: '%env(IDS_COLLECTOR_URL)%'
         username: '%env(IDS_COLLECTOR_USER)%'
@@ -71,31 +69,31 @@ der Wert nicht abbildbar ist.
 ## `session_hash`
 
 Die rohe Session-ID wird **nie** übertragen — sonst wäre der Beweisspeicher selbst ein
-Session-Hijacking-Vektor (*2.2.4*). Übertragen wird ein HMAC.
+Session-Hijacking-Vektor (*2.2.4*). Übertragen wird ihr SHA-256.
 
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `enabled` | `true` | `false` arbeitet bewusst ohne Sitzungsverkettung |
-| `key` | `null` | dedizierter HMAC-Schlüssel, ≥ 32 Zeichen |
-| `min_key_length` | `32` | Untergrenze der Prüfung |
 | `cookie_name` | `null` | `null` ermittelt ihn aus der Framework-Konfiguration |
 
-Der Schlüssel ist ausdrücklich **nicht** `APP_SECRET`: die überwachte Anwendung kennt
-`APP_SECRET` und könnte aus einer gestohlenen Event-Datenbank die Hashes nachrechnen.
+**Es gibt keinen Schlüssel mehr, und das ist eine Entscheidung.** Bis Fassung 2 stand hier
+ein dedizierter HMAC-Schlüssel mit zwei Begründungen, von denen keine trug:
 
-```bash
-php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'
-```
+- *„Sonst lässt sich die Session-ID zurückrechnen."* Das gilt nur für schwache IDs. PHP
+  erzeugt vorgabemäßig 26 bis 32 Zeichen zu je 5 Bit — 130 bis 160 Bit Entropie, ein
+  SHA-256 darüber ist nicht durchprobierbar.
+- *„Die überwachte Anwendung kennt `APP_SECRET`."* Sie kannte den IDS-Schlüssel genauso: Er
+  steht in ihrer eigenen Konfiguration, sonst könnte der Sensor nicht hashen. Gegen einen
+  Angreifer mit Codeausführung — das Bedrohungsmodell aus (*2.*) — wirkte er nie.
 
-Fehlt der Schlüssel, bricht die **Container-Kompilierung** ab — der einzige Punkt, an dem
-dieses Bundle nicht fail-open ist. Ein stilles `null` würde die sitzungsbezogenen Regeln
-unsichtbar abschalten.
+Getragen wird die Einwegbeziehung damit allein von der Entropie der Session-ID. Genau die
+prüft `ids:sensor:setup-check` über `session.sid_length × session.sid_bits_per_character`;
+unter 128 Bit ist das ein Befund mit Rückgabewert 1. Benannte Grenze: Gemessen wird, was
+PHP erzeugen *würde* — eine Anwendung mit eigenem Session-Handler kann davon abweichen.
 
-Steckt im Schlüssel ein `%env()%`-Platzhalter — der empfohlene Fall —, sind Länge und
-Gleichheit mit `APP_SECRET` beim Kompilieren **nicht** prüfbar: der Wert ist dort noch nicht
-aufgelöst. Diese beiden Prüfungen holt `ids:sensor:setup-check` im Deploy nach, gegen den
-tatsächlich benutzten Schlüssel. Ein zu kurzer oder mit `APP_SECRET` identischer Wert ist
-dort ein Befund mit Rückgabewert 1.
+Damit ist auch der **einzige Kompilierzeit-Abbruch** dieses Bundles entfallen: Es ist zur
+Laufzeit durchgängig fail-open. Reine Konfigurationsfehler brechen weiterhin beim
+Kompilieren ab.
 
 `cookie_name` wird aus `framework.session.name` gelesen, nicht aus `php.ini`: Symfony
 schreibt den konfigurierten Namen erst dann nach `php.ini`, wenn die Session-Storage
@@ -147,7 +145,7 @@ die `correlation_id` eines Opfers übernehmen und die forensische Zuordnung verg
 | `enabled` | `true` | |
 | `authentication` | `true` | An- und Abmeldeversuche |
 | `access_decision` | `true` | dekoriert den `AccessDecisionManager`, feuert bei jedem `isGranted()` |
-| `capture_granted` | `true` | `false` erfasst nur Ablehnungen — halbiert das Volumen, kostet die Positivpfad-Regeln |
+| `capture_granted` | `true` | `false` erfasst nur Ablehnungen — halbiert das Volumen, kostet keine heutige Regel, aber die Historie für E6 |
 | `max_decisions_per_request` | `200` | Hard-Cap; Überlauf zählt `dropped_decision_cap` |
 
 ### `layers.business`
@@ -188,15 +186,6 @@ erste Grenze ausschöpft, garantiert verloren.
 | `replacement` | `[confidential]` | der Ersetzungsmarker |
 
 Details in [06 — Vertraulichkeit](06-vertraulichkeit.md).
-
-## `sampling`
-
-| Schlüssel | Vorgabe | Wirkung |
-|---|---|---|
-| `info_rate` | `1.0` | gilt **nur** für `layer=kernel` **und** `severity=info` |
-| `keep_if_request_relevant` | `true` | behält die info-Events eines Requests, der ein `warning`/`critical` enthält |
-
-Details in [04 — Request-Lebenszyklus](04-request-lebenszyklus.md#sampling-einen-teil-gar-nicht-erst-senden).
 
 ## `budget`
 

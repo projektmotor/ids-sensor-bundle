@@ -103,9 +103,13 @@ Sitzungs- und Tracking-Cookies eine Anfrage mitbrachte, ohne einen einzigen Wert
 auszuschreiben. Ein Wert hier wäre exakt der Session-Hijacking-Vektor, den (*4.5.1*)
 ausschließen will.
 
-Aus demselben Grund wird die Session-ID nie übertragen, sondern nur ihr HMAC. Der
-Schlüssel dafür ist ausdrücklich **nicht** `APP_SECRET`: die überwachte Anwendung kennt
-`APP_SECRET` und könnte aus einer gestohlenen Event-Datenbank die Hashes nachrechnen.
+Aus demselben Grund wird die Session-ID nie übertragen, sondern nur ihr SHA-256. Getragen
+wird die Einwegbeziehung von der Entropie der ID — PHP erzeugt vorgabemäßig 130 bis 160
+Bit —, nicht von einem Schlüssel. Einen solchen gab es bis Fassung 2, und er wirkte gegen
+das Bedrohungsmodell dieses Bundles nie: Die überwachte Anwendung muss ihn lesen können,
+ein Angreifer mit Codeausführung hat ihn also genauso wie `APP_SECRET`. Was an seine Stelle
+tritt, ist eine Prüfung der Session-ID-Entropie in `ids:sensor:setup-check` (*siehe
+[08](08-konfiguration.md#session_hash)*).
 
 ## Der JSON-Anfragekörper
 
