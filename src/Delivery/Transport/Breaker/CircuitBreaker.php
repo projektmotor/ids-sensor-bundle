@@ -75,7 +75,16 @@ final class CircuitBreaker
         );
     }
 
-    public function recordFailure(): void
+    /**
+     * @param float|null $retryAfterSeconds Wartezeit, die der Collector mit `429` und
+     *                                      `Retry-After` verlangt hat (Konzept 3.6). Sie
+     *                                      öffnet den Breaker SOFORT, unabhängig von der
+     *                                      Fehlerschwelle: Sie zu beachten heißt, bis
+     *                                      dahin keinen Verbindungsversuch zu machen, und
+     *                                      unterhalb der Schwelle ginge der nächste Frame
+     *                                      sonst unmittelbar wieder hinaus.
+     */
+    public function recordFailure(?float $retryAfterSeconds = null): void
     {
         if (!$this->enabled) {
             return;
@@ -86,19 +95,37 @@ final class CircuitBreaker
         // lasen alle 0 und schrieben alle 1, sodass die Schwelle im ungünstigen Fall nie
         // erreicht wurde. Ausgerechnet unter Last, also genau dort, wofür es den Breaker
         // gibt.
-        $this->store->mutate(function (BreakerState $current): BreakerState {
+        $this->store->mutate(function (BreakerState $current) use ($retryAfterSeconds): BreakerState {
             $failures = $current->failures + 1;
+
+            if (null !== $retryAfterSeconds && $retryAfterSeconds > 0.0) {
+                return $this->opened($failures, $current->openCount, $retryAfterSeconds);
+            }
 
             if ($failures < $this->failureThreshold) {
                 return new BreakerState($failures, 0.0, $current->openCount);
             }
 
-            return new BreakerState(
-                $failures,
-                microtime(true) + $this->openForSeconds,
-                $current->openCount + 1,
-            );
+            return $this->opened($failures, $current->openCount, (float) $this->openForSeconds);
         });
+    }
+
+    /**
+     * Die Dauer wandert MIT in den Zustand.
+     *
+     * Ohne sie verwürfe {@see BreakerState::isOpenAt()} eine `Retry-After`-Sperre, die
+     * über der konfigurierten Offen-Zeit liegt, als unplausibel — die Uhr-Rücksprung-
+     * Prüfung dort kennt sonst nur den konfigurierten Wert. Der Sensor hätte die Wartezeit
+     * angenommen und sie im nächsten Request wieder vergessen.
+     */
+    private function opened(int $failures, int $openCount, float $forSeconds): BreakerState
+    {
+        return new BreakerState(
+            $failures,
+            microtime(true) + $forSeconds,
+            $openCount + 1,
+            $forSeconds,
+        );
     }
 
     /**

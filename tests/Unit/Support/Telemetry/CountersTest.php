@@ -20,12 +20,42 @@ use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 #[CoversClass(Counters::class)]
 final class CountersTest extends TestCase
 {
+    /**
+     * Jeder Zähler reist mit, auch mit dem Wert 0 (Konzept 3.4).
+     *
+     * Hier stand `assertSame([], $counters->all())` — der Testname sagte schon damals das
+     * Gegenteil dessen, was er prüfte. Ein fehlender Schlüssel ist für den Collector
+     * zweideutig: „nichts verloren" oder „diese Sensorfassung kennt den Zähler nicht".
+     * Genau diese Unterscheidung braucht er, wenn Sensoren verschiedener Fassungen
+     * gleichzeitig laufen, und ohne sie ist `ids.event_loss` nicht bildbar.
+     */
     public function testAnUntouchedCounterIsZeroAndNotAbsent(): void
     {
         $counters = new Counters();
 
         self::assertSame(0, $counters->get(Counters::DROPPED_BUFFER_FULL));
-        self::assertSame([], $counters->all(), 'Ein nie berührter Zähler steht nicht im Frame');
+        self::assertSame(
+            Counters::ALL,
+            array_keys($counters->all()),
+            'Ein nie berührter Zähler steht mit 0 im Frame, nicht gar nicht',
+        );
+        self::assertSame([0], array_values(array_unique($counters->all())));
+    }
+
+    /**
+     * Ein Schlüssel außerhalb der geschlossenen Liste geht nicht verloren.
+     *
+     * Die Nullfüllung ist eine Ergänzung, kein Filter. Einen Zählerstand stillschweigend
+     * zu verschlucken wäre der schlechtere Ausgang — Konzept 4. verlangt, dass JEDER
+     * Verlust gezählt wird, und ein unbekannter Name ist immer noch eine Zahl.
+     */
+    public function testACounterOutsideTheClosedListSurvives(): void
+    {
+        $counters = new Counters();
+
+        $counters->increment('dropped_something_new', 3);
+
+        self::assertSame(3, $counters->all()['dropped_something_new']);
     }
 
     public function testIncrementAccumulates(): void

@@ -119,7 +119,7 @@ src/
 │   └── Normalization/       Konzept 2.2 + 3.1
 ├── Delivery/                PHASE B, 2. Takt: das Ereignis verlässt den Prozess
 │   ├── Dispatch/            Spitze der Pipeline — niemand importiert von hier
-│   ├── Transport/           Broker, Serialisierung, Spool, Breaker
+│   ├── Transport/           Collector-HTTP, Token, Spool, Breaker
 │   └── Heartbeat/           Konzept 3.4
 ├── Support/                 gehört keiner Phase — beide benutzen es
 │   ├── PayloadConfidentialityCleanup/

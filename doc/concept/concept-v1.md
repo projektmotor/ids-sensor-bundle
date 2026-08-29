@@ -6,7 +6,7 @@
 · 15.08.2026: zwei Literale des Drahtformats umbenannt, damit Konzept und Code dieselben Wörter benutzen — `redaction_version` → `cleanup_version` (3.1, 3.4) und `[redacted]` → `[confidential]` (4.5.1). Die deutsche Prosa bleibt bei „Redaktion"; der Implementierung liegt sie als `Support\PayloadConfidentialityCleanup\` zugrunde. Inhaltlich ändert sich nichts.
 · 16.08.2026: **inhaltliche Änderung** — Auflösung eines Widerspruchs zwischen 3.5 und Szenario S5 (4.3.6). 3.5 schloss den Zugriff auf den rohen Eingabestrom pauschal aus, S5 sagte für denselben Beleg „vollständige Verfügbarkeit" zu. Da Symfony nur formularkodierte Körper parst, war `raw` für jede JSON-API-Anfrage leer — also genau dort, wo S5 stattfindet. 3.5 erlaubt das Lesen jetzt unter drei Bedingungen (JSON, bekannte und begrenzte Länge, nach dem Absenden der Antwort) und benennt jede Ablehnung über `request_body_omitted`; S5 trägt den entsprechenden Vorbehalt. Neue Felder in 3.5: `request_body`, `request_body_omitted`. Neue Option: `raw.max_request_body_bytes`.
 · 16.08.2026, zweiter Durchgang: Ergebnis eines Abgleichs von Konzept, Dokumentationsreihe `doc/01`–`doc/09` und Quellcode. **Inhaltliche Änderungen:** (a) Die `raw`-Bedingung „für alle Events, die einen Alert ausgelöst haben" ist in Abschnitt 3 und 4.2.3 **gestrichen** — sie ist vom Sensor nicht erfüllbar, weil der Alert erst im Collector entsteht; die Folge steht als offener Punkt OB11. (b) `correlation_id` ist in 2.2.4 ergänzt und für Läufe ohne Request festgelegt (neuer Unterabschnitt „Korrelation außerhalb des Requests"). (c) Die Redaktionsliste in 4.5.1 steht auf `version: 2` und führt die beiden `X-Debug-*`-Header; 3.4 zeigt entsprechend `cleanup_version: 2`. (d) Sechs Bausteine der Umsetzung sind nachgezogen: Erfassungsbudget und Circuit Breaker in 2.1, Sub-Requests, fatale Fehler und `ignored_paths` in 2.1.1, `environment_map`/`environment_fallback` in 2.2.1. (e) 3.4 zeigt die tatsächlich gesendeten Heartbeat-Felder. **Redaktionell:** Die offenen Punkte in 6.1/6.3 tragen jetzt das Präfix `OB` und kollidieren nicht mehr mit den Batch-Regeln B1–B9 aus 4.3.2/4.3.3; Verweise auf einen „Abschnitt 5" zeigen auf 4.3.6; der `alerts`-Index heißt `idx_alerts_first_seen` (eine Spalte `created_at` gibt es nicht); 2.2.1 führt `timestamp` und `correlation_id`; der doppelte Wirksamkeitshinweis in Abschnitt 2 ist entfernt.
-· 29.08.2026: **inhaltliche Änderung, die größte seit Version 1** — der Transport zwischen Sensor und Collector wechselt vom Message Broker auf eine REST-Schnittstelle. Der Sensor sendet per HTTPS an `POST /api/v1/sensor/{sensor_id}`, angemeldet mit vom Collector ausgegebenen Zugangsdaten und einem daraus geholten, gecachten JWT (neuer Abschnitt 3.6). Damit fällt Redis in **beiden** Rollen weg: als Transport und als In-Memory-Zählerspeicher der Echtzeitregeln, der jetzt eine `UNLOGGED`-Tabelle in der ohnehin vorhandenen PostgreSQL-Datenbank ist (4.2.1, 4.3). **Das System besteht danach aus zwei Bausteinen statt vier:** der überwachten Anwendung und dem Collector. Betroffen sind 1, 2, 2.1, 3.3–3.6, 4, 4.1, 4.2, 4.3, 4.4, 4.5 und 6. Das Drahtformat aus Abschnitt 3 ändert sich **nicht**, deshalb kein `schema_version`-Bump. **Der Quellcode ist bewusst unverändert:** Das Bundle liefert weiterhin den Redis-Streams-Transport aus, und die Dokumentationsreihe `doc/01`–`doc/09` beschreibt diesen ausgelieferten Stand korrekt. Konzept und Auslieferung laufen bis zur Umsetzung auseinander.
+· 29.08.2026: **inhaltliche Änderung, die größte seit Version 1** — der Transport zwischen Sensor und Collector wechselt vom Message Broker auf eine REST-Schnittstelle. Der Sensor sendet per HTTPS an `POST /api/v1/sensor-data/{application_id}/{environment_id}/{sensor_id}`, angemeldet mit vom Collector ausgegebenen Zugangsdaten und einem daraus geholten, gecachten JWT (neuer Abschnitt 3.6). Damit fällt Redis in **beiden** Rollen weg: als Transport und als In-Memory-Zählerspeicher der Echtzeitregeln, der jetzt eine `UNLOGGED`-Tabelle in der ohnehin vorhandenen PostgreSQL-Datenbank ist (4.2.1, 4.3). **Das System besteht danach aus zwei Bausteinen statt vier:** der überwachten Anwendung und dem Collector. Betroffen sind 1, 2, 2.1, 3.3–3.6, 4, 4.1, 4.2, 4.3, 4.4, 4.5 und 6. Das Drahtformat aus Abschnitt 3 ändert sich **nicht**, deshalb kein `schema_version`-Bump. **Umgesetzt.** Hier stand, der Quellcode bleibe bewusst unverändert und liefere weiterhin den Redis-Streams-Transport aus. Das galt bis zur Umsetzung; seither beschreiben `doc/01`–`doc/09` wieder denselben Stand wie das Konzept.
 · 29.08.2026, zweiter Durchgang: Ergebnis einer Tiefenprüfung auf Widersprüche, Lücken und technologische Fehler. **Inhaltliche Änderungen:** (a) Zeitfensterregeln filtern nicht mehr auf dem sensorgesetzten `timestamp`, sondern auf einem an `received_at` verankerten `effective_at` (4.2.1, 4.3.2) — Zurückdatieren war bis dahin eine vollständige Umgehung der Batch-Erkennung. (b) Die Routen tragen das Tripel `application_id`/`environment_id`/`sensor_id`, alle als UUID; maßgeblich ist der Rumpf, der Pfad wird dagegen geprüft, und der angemeldete Nutzer muss Eigentümer der Kette sein (3.6). (c) `instance_id` entfällt zugunsten von `sensor_id`: Ein Sensor **ist** eine laufende Installation, je Node wird eine registriert (1, 2.3). (d) Umgebungen werden collectorseitig frei benannt; `env_type` wird `TEXT`, `environment_map` und `environment_fallback` entfallen. (e) `schema_version` steht nur noch im Frame; das Feld `v` entfällt, Events tragen keine eigene Fassung. (f) Neue Spalten `effective_at`, `dispatch_path`, `spool_delay_ms` und `unknown_fields`; neue Tabellen `realtime_counters` und `metric_samples`. (g) Neue Abschnitte: 2.3 Betriebsvoraussetzungen und 3.7 Fassungswechsel (die „Bump-Regeln", auf die 3.4 seit jeher verweist, ohne dass es sie gab). (h) Retention von `events_info` und `events_raw` auf 45 Tage, damit Baseline-Poisoning feststellbar wird; Volumenrechnung auf 5–7 Events je Request. **Dritter Durchgang, 29.08.2026 — die zurückgestellten Befunde:** (i) **Sampling entfällt vollständig** (4.2.3, 3.7): Eine Rate lässt sich hochrechnen, ein verpasster Signaturtreffer nicht, und ausgerechnet die bestätigte Exposition (R2b, X4) wäre ungeschützt geblieben. Das Feld `sampling_rate` verschwindet damit aus Ereignis und Schema. (j) **Der Sitzungshash kommt ohne Schlüssel aus** (2.2.4, 2.3): Der HMAC-Schlüssel wirkte gegen das Bedrohungsmodell aus Abschnitt 2 nie — die überwachte Anwendung muss ihn lesen können. Getragen wird die Einwegbeziehung von der Entropie der Session-ID; die Frage der Schlüsselrotation löst sich damit auf. (k) `granted`-Entscheidungen bekommen ihren benannten Zustand (4.3) und einen offenen Punkt E6. (l) Gefälschte Events gegen Dritte sind als Randbedingung von E5 geführt (2, 4.5.3). (m) Die Anomalieschwelle bekommt Mindestfallzahl, Streuungsuntergrenze und robuste Alternative (4.3.5, 4.2.4). (n) Der GIN-Index auf `payload` weicht Ausdrucksindizes, und `events_info` bekommt einen eigenen, kleineren Indexsatz (4.2.2). (o) `realtime_counters` bekommt `fillfactor` und ein eigenes Autovacuum (4.2.1).
 
 ---
@@ -180,7 +180,7 @@ Aus demselben Grund liegt die **Erkennungskonfiguration collectorseitig** (Pfad-
 
 *Die Grafik zeigt den Gesamtaufbau über diesen Abschnitt hinaus: Erfassung (2.1.1–2.1.3), Transport (2.1 und 3.6), Speicherung (Abschnitt 4) und die vier Regelklassen der Detection (4.3). Nicht dargestellt sind die Pfad-Wissensbasis `known_paths.yaml` (4.3.1), die als Konfiguration in den Consumer geladen wird, und die Tabelle `metric_baselines` (4.2.4), die der Detection Job für Positivpfad- und Anomalieregeln liest und schreibt.*
 
-**Transport-Entscheidung:** Übertragung erfolgt **per HTTPS-POST an die REST-Schnittstelle des Collectors** — `POST /api/v1/sensor/{sensor_id}`, abgesetzt nach dem Absenden der Antwort. Zwischen Sensor und Collector steht keine eigene Transport-Infrastruktur. Endpunkt, Umschlag, Anmeldung und Antwortcodes sind in **3.6** festgelegt.
+**Transport-Entscheidung:** Übertragung erfolgt **per HTTPS-POST an die REST-Schnittstelle des Collectors** — `POST /api/v1/sensor-data/{application_id}/{environment_id}/{sensor_id}`, abgesetzt nach dem Absenden der Antwort. Zwischen Sensor und Collector steht keine eigene Transport-Infrastruktur. Endpunkt, Umschlag, Anmeldung und Antwortcodes sind in **3.6** festgelegt.
 
 Der Grund ist der Betriebsweg. Ein Message Broker verlangt vom Betreiber der überwachten Anwendung einen Netzwerkpfad zu Infrastruktur, die dem Collector gehört, dazu eine Broker-ACL, die getrennt vom Anwendungsregister gepflegt wird — zwei Dinge, die in fremden Rechenzentren, hinter fremden Firewalls und bei fremden Hostern jedes Mal neu verhandelt werden müssen. Ein HTTPS-Endpunkt geht überall durch, und die Zugangsdaten entstehen dort, wo eine Application ohnehin angelegt wird (Abschnitt 1; offener Punkt OB3).
 
@@ -452,12 +452,14 @@ Die Abschnitte oben beschreiben, *was* der Sensor leistet. Dieser beschreibt, *u
 | Je Node ein registrierter Sensor; die `sensor_id` stammt **nicht** aus einer geteilten Konfiguration | Teilen sich Replikate eine Kennung (etwa über eine gemeinsame ConfigMap), sind sie ununterscheidbar, und `ids.sensor_silent` schweigt, wenn einzelne ausfallen | setup-check und Anwendungsregister |
 | Zum Anlegen gehört ein **Stilllegen** | Wird ein Node planmäßig abgebaut, ohne dass sein Sensor stillgelegt wird, erzeugt jedes Herunterskalieren einen `ids.sensor_silent`-Alert. Nach wenigen Vorgängen ist die Alert-Tabelle unbrauchbar — genau der Effekt, gegen den 4.4 die Vorfallsdeduplizierung eingeführt hat | Anwendungsregister |
 | Drain-Lauf eingerichtet, wo er der Transportweg ist (mod_php, gebündelter Modus aus 3.6) | Der Spool füllt sich, läuft über und verwirft. Es kommt **nichts** an, und der Sensor meldet keinen Fehler — er hat ja geschrieben | Heartbeat (`spool.oldest_pending_age_s`) |
-| Spool-Verzeichnis node-lokal | Auf NFS oder einem geteilten Volume holt man genau den Netzwerkzugriff zurück, den der Spool aus dem Request entfernt hat | setup-check |
+| Spool-Verzeichnis node-lokal | Auf NFS oder einem geteilten Volume holt man genau den Netzwerkzugriff zurück, den der Spool aus dem Request entfernt hat | Betriebsdokumentation (`doc/05`) |
 | Session-IDs mit mindestens 128 Bit Entropie (`session.sid_length` × `session.sid_bits_per_character`) | `actor.session_id_hash` ist ungeschlüsselt (2.2.4). Bei zu kurzer ID lässt er sich durchprobieren, und die Event-Datenbank wird zu dem Session-Hijacking-Vektor, den das Hashen verhindern soll | setup-check |
-| Umgebung im Anwendungsregister vorhanden | Sendungen werden abgewiesen (3.6) | setup-check |
+| Umgebung im Anwendungsregister vorhanden | Sendungen werden abgewiesen (3.6) | Antwortcode `422` und der Verlustzähler `dropped_rejected` |
 | **Uhrensynchronisation (NTP)** | Der Collector klemmt `timestamp` an `received_at` (4.2.1). Eine nachlaufende Uhr schiebt damit jedes Ereignis an die Toleranzgrenze, und die Zeitachse stimmt nicht mehr — sichtbar nur, wenn jemand hinsieht | Heartbeat, plus collectorseitiger Befund aus der Differenz beider Werte |
 
 **Was hier nicht steht, gehört auch nicht als Zusage ins Konzept.** Eine Anforderung, die auf keiner der drei Ebenen prüfbar ist, kann niemand einlösen — dieselbe Linie, die 4.2.3 zieht, wenn es die `raw`-Bedingung streicht, die der Sensor nicht erfüllen kann.
+
+> **Zwei Zeilen dieser Tabelle nannten `setup-check`, obwohl er beides nicht prüft.** Sie sind auf die Durchsetzung berichtigt, die es wirklich gibt — dieselbe Linie, nur diesmal auf die Tabelle selbst angewandt. Ob ein Verzeichnis node-lokal ist, sieht ein Prozess von innen nicht verlässlich: Ein Einhängepunkt verrät die Netzherkunft nicht zuverlässig, und eine Prüfung, die NFS erkennt, aber ein geteiltes Blockgerät nicht, wäre gefährlicher als keine — sie behauptete eine Sicherheit, die sie nicht hat. Und ob eine Umgebung registriert ist, weiß nur der Collector; der Sensor erführe es allein über eine Anfrage im Deploy, und die Antwort darauf ist der `422` aus 3.6, den er ohnehin bekommt.
 
 **Umgekehrt gilt: Jede Zusage, die sich per Konfiguration aufheben lässt, benennt ihren Abschaltweg dort, wo sie steht.** Der `setup-check` leitet sich damit aus dem Konzept ab, statt es stillschweigend zu ergänzen. Er unterscheidet dabei **Befunde** (Rückgabewert 1 — für die Einstellung gibt es keinen sinnvollen Grund) von **Hinweisen** (Rückgabewert 0 — sie kann gewollt sein, kostet aber eine Zusage); `--strict` hebt Hinweise auf Befundniveau und ist der Schalter für Produktions-Deployments.
 
@@ -631,7 +633,7 @@ Ein Request erzeugt typischerweise drei bis fünf Events, bei vielen Autorisieru
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "sensor": { "application_id": "9b1c4f80-…", "environment_id": "3f6d21ac-…", "sensor_id": "c40a7e13-…", "process_epoch": "01a0…", "pid": 4711 },
   "flushed_at": "2026-08-14T10:15:32.487Z",
   "dispatch_path": "direct",
@@ -674,7 +676,7 @@ Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Er
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "sent_at": "2026-08-14T10:15:32.487Z",
   "application_id": "9b1c4f80-…", "environment_id": "3f6d21ac-…", "sensor_id": "c40a7e13-…",
   "process_epoch": "01a0…", "pid": 4711,
@@ -684,7 +686,8 @@ Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Er
   "counters": { "captured": 918273, "sent": 918100, "spooled_events": 173, "dropped_rejected": 0,
                 "dropped_spool_full": 0, "dropped_spool_unwritable": 0, "dropped_spool_unencodable": 0,
                 "dropped_spool_unreadable": 0, "dropped_buffer_full": 0, "dropped_capture_budget": 0,
-                "dropped_capture_error": 0, "dropped_decision_cap": 0, "dropped_no_normalizer": 0,
+                "dropped_reset": 0, "dropped_capture_error": 0, "dropped_decision_cap": 0,
+                "dropped_no_normalizer": 0,
                 "dropped_normalize_error": 0, "dropped_frame_too_large": 0,
                 "ship_failed": 0, "heartbeat_sent": 12, "heartbeat_failed": 0 },
   "latency": { "in_request_overhead_us": { "p50": 96, "p99": 210 }, "dispatch_ms": { "p50": 2, "p99": 9 } },
@@ -704,6 +707,8 @@ Beides ist rein additiv und nach den Regeln aus 3.7 unkritisch: Ein Consumer, de
 **Ein Name je Sachverhalt.** Eine frühere Fassung nannte dieselbe Verwerfung im Frame `dropped_spool_full` und im Heartbeat `discarded_full`. Beides ist Drahtformat, und der Collector liest beide Nachrichtenarten — zwei Namen für eine Zahl sind eine Fehlerquelle ohne Gegenwert. Es gilt durchgehend die `dropped_*`-Schreibweise.
 
 `spooled_events` zählt **Events**, `spool.spooled_frames` zählt **Frames**. Die beiden Zahlen stehen im selben Heartbeat und haben verschiedene Einheiten; der Name sagt es jetzt.
+
+`dropped_reset` zählt Events, die beim Zurücksetzen der Dienste noch im Puffer standen. Er fehlte hier, obwohl der Sensor ihn seit jeher führt — ein Verlust ohne Eintrag in einer Liste, die sich „vollständig und geschlossen" nennt. Sein Gegenmittel ist ein anderes als bei allen übrigen: nicht mehr Platz, nicht mehr Budget, sondern ein **fehlender Flush-Punkt** in einem Prozess, der weder `kernel.terminate` noch `console.terminate` erreicht.
 
 **Die Zählerliste ist vollständig und geschlossen.** Sie oben nur beispielhaft zu zeigen, machte `ids.event_loss` (Abschnitt 4) unbildbar: Der Collector muss wissen, welche Schlüssel Verluste sind, und ein später hinzukommender Zähler darf die Summe nicht stillschweigend verschieben. Verlustzähler sind alle mit dem Präfix `dropped_` sowie `ship_failed` und `heartbeat_failed`; `captured`, `sent`, `spooled_events` und `heartbeat_sent` sind es nicht.
 
@@ -888,9 +893,12 @@ Die zweite Zeile ist der Fall, mit dem `sampling_rate` aus dem Format verschwund
 - den Typ eines Feldes ändern
 - ein Feld von optional auf Pflicht heben
 - ein neuer Wert in einem **geschlossenen** Vokabular
+- **einen Zähler umbenennen** — auch wenn ein neuer Zähler additiv ist
 - **die Bedeutung eines bestehenden Feldes ändern, bei gleichem Namen und gleichem Typ**
 
 Der letzte Fall ist der gefährlichste und deshalb ausdrücklich genannt: Er erzeugt keinen Fehler, sondern falsche Befunde, und kein Test findet ihn.
+
+**Die Zeile zur Umbenennung eines Zählers ist neu, und sie schließt eine Lücke.** Oben steht „ein neuer Zähler" als additiv und „ein Zähler entfällt, weil der Vorgang entfallen ist" ebenso — eine Umbenennung ist beides zugleich, und der Vorgang entfällt gerade **nicht**. Sie fiel damit durch beide Listen. Seit 3.4 verlangt, dass jeder Zähler mitreist, auch mit dem Wert `0`, ist jeder Zählerschlüssel ein Pflichtfeld; ihn umzubenennen ist deshalb derselbe Fall wie die erste Zeile dieser Liste. Ein Collector, der den alten Namen erwartet, liest sonst dauerhaft `0` — und bei einem Verlustzähler wäre das eine stillschweigend zu niedrige `ids.event_loss`.
 
 **Geschlossene und offene Vokabulare.** Ob ein neuer Wert additiv ist, hängt daran, wie der Collector ihn speichert:
 
@@ -947,7 +955,9 @@ ON CONFLICT (event_id, "timestamp") DO NOTHING;
 
 Die Sammelstelle nimmt in zwei Schritten entgegen, und die Trennung ist beabsichtigt:
 
-**Der Ingest-Endpunkt** (`POST /api/v1/sensor/{sensor_id}`, siehe 3.6) authentifiziert die Sendung, gleicht den `sub`-Claim gegen den Pfad ab, prüft den Umschlag auf Typ und Schemaversion, legt ihn **dauerhaft** ab und antwortet `202`. Er wertet nichts aus.
+**Der Ingest-Endpunkt** (`POST /api/v1/sensor-data/{application_id}/{environment_id}/{sensor_id}`, siehe 3.6) authentifiziert die Sendung, prüft die Eigentümerschaft an der Kette Anwendung → Umgebung → Sensor aus dem Pfad, prüft den Umschlag auf Typ und Schemaversion, legt ihn **dauerhaft** ab und antwortet `202`. Er wertet nichts aus.
+
+> Hier stand, der Endpunkt gleiche den `sub`-Claim gegen den Pfad ab. Das war eine Umsetzungsvariante, keine Zusage, und es widersprach 3.6: Verbindlich am Token sind nur `iat` und `exp`, und die Kontrolle ist die Eigentümerprüfung. Ob der Collector sie je Sendung im Anwendungsregister nachschlägt oder beim Anmelden in das Token schreibt, bleibt seine Sache.
 
 **Der Consumer** liest die abgelegten Sendungen, packt sie aus und schreibt die Events unverändert in die Datenbank; keine weitere Transformation, reines Mapping der bereits normalisierten Top-Level-Felder auf Spalten. Er entscheidet anhand von `event_severity`, in welche Event-Tabelle geschrieben wird, setzt `received_at` und `effective_at` (4.2.1) und führt die Echtzeitregeln aus (4.3.1).
 
@@ -1100,7 +1110,7 @@ RETURNING value;
 - **Die Zeilenzahl ist aber nicht dasselbe wie die Größe, und deshalb stehen `fillfactor` und Autovacuum oben.** Unter einem Brute-Force-Angriff wird **eine** Zeile — `authfail:{actor_ip}` — hunderte Male je Sekunde aktualisiert, und jedes `UPDATE` erzeugt in PostgreSQL eine neue Tupelversion. Solange nur `value` sich ändert, ist eine HOT-Aktualisierung möglich: Die neue Version bleibt auf derselben Seite, `idx_realtime_counters_expires_at` bleibt unberührt. Beim **Fensterwechsel** ändert sich aber `expires_at`, die indizierte Spalte — und dann ist es kein HOT-Update mehr, sondern ein zusätzlicher Indexeintrag.
 - Ohne diese beiden Einstellungen wüchse ausgerechnet die Tabelle, die „dauerhaft klein" bleiben soll, **im Angriffsfall am schnellsten** — also genau dann, wenn R3 und R4 zuverlässig arbeiten müssen. `fillfactor = 70` hält Platz auf der Seite frei, damit HOT überhaupt greifen kann; das aggressivere Autovacuum räumt die toten Versionen ab, bevor sie sich zu einem Bloat auftürmen. Beides gilt **nur für diese Tabelle**: Auf den Event-Tabellen wäre ein niedriger `fillfactor` verschenkter Platz, weil dort ausschließlich eingefügt und nie aktualisiert wird.
 
-**Die Stundenaggregate der Anomalieschicht.** 4.2.3 sagt zu, dass ein täglicher Lauf Kennzahlen schreibt und die Langzeithaltung von `info`-Events dadurch entbehrlich wird. Ein Speicherort dafür fehlte: `metric_baselines` (4.2.4) hält nur Mittelwert und Streuung je Bucket und wird bei jedem Lauf überschrieben — keine Zeitreihe. Die Aggregate brauchen eine eigene Tabelle:
+**Die Stundenaggregate der Anomalieschicht.** 4.2.3 sagt zu, dass ein täglicher Lauf Kennzahlen schreibt und die Langzeithaltung von `info`-Events dadurch entbehrlich wird. Ein Speicherort dafür fehlte: `metric_baselines` (4.2.4) hält nur Mittelwert und Streuung je Bucket — eine Zeitreihe der *Messwerte* ist das nicht, auch seit `computed_at` im Schlüssel steht. Die Aggregate brauchen eine eigene Tabelle:
 
 ```sql
 CREATE TABLE metric_samples (
@@ -1616,7 +1626,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 **Detektion:**
 - **R1** bei 5xx
 - **R7** (4.3.1) — `exception_class` im Serializer-Namensraum → `warning`, kombiniert mit `content_length` oberhalb eines Schwellwerts → `critical`
-- Das `raw`-Feld (Abschnitt 3) zeigt hier seinen Wert: Kam der Payload als JSON und hält er die Größengrenze aus 3.5 ein, steht er redigiert in `raw.request_body` und ist für die forensische Nachanalyse innerhalb der 30-Tage-Retention verfügbar. Andernfalls nennt `raw.request_body_omitted` den Grund. Die **Signatur** bleibt in beiden Fällen erhalten — die auffällige Größe steht als `payload.content_length` im Event, unabhängig davon, ob der Inhalt mitkam
+- Das `raw`-Feld (Abschnitt 3) zeigt hier seinen Wert: Kam der Payload als JSON und hält er die Größengrenze aus 3.5 ein, steht er redigiert in `raw.request_body` und ist für die forensische Nachanalyse innerhalb der Retention von `events_raw` verfügbar (45 Tage, 4.2.3). Andernfalls nennt `raw.request_body_omitted` den Grund. Die **Signatur** bleibt in beiden Fällen erhalten — die auffällige Größe steht als `payload.content_length` im Event, unabhängig davon, ob der Inhalt mitkam
 
 ---
 
@@ -1668,7 +1678,9 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 **Signatur:** Keine Fehler-Events — der Angreifer ist aus Sicht der Anwendung ein gültiger Nutzer. Auffällig ist nur der **Kontextwechsel**: derselbe `actor_user` erscheint plötzlich von einer anderen `actor_ip` bzw. mit anderem `payload.user_agent`.
 
 **Detektion:**
-- **B8** (4.3.3) — Wechsel der `actor_ip` für denselben `actor_user` innerhalb eines kurzen Zeitfensters (z. B. <10 Min.), ohne dazwischenliegendes `security.authentication.success` → `warning`. Ein Nutzer wechselt selten mitten in der Sitzung das Netz; passiert es doch (Mobilfunk/WLAN-Wechsel), ist das ein bekannter False-Positive-Kandidat, der bei der Kalibrierung (offener Punkt O3 in 6.2) zu berücksichtigen ist.
+- **B8** (4.3.3) — Wechsel der `actor_ip` bei gleichem `actor_session_hash`, ohne dazwischenliegendes `security.authentication.success` → `warning`. Ein Nutzer wechselt selten mitten in der Sitzung das Netz; passiert es doch (Mobilfunk/WLAN-Wechsel), ist das ein bekannter False-Positive-Kandidat, der bei der Kalibrierung (offener Punkt O3 in 6.2) zu berücksichtigen ist.
+
+  > Hier stand „für denselben `actor_user` innerhalb eines kurzen Zeitfensters (z. B. <10 Min.)". Maßgeblich ist die Fassung in 4.3.3: verglichen wird über die **Sitzung**, nicht über den Nutzer. Der Unterschied ist keine Formulierung — derselbe Nutzer kann auf zwei Geräten zwei rechtmäßige Sitzungen haben, und über `actor_user` verglichen wäre das ein Dauerbefund. Umgekehrt ist die Sitzung genau das, was bei S9 übernommen wird.
 - **B9** (4.3.3) — analog für Wechsel des `actor_fingerprint` bei gleichem `actor_session_hash` — deutlich seltener legitim als ein IP-Wechsel und damit das präzisere Signal.
 
 ---
@@ -1701,7 +1713,7 @@ Die folgenden Szenarien sind spezifisch für Symfony-Anwendungen (bzw. deren typ
 
 ```sql
 INSERT INTO alerts (alert_id, dedup_key, rule_id, alert_severity, source,
-                    application_id, environment, description, details)
+                    application_id, environment_id, description, details)
 VALUES (...)
 ON CONFLICT (dedup_key) DO UPDATE
 SET last_seen = now(),
@@ -1717,7 +1729,7 @@ SET last_seen = now(),
 
 **Nebeneffekt, der eigene Aussagekraft hat:** `occurrence_count` ist selbst ein Signal. 500 Fehlversuche statt 6 unterscheiden einen automatisierten Angriff von einem vergesslichen Nutzer — ohne dass es dafür eine eigene Regel braucht. Für Priorisierung und Eskalation ist der Zählerstand oft aussagekräftiger als die `alert_severity`.
 
-**Retention:** `alerts` wird bewusst **nicht** partitioniert und **nicht** automatisch bereinigt. Das Volumen liegt um Größenordnungen unter dem der `events`-Tabelle, und Alerts sind der eigentliche Auswertungsgegenstand — eine langfristige Historie ist hier erwünscht, nicht lästig. Sollte das Volumen unerwartet wachsen (etwa durch unkalibrierte Schwellwerte), ist eine Partitionierung nach `first_seen` analog zu 4.2.3 jederzeit nachrüstbar — die Tabelle hat kein `created_at`, ihr Anlagezeitpunkt ist `first_seen`. `metric_baselines` wird bei jedem Baseline-Lauf überschrieben und wächst nicht.
+**Retention:** `alerts` wird bewusst **nicht** partitioniert und **nicht** automatisch bereinigt. Das Volumen liegt um Größenordnungen unter dem der `events`-Tabelle, und Alerts sind der eigentliche Auswertungsgegenstand — eine langfristige Historie ist hier erwünscht, nicht lästig. Sollte das Volumen unerwartet wachsen (etwa durch unkalibrierte Schwellwerte), ist eine Partitionierung nach `first_seen` analog zu 4.2.3 jederzeit nachrüstbar — die Tabelle hat kein `created_at`, ihr Anlagezeitpunkt ist `first_seen`. `metric_baselines` wird seit 4.2.4 **fortgeschrieben statt überschrieben** — `computed_at` steht im Schlüssel, weil Poisoning (offener Punkt E2) genau die langsame Verschiebung der Baseline ist und sich nur an den aufgehobenen Fassungen messen lässt. Der Zuwachs ist vernachlässigbar: 24 Zeilen je Metrik und Lauf, ein Lauf am Tag.
 
 ---
 

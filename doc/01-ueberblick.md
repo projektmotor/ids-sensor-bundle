@@ -67,9 +67,8 @@ flowchart LR
         direction TB
         b1["normalisieren"]
         b2["redigieren"]
-        b3["sampeln"]
-        b4["Frame bauen<br/>und versenden"]
-        b1 --> b2 --> b3 --> b4
+        b3["Frame bauen<br/>und versenden"]
+        b1 --> b2 --> b3
     end
 
     A --> cut --> B
@@ -77,7 +76,7 @@ flowchart LR
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
     class a1,a2,a3 capture
-    class b1,b2,b3,b4 transport
+    class b1,b2,b3 transport
     style A fill:#F7FCFA,stroke:#0F6E56,color:#085041
     style B fill:#FBFBF9,stroke:#5F5E5A,color:#3A3936
 ```

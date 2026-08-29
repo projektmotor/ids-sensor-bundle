@@ -6,9 +6,11 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Http;
 
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
+use ProjektMotor\IdsSensor\Exception\ThrottledException;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
 /**
  * Sendet Frames und Heartbeats per HTTPS an den Collector (Konzept 3.6).
@@ -36,6 +38,15 @@ final class HttpShipper implements ShipperInterface
      * und Spoolen füllte den Puffer mit Sendungen, die nie angenommen werden.
      */
     private const PERMANENT = [400, 403, 413, 422];
+
+    /**
+     * Obergrenze für `Retry-After`, in Sekunden.
+     *
+     * Der Wert kommt von der Gegenseite und ist damit nach Konzept 4.5.3 nicht
+     * vertrauenswürdig. Ohne Kappung legte ein `Retry-After: 86400` den Sensor einen Tag
+     * still, während der Spool die ganze Zeit allein trüge.
+     */
+    private const MAX_RETRY_AFTER_SECONDS = 900.0;
 
     public function __construct(
         private readonly HttpClientInterface $client,
@@ -81,22 +92,8 @@ final class HttpShipper implements ShipperInterface
      */
     private function post(string $route, array $body): void
     {
-        $url = \sprintf(
-            '%s/api/v1/%s/%s/%s/%s',
-            rtrim($this->baseUri, '/'),
-            $route,
-            rawurlencode($this->identity()->applicationId),
-            rawurlencode($this->identity()->environmentId),
-            rawurlencode($this->identity()->sensorId),
-        );
-
-        $status = $this->send($url, $body, $this->tokens->get());
-
-        // Genau ein Neuanmelde- und ein Wiederholungsversuch (Konzept 3.6). Ein
-        // zweites 401 ist ein Fehlschlag wie jeder andere.
-        if (401 === $status) {
-            $status = $this->send($url, $body, $this->tokens->renew());
-        }
+        $antwort = $this->request($route, $body);
+        $status = $antwort->getStatusCode();
 
         if (202 === $status || ($status >= 200 && $status < 300)) {
             return;
@@ -106,27 +103,94 @@ final class HttpShipper implements ShipperInterface
             throw new UnshippableFrameException(\sprintf('Der Collector hat die Sendung mit %d abgelehnt.', $status));
         }
 
-        // 429, 5xx und alles Übrige: erneut versuchen. Das Spoolen und das Zählen
-        // übernimmt der FrameDispatcher, der dieses Throwable fängt.
+        if (429 === $status) {
+            $wartezeit = $this->retryAfter($antwort);
+
+            throw new ThrottledException(\sprintf('Der Collector hat die Ratengrenze gemeldet (429)%s.', null === $wartezeit ? '' : \sprintf(' und %d s Wartezeit verlangt', (int) $wartezeit)), $wartezeit);
+        }
+
+        // 5xx und alles Übrige: erneut versuchen. Das Spoolen und das Zählen übernimmt
+        // der FrameDispatcher, der dieses Throwable fängt.
         throw new \RuntimeException(\sprintf('Der Collector antwortete mit %d.', $status));
+    }
+
+    /**
+     * Setzt die Anfrage ab und meldet sich einmal neu an, wenn das Token abgelaufen war.
+     *
+     * @param list<array<string, mixed>>|array<string, mixed> $body
+     */
+    private function request(string $route, array $body): ResponseInterface
+    {
+        $url = \sprintf(
+            '%s/api/v1/%s/%s/%s/%s',
+            rtrim($this->baseUri, '/'),
+            $route,
+            rawurlencode($this->identity()->applicationId),
+            rawurlencode($this->identity()->environmentId),
+            rawurlencode($this->identity()->sensorId),
+        );
+
+        $antwort = $this->send($url, $body, $this->tokens->get());
+
+        // Genau ein Neuanmelde- und ein Wiederholungsversuch (Konzept 3.6). Ein
+        // zweites 401 ist ein Fehlschlag wie jeder andere.
+        if (401 === $antwort->getStatusCode()) {
+            $antwort = $this->send($url, $body, $this->tokens->renew());
+        }
+
+        return $antwort;
     }
 
     /**
      * @param list<array<string, mixed>>|array<string, mixed> $body
      */
-    private function send(string $url, array $body, string $token): int
+    private function send(string $url, array $body, string $token): ResponseInterface
     {
-        $response = $this->client->request('POST', $url, [
+        return $this->client->request('POST', $url, [
             'headers' => [
                 'Authorization' => 'Bearer '.$token,
                 'Content-Type' => 'application/json',
             ],
             'json' => $body,
         ]);
+    }
 
-        // getStatusCode() löst die Anfrage aus; ein Verbindungs- oder Zeitfehler wirft
-        // hier und wird vom FrameDispatcher als wiederholbar behandelt.
-        return $response->getStatusCode();
+    /**
+     * Die Wartezeit aus `Retry-After`, in Sekunden.
+     *
+     * Konzept 3.6 verlangt bei `429`, den Header zu beachten. RFC 9110 lässt zwei
+     * Schreibweisen zu, und beide kommen vor: eine Anzahl Sekunden, oder ein
+     * HTTP-Zeitpunkt. Ein fehlender oder unbrauchbarer Header ist kein Fehler — dann gilt
+     * die konfigurierte Offen-Zeit des Breakers.
+     *
+     * Gekappt wird nach oben, und das ist Absicht: Ein Collector, der eine Stunde
+     * verlangt, legte den Sensor für eine Stunde still, und der Spool trüge die ganze Zeit
+     * allein (Konzept 2.1, „der lokale Spool ist die einzige Reserve"). Eine Viertelstunde
+     * ist mehr als jede Ratengrenze braucht und weniger, als der Spool überlebt.
+     */
+    private function retryAfter(ResponseInterface $response): ?float
+    {
+        try {
+            $header = $response->getHeaders(false)['retry-after'][0] ?? null;
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (null === $header) {
+            return null;
+        }
+
+        if (1 === preg_match('/^\s*\d+\s*$/', $header)) {
+            return min((float) trim($header), self::MAX_RETRY_AFTER_SECONDS);
+        }
+
+        $zeitpunkt = strtotime($header);
+
+        if (false === $zeitpunkt) {
+            return null;
+        }
+
+        return min(max(0.0, $zeitpunkt - time()), self::MAX_RETRY_AFTER_SECONDS);
     }
 
     private function identity(): SensorIdentity

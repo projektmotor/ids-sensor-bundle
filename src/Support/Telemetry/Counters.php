@@ -37,8 +37,14 @@ final class Counters
     /** Erfolgreich an den Collector übergeben. */
     public const SENT = 'sent';
 
-    /** In den Spool geschrieben statt direkt gesendet. */
-    public const SPOOLED = 'spooled';
+    /**
+     * In den Spool geschrieben statt direkt gesendet — gezählt in EVENTS.
+     *
+     * Der Name trägt die Einheit, weil im selben Heartbeat `spool.spooled_frames` steht
+     * und Frames zählt (Konzept 3.4). Zwei Zahlen mit verschiedenen Einheiten und
+     * derselben Wortwurzel sind eine Fehlerquelle ohne Gegenwert.
+     */
+    public const SPOOLED_EVENTS = 'spooled_events';
 
     /** Verworfen, weil der Puffer die Obergrenze erreicht hatte. */
     public const DROPPED_BUFFER_FULL = 'dropped_buffer_full';
@@ -99,7 +105,34 @@ final class Counters
     /** Verworfen, weil auch der Spool nichts mehr aufnehmen konnte. */
     public const DROPPED_SPOOL_FULL = 'dropped_spool_full';
 
-    /** Versand fehlgeschlagen (Collector nicht erreichbar, abgewiesen, Timeout). */
+    /**
+     * Verworfen, weil das Spool-Verzeichnis nicht beschreibbar war.
+     *
+     * Eigener Zähler und nicht DROPPED_SPOOL_FULL: Der eine führt zu mehr Plattenplatz,
+     * der andere zu einer Rechtekorrektur (Konzept 3.4).
+     */
+    public const DROPPED_SPOOL_UNWRITABLE = 'dropped_spool_unwritable';
+
+    /**
+     * Verworfen, weil der Frame sich nicht kodieren ließ.
+     *
+     * Wieder ein eigener Zähler: Hier hilft weder Platz noch ein Recht, sondern nur eine
+     * Untersuchung des Payloads (Konzept 3.4).
+     */
+    public const DROPPED_SPOOL_UNENCODABLE = 'dropped_spool_unencodable';
+
+    /**
+     * Vom Collector dauerhaft abgewiesen (400, 403, 413, 422).
+     *
+     * Streng von SHIP_FAILED zu trennen, weil beide zu ENTGEGENGESETZTEN Maßnahmen
+     * führen: `ship_failed` heißt „den Collector prüfen", `dropped_rejected` heißt „den
+     * Payload prüfen" (Konzept 3.6). Eine gemeinsame Zahl ließe nicht erkennen, welche
+     * greift — und ein erneuter Versuch ist hier zwecklos, weshalb die Sendung verworfen
+     * und nicht gespoolt wird.
+     */
+    public const DROPPED_REJECTED = 'dropped_rejected';
+
+    /** Versand fehlgeschlagen (Collector nicht erreichbar, Timeout, 429, 5xx). */
     public const SHIP_FAILED = 'ship_failed';
 
     /**
@@ -114,6 +147,43 @@ final class Counters
     public const HEARTBEAT_SENT = 'heartbeat_sent';
 
     public const HEARTBEAT_FAILED = 'heartbeat_failed';
+
+    /**
+     * Die Zählerliste ist vollständig und geschlossen (Konzept 3.4).
+     *
+     * Sie steht hier und nicht nur verstreut über die Konstanten oben, weil {@see all()}
+     * sie braucht: Jeder Zähler reist mit, auch mit dem Wert 0. Sonst wäre „keine
+     * Verluste" nicht von „diese Sensorfassung kennt den Zähler nicht" zu unterscheiden —
+     * und genau diese Unterscheidung braucht der Collector, wenn Sensoren verschiedener
+     * Fassungen gleichzeitig laufen (Konzept 3.7). Er bildet `ids.event_loss` aus den
+     * Schlüsseln mit Präfix `dropped_` sowie `ship_failed` und `heartbeat_failed`.
+     *
+     * Die Reihenfolge ist die aus Konzept 3.4 und ohne Bedeutung; sie erleichtert nur den
+     * Abgleich von Hand.
+     *
+     * @var list<string>
+     */
+    public const ALL = [
+        self::CAPTURED,
+        self::SENT,
+        self::SPOOLED_EVENTS,
+        self::DROPPED_REJECTED,
+        self::DROPPED_SPOOL_FULL,
+        self::DROPPED_SPOOL_UNWRITABLE,
+        self::DROPPED_SPOOL_UNENCODABLE,
+        self::DROPPED_SPOOL_UNREADABLE,
+        self::DROPPED_BUFFER_FULL,
+        self::DROPPED_RESET,
+        self::DROPPED_CAPTURE_BUDGET,
+        self::DROPPED_CAPTURE_ERROR,
+        self::DROPPED_DECISION_CAP,
+        self::DROPPED_NO_NORMALIZER,
+        self::DROPPED_NORMALIZE_ERROR,
+        self::DROPPED_FRAME_TOO_LARGE,
+        self::SHIP_FAILED,
+        self::HEARTBEAT_SENT,
+        self::HEARTBEAT_FAILED,
+    ];
 
     /** @var array<string, int> */
     private array $values = [];
@@ -167,10 +237,21 @@ final class Counters
     }
 
     /**
+     * Alle Zähler aus {@see ALL}, auch die unberührten.
+     *
+     * Hier stand `return $this->values;` und lieferte damit nur, was im Prozess einmal
+     * hochgezählt worden war. Für den Collector war ein fehlender Schlüssel damit
+     * zweideutig: „nichts verloren" oder „diese Sensorfassung kennt den Zähler nicht".
+     * Konzept 3.4 verlangt genau deshalb, dass jeder Zähler mitreist, auch mit dem Wert 0.
+     *
+     * Ein Schlüssel außerhalb von ALL bleibt trotzdem erhalten — {@see increment()} nimmt
+     * jede Zeichenkette an, und einen Zählerstand stillschweigend zu verschlucken wäre
+     * schlimmer als eine Liste, die einen Eintrag zu viel hat.
+     *
      * @return array<string, int>
      */
     public function all(): array
     {
-        return $this->values;
+        return array_merge(array_fill_keys(self::ALL, 0), $this->values);
     }
 }

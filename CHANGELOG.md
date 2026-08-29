@@ -13,6 +13,108 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Fixed — Tiefenabgleich Konzept ↔ Quellcode ↔ Dokumentation
+
+Ein vollständiger Abgleich der drei Parteien hat 16 Abweichungen in fünf Gruppen ergeben.
+Das Muster ist eindeutig: **Was ein Test abdeckt, stimmt.** Konfigurationsschlüssel,
+Vorgabewerte, Verweise, Anker und die Ereignis-Beispiele sind sauber — sie stehen unter
+`DocumentationTest` und `ArchitectureTest`. Auseinander liefen genau die drei Flächen ohne
+Test: die normative Antwortcode-Tabelle aus Konzept 3.6, die als „vollständig und
+geschlossen" bezeichnete Zählerliste aus 3.4, und Fließtext samt Mermaid-Knoten.
+
+**Der Versandpfad hielt Konzept 3.6 nicht ein — die einzige Verhaltenslücke.**
+`HttpShipper` unterschied „geht nie" von „später erneut" korrekt und warf
+`UnshippableFrameException`; `FrameDispatcher::ship()` fing darunter pauschal `\Throwable`
+und warf die Unterscheidung wieder weg. Eine mit `400`, `403`, `413` oder `422` abgelehnte
+Sendung wurde deshalb **gespoolt**, zählte `ship_failed` und öffnete den Circuit Breaker.
+Drei Folgen auf einmal: Der Drainer schickte den Frame später an denselben Collector und
+lief in denselben Fehler — genau das Head-of-Line-Blocking, gegen das es diese Ausnahme
+laut eigenem Docblock gibt. Der Breaker öffnete nach drei Ablehnungen gegen einen völlig
+gesunden Collector. Und `ship_failed` schickte den Betreiber zum Collector, während die
+Ursache im Payload lag.
+
+**`Retry-After` wurde nicht gelesen**, obwohl 3.6 es für `429` normativ vorschreibt. Neu ist
+`Exception\ThrottledException`; sie trägt die Wartezeit, und der Breaker öffnet damit
+**sofort** statt erst ab der Fehlerschwelle. Ohne das widersprächen sich die beiden Hälften
+der `429`-Zeile: Unterhalb der Schwelle ginge der nächste Frame unmittelbar wieder hinaus,
+und die Wartezeit wäre entgegengenommen und im selben Atemzug ignoriert. `BreakerState`
+führt die vorgesehene Dauer jetzt mit — sonst verwürfe die Uhr-Rücksprung-Prüfung dort
+jede Sperre oberhalb von `open_for_s` als unplausibel. Gekappt wird bei 15 Minuten: Der
+Wert kommt von der Gegenseite und gilt nach 4.5.3 als angreiferkontrolliert.
+
+**Die Zählerliste war an fünf Stellen uneins.** Sie speist `ids.event_loss`, weshalb 3.4 sie
+ausdrücklich geschlossen nennt:
+
+| Schlüssel | vorher | jetzt |
+|---|---|---|
+| `spooled_events` | hieß `spooled` | umbenannt |
+| `dropped_rejected` | fehlte | neu |
+| `dropped_spool_unwritable` | nur als `spool.discarded_unwritable` | bei den Zählern |
+| `dropped_spool_unencodable` | nur als `spool.discarded_unencodable` | bei den Zählern |
+| `dropped_reset` | fehlte im Konzept | in 3.4 aufgenommen |
+
+Der `spool`-Block des Heartbeats meldet damit nur noch Bestandsgrößen, wie 3.4 es verlangt.
+Die drei Verwerfungsgründe standen dort unter den Namen `discarded_*`, die derselbe
+Abschnitt abgeschafft hatte („es gilt durchgehend die `dropped_*`-Schreibweise") — und weil
+sie außerhalb von `counters` standen, fehlten sie dem Collector in `ids.event_loss`
+vollständig.
+
+**Nebenbefund derselben Stelle:** `FrameDispatcher::spool()` zählte **jedes** gescheiterte
+`append()` als `dropped_spool_full`. Für zwei der drei Gründe war das falsch — ein nicht
+beschreibbares Verzeichnis und ein nicht kodierbarer Payload wurden als „Platte voll"
+gemeldet und schickten den Betreiber zu einer Maßnahme, die nichts bewirkt. Der Spool
+unterschied sie längst.
+
+**`Counters::all()` lieferte nur berührte Zähler.** 3.4 verlangt, dass jeder mitreist, auch
+mit dem Wert `0`: Ein fehlender Schlüssel ist für den Collector sonst zweideutig — „nichts
+verloren" oder „diese Sensorfassung kennt den Zähler nicht". Genau diese Unterscheidung
+braucht er, wenn Sensoren verschiedener Fassungen gleichzeitig laufen.
+
+**Das Konzept widersprach sich an sieben Stellen.** Die Ingest-Route stand dreimal in der
+früheren Einzel-ID-Form `POST /api/v1/sensor/{sensor_id}`, während 3.6 das vollständige
+Tripel festlegt; Frame- und Heartbeat-Beispiel zeigten `schema_version: 1`; der Kopfvermerk
+sagte noch, der Quellcode liefere weiterhin den Redis-Streams-Transport aus. Dazu: 4.1
+verlangte einen `sub`-Claim-Abgleich, den 3.6 nicht kennt (verbindlich sind `iat` und
+`exp`, die Kontrolle ist die Eigentümerkette); `events_raw` hatte einmal 30 statt 45 Tage
+Retention; `metric_baselines` galt einmal als überschrieben und einmal als fortgeschrieben;
+B8 war einmal über `actor_session_hash` und einmal über `actor_user` definiert — was
+verschiedene Regeln sind, weil ein Nutzer auf zwei Geräten zwei rechtmäßige Sitzungen haben
+kann; und der `alerts`-Upsert nannte eine Spalte `environment` statt `environment_id`.
+
+**Zwei Zeilen in Konzept 2.3 behaupteten eine Durchsetzung, die es nicht gibt.** „Spool-
+Verzeichnis node-lokal" und „Umgebung im Anwendungsregister vorhanden" standen mit
+`setup-check` in der Spalte; der Command prüft beides nicht und kann es auch nicht. Der
+Abschnitt zieht diese Linie zwei Absätze später selbst — sie ist jetzt auf die eigene
+Tabelle angewandt.
+
+**Sampling und Broker lebten in der Prosa weiter.** Fünfmal „sampeln" (zwei Mermaid-Knoten,
+eine Leitfrage, ein Docblock, `structure.md`), dazu Broker und Redis in `README.md`,
+`structure.md` und `CLAUDE.md` — die drei Dateien, die der Nachzug in `263a830` nicht
+erfasst hatte. `structure.md` führte außerdem `IdsEventData\Vocabulary\Environment`,
+gelöscht seit `ids-event-data` 0.2.0; es ist derselbe Fehler, den `263a830` in `doc/03`
+behoben hat, an der einen übersehenen Stelle. Das README-Diagramm modellierte weiterhin die
+Broker-Topologie: ein Knoten außerhalb des Collectors, aus dem der Consumer *liest*.
+
+**Kleineres:** `doc/06` führte sieben der neun mitgelieferten Header — ausgerechnet die
+beiden `X-Debug-*` fehlten, die dieselbe Datei 110 Zeilen später erklärt. Die README nannte
+15 statt 14 Konfigurationsvarianten, „five promises" statt sechs und `ext-json` ohne
+`ext-mbstring`.
+
+**Damit das nicht wiederkehrt**, zwei Ergänzungen in `DocumentationTest`, die neun der 16
+Befunde gefangen hätten: `testNoRetiredConceptSurvivesInProse()` prüft Markdown **und**
+`src/` gegen eine Liste abgeschaffter Begriffe, mit zeilengenauer Ausnahmeliste für die
+Stellen, die bewusst mit dem früheren Entwurf vergleichen.
+`testNoDocumentNamesADeletedEventFormatClass()` gleicht jeden genannten
+`IdsEventData\*`-Namen gegen die Dateien im Paket ab — die Gegenrichtung zu
+`ArchitectureTest::testDocblockReferencesDoNotDangle()`, die für das Fremdpaket blind ist.
+
+> **Offen und ausdrücklich nicht mit erledigt: der Fassungswechsel.** Konzept 3.7 sagt jetzt
+> ausgeschrieben, dass die Umbenennung eines Zählers ein `schema_version`-Bump ist — die
+> Regel fehlte, weil eine Umbenennung durch beide Listen fiel (sie ist Zugang *und* Wegfall,
+> und der Vorgang entfällt gerade nicht). `spooled` → `spooled_events` ist damit ein Bump.
+> `EventSchema::SCHEMA_VERSION` liegt in `projektmotor/ids-event-data` und kann hier nicht
+> steigen; die Zahl bleibt vorerst bei 2. **Vor einem Release ist dort auf 3 zu gehen.**
+
 ### Fixed — die Dokumentation beschreibt wieder, was ausgeliefert wird
 
 Die Umstellung auf REST und `schema_version` 2 hat Quellcode und Teile der Doku nachgezogen,

@@ -1,8 +1,8 @@
 # 05 — Der Versandweg
 
 Am Ende von Phase B steht ein fertiger Frame. Ob er zum Collector geht oder auf die Platte,
-entscheidet `Delivery\Dispatch\FrameDispatcher` — an genau drei Schranken, in dieser
-Reihenfolge.
+entscheidet `Delivery\Dispatch\FrameDispatcher` — an drei Schranken vor dem Versand und
+einer danach, in dieser Reihenfolge.
 
 ## Die Weiche
 
@@ -18,15 +18,16 @@ flowchart TB
     q2 -->|"ja"| spool
     q2 -->|"nein"| ship["POST an den Collector"]
 
-    ship --> q3{"erfolgreich?"}
-    q3 -->|"ja"| done(["`**sent**<br/><small>Breaker schließt</small>`"])
-    q3 -->|"nein"| fail["`**ship_failed**<br/><small>Breaker zählt Fehler</small>`"]
+    ship --> q3{"Antwort<br/>des Collectors"}
+    q3 -->|"202"| done(["`**sent**<br/><small>Breaker schließt</small>`"])
+    q3 -->|"400 · 403 · 413 · 422<br/>geht nie"| reject(["`**dropped_rejected**<br/><small>verworfen, Breaker unberührt</small>`"])
+    q3 -->|"429 · 5xx · Timeout<br/>später erneut"| fail["`**ship_failed**<br/><small>Breaker zählt Fehler</small>`"]
     fail --> spool
 
     spool["in den Spool schreiben<br/><small>ein fwrite, 10–100 µs</small>"]
     spool --> q4{"Spool<br/>aufnahmefähig?"}
-    q4 -->|"ja"| spooled(["`**spooled**<br/><small>spool:flush sendet nach</small>`"])
-    q4 -->|"nein"| lost(["`**dropped_spool_full**<br/><small>Verlust, aber gezählt</small>`"])
+    q4 -->|"ja"| spooled(["`**spooled_events**<br/><small>spool:flush sendet nach</small>`"])
+    q4 -->|"nein"| lost(["`**dropped_spool_***<br/><small>Verlust, aber gezählt</small>`"])
 
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
@@ -34,8 +35,13 @@ flowchart TB
     class start,q1,q2,q3,q4 transport
     class ship,spool,fail transport
     class done,spooled capture
-    class lost data
+    class lost,reject data
 ```
+
+Die vierte Schranke steht **hinter** dem Versand und ist die einzige, die nicht spoolt:
+Eine dauerhaft abgewiesene Sendung wird verworfen. Was der Collector aus sich heraus nie
+annimmt, käme beim Nachsenden erneut zurück und hielte die Spool-Datei bei jedem Lauf
+aufs Neue fest.
 
 Die erste Schranke ist die wichtigste: **ist die Antwort nicht abkoppelbar, findet
 nachweislich kein Verbindungsversuch statt** — nicht „mit kurzem Timeout", nicht „nur wenn
@@ -135,6 +141,34 @@ und liest ihn aus dem Frame selbst: Was der Sensor planmäßig als `deferred` in
 geschrieben hat, bleibt `deferred`; was `direct` gehen sollte und dort landete, war ein
 Fehlschlag und wird `recovered`. Der Command hat dafür bewusst keine Option — ein einziger
 Wert für einen ganzen Lauf wäre für mindestens einen der beiden Fälle falsch.
+
+## Schranke 4: Was der Collector dauerhaft abweist
+
+Konzept (*3.6*) legt die Antwortcodes normativ fest, und der Sensor muss „geht nie" von
+„später erneut" unterscheiden können:
+
+| Antwort | Bedeutung | Der Sensor |
+|---|---|---|
+| `202` | dauerhaft entgegengenommen | zählt `sent`; der Breaker schließt |
+| `400`, `413`, `422` | die Sendung ist aus sich heraus nicht annehmbar | **verwirft**, zählt `dropped_rejected`; **kein** Spool, Breaker unberührt |
+| `401` | Token abgelaufen | meldet sich **einmal** neu an und wiederholt **einmal** |
+| `403` | die Zugangsdaten gehören nicht zu dieser Kette | **verwirft**, zählt `dropped_rejected`; Breaker unberührt |
+| `429` | Ratengrenze erreicht | **spoolt**, beachtet `Retry-After`; der Breaker zählt einen Fehler |
+| `5xx`, Timeout | der Collector ist gestört | **spoolt**; der Breaker zählt einen Fehler |
+
+Zwei Dinge daran sind nicht offensichtlich:
+
+**`403` heilt nicht durch Warten.** Es heißt, dass der angemeldete Nutzer nicht Eigentümer
+der Kette Anwendung → Umgebung → Sensor ist — ein Konfigurationsfehler. Zu spoolen füllte
+den Puffer mit Sendungen, die nie angenommen werden, und verdrängte dabei die, die
+durchkämen.
+
+**`Retry-After` öffnet den Circuit Breaker sofort**, auch unterhalb der Fehlerschwelle.
+Sonst widersprächen sich die beiden Hälften der `429`-Zeile: Der nächste Frame ginge
+unmittelbar wieder hinaus, und die verlangte Wartezeit wäre entgegengenommen und im selben
+Atemzug ignoriert. Nach oben gekappt wird sie bei 15 Minuten — der Wert kommt von der
+Gegenseite, und ein `Retry-After: 86400` legte den Sensor sonst einen Tag still — während
+der Spool die ganze Zeit allein trägt.
 
 ## Der Spool
 

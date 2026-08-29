@@ -102,9 +102,22 @@ greift.
 | `dropped_normalize_error` | die Normalisierung ist fehlgeschlagen | Fehlerbericht; betrifft meist einen Payload der Anwendung |
 | `dropped_frame_too_large` | die Sendung überschreitet `flush.max_frame_bytes` | Payload untersuchen — nicht Plattenplatz, sondern Inhalt |
 | `dropped_spool_full` | Spool voll, Frame verworfen | `spool.max_bytes`, häufiger drainen |
-| `dropped_spool_unreadable` | unlesbare Spool-Zeile oder dauerhaft unversendbarer Frame | ein zweiter Versuch scheitert gleich; Spool-Datei prüfen |
-| `ship_failed` | Collector nicht erreichbar oder abweisend | Collector prüfen; der Frame ging in den Spool |
+| `dropped_spool_unwritable` | Spool-Verzeichnis nicht beschreibbar | Rechte korrigieren — nicht mehr Platz |
+| `dropped_spool_unencodable` | der Frame ließ sich nicht kodieren | Payload untersuchen; praktisch nur eine Tiefenüberschreitung |
+| `dropped_spool_unreadable` | unlesbare Spool-Zeile | die Spool-Datei ist beschädigt |
+| `dropped_rejected` | der Collector hat dauerhaft abgewiesen (`400`, `403`, `413`, `422`) | den **Payload** prüfen, nicht den Collector — siehe [Fehlersuche](#fehlersuche) |
+| `ship_failed` | Collector nicht erreichbar oder gestört (`429`, `5xx`, Timeout) | Collector prüfen; der Frame ging in den Spool |
 | `heartbeat_failed` | Lebenszeichen konnte nicht gesendet werden | wie `ship_failed` |
+
+Die letzten beiden sind die wichtigste Unterscheidung dieser Tabelle, und sie führen zu
+**entgegengesetzten** Maßnahmen (*3.6*): `ship_failed` heißt „den Collector prüfen" und der
+Frame liegt im Spool, `dropped_rejected` heißt „den Payload prüfen" und der Frame ist weg.
+Eine gemeinsame Zahl ließe nicht erkennen, welche greift — und ein abgewiesener Frame im
+Spool hielte dort bei jedem Drain-Lauf erneut die ganze Datei fest.
+
+**Jeder Zähler reist mit, auch mit dem Wert `0`** (*3.4*). Ein fehlender Schlüssel wäre für
+den Collector zweideutig: „nichts verloren" oder „diese Sensorfassung kennt den Zähler
+nicht".
 
 **Was nicht zählbar ist**, und das ist eine ehrliche Grenze: `SIGKILL`, der OOM-Killer,
 Container-Eviction und ein Verlust im Collector nach der Annahme sind von innen nicht beobachtbar.

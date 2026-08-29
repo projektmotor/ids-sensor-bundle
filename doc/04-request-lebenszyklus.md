@@ -32,7 +32,7 @@ sequenceDiagram
 
     K->>F: kernel.terminate (Priorität 1024)
     F->>P: Puffer leeren
-    F->>F: normalisieren · redigieren · sampeln
+    F->>F: normalisieren · redigieren
     F->>F: Frame bauen und versenden
 ```
 

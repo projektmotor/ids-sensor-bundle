@@ -226,9 +226,17 @@ final class SpoolDrainer
                     continue;
                 }
 
-                // Discarded: die Zeile ist weg und wird nicht aufgehoben — aber gezaehlt.
+                // Discarded und Rejected: die Zeile ist weg und wird nicht aufgehoben —
+                // aber gezaehlt, und zwar auf getrennten Zaehlern. Konzept 3.6 trennt
+                // beide, weil das eine zur Spool-Datei fuehrt und das andere zum Payload;
+                // hier lief bis dahin auch die Ablehnung des Collectors auf
+                // dropped_spool_unreadable und schickte den Betreiber zur falschen Datei.
                 ++$discarded;
-                $this->counters?->increment(Counters::DROPPED_SPOOL_UNREADABLE);
+                $this->counters?->increment(
+                    DrainOutcome::Rejected === $outcome
+                        ? Counters::DROPPED_REJECTED
+                        : Counters::DROPPED_SPOOL_UNREADABLE,
+                );
             }
             // Wie weit wir gekommen sind. Alles darüber hinaus ist NACH dem Lesen
             // angehängt worden — siehe finish().
@@ -245,8 +253,10 @@ final class SpoolDrainer
     /**
      * Dekodiert eine Zeile und versendet sie.
      *
-     * Die beiden Verwerfen-Fälle sind hier zusammengefasst, weil sie dasselbe bedeuten:
-     * ein zweiter Versuch würde an derselben Stelle scheitern.
+     * Die beiden Verwerfen-Fälle bedeuten für die DATEI dasselbe — ein zweiter Versuch
+     * scheiterte an derselben Stelle —, für den Betreiber aber nicht: Eine unlesbare
+     * Zeile ist ein beschädigter Spool, eine Ablehnung ein untauglicher Payload. Sie
+     * tragen deshalb verschiedene Ausgänge und laufen auf verschiedene Zähler.
      */
     private function sendLine(string $line): DrainOutcome
     {
@@ -268,7 +278,7 @@ final class SpoolDrainer
                 ['message' => $e->getMessage()],
             );
 
-            return DrainOutcome::Discarded;
+            return DrainOutcome::Rejected;
         } catch (\Throwable $e) {
             $this->logger?->warning(
                 'ids_sensor: Nachsenden aus dem Spool fehlgeschlagen: {message}',

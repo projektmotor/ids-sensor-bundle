@@ -10,6 +10,7 @@ use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolDrainer;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
+use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
 
 final class FileSpoolTest extends TestCase
@@ -204,13 +205,22 @@ final class FileSpoolTest extends TestCase
             }
         };
 
-        $result = (new SpoolDrainer($spool, $shipper))->drain();
+        $counters = new Counters();
+        $result = (new SpoolDrainer($spool, $shipper, counters: $counters))->drain();
 
         self::assertSame(0, $result['failed'], 'Der vergiftete Frame ist kein Fehlschlag, sondern ein Verlust');
         self::assertSame(1, $result['discarded'], 'Aber ein GEZÄHLTER Verlust');
         self::assertSame(1, $result['frames'], 'Der Frame DAHINTER kommt durch');
         self::assertSame('danach', $shipper->angekommen[0]['events'][0]['payload']['marker']);
         self::assertSame([], $spool->pendingFiles(), 'Die Datei bleibt nicht liegen');
+
+        // Konzept 3.6 trennt die beiden Verwerfungsgründe, weil sie zu entgegengesetzten
+        // Maßnahmen führen: dropped_spool_unreadable heißt „die Spool-Datei prüfen",
+        // dropped_rejected heißt „den Payload prüfen". Bis dahin lief auch die Ablehnung
+        // des Collectors auf den ersten Zähler und schickte den Betreiber zur falschen
+        // Datei.
+        self::assertSame(1, $counters->get(Counters::DROPPED_REJECTED));
+        self::assertSame(0, $counters->get(Counters::DROPPED_SPOOL_UNREADABLE));
     }
 
     /**

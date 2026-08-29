@@ -12,6 +12,8 @@ use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
+use ProjektMotor\IdsSensor\Exception\ThrottledException;
+use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 
@@ -27,7 +29,7 @@ use Psr\Log\LoggerInterface;
  * bräuchte der Flusher das RuntimeProfile weiterhin, um `dispatch_path` vor dem
  * Frame-Bau zu setzen.
  *
- * Was übrig bleibt, ist die Pipeline: puffern, normalisieren, sampeln, übergeben.
+ * Was übrig bleibt, ist die Pipeline: puffern, normalisieren, redigieren, übergeben.
  *
  * KEIN ShipperInterface
  *
@@ -181,9 +183,37 @@ final class FrameDispatcher
             $this->breaker?->recordSuccess();
 
             return $frame->count();
+        } catch (UnshippableFrameException $e) {
+            // Konzept 3.6 trennt „geht nie" von „später erneut", und die Tabelle dort ist
+            // normativ: 400, 403, 413 und 422 werden VERWORFEN, nicht gespoolt, und der
+            // Breaker bleibt unberührt.
+            //
+            // Hier stand nur der \Throwable-Zweig darunter, der beides gleich behandelte.
+            // Das kostete dreierlei auf einmal: Der Frame ging in den Spool, wo der
+            // Drainer ihn später an denselben Collector schickte und in denselben Fehler
+            // lief — genau das Head-of-Line-Blocking, gegen das es diese Ausnahme gibt.
+            // Der Breaker zählte einen Fehler und öffnete nach drei abgewiesenen Sendungen
+            // gegen einen völlig gesunden Collector. Und gezählt wurde ship_failed, was
+            // den Betreiber den Collector prüfen ließ, während die Ursache im Payload lag.
+            $this->counters->increment(Counters::DROPPED_REJECTED, $frame->count());
+            $this->logger?->error(
+                'ids_sensor: Der Collector hat {count} Events dauerhaft abgewiesen und sie wurden '
+                .'verworfen: {message}. Ein erneuter Versuch ändert daran nichts — zu prüfen ist '
+                .'der Payload, nicht der Collector.',
+                ['count' => $frame->count(), 'message' => $e->getMessage(), 'exception' => $e],
+            );
+
+            return 0;
         } catch (\Throwable $e) {
             $this->counters->increment(Counters::SHIP_FAILED, $frame->count());
-            $this->breaker?->recordFailure();
+
+            // Bei 429 trägt die Ausnahme die vom Collector verlangte Wartezeit; der
+            // Breaker hält sie ein, statt nach der konfigurierten Offen-Zeit wieder
+            // anzuklopfen (Konzept 3.6). In jedem anderen Fall ist sie null und es bleibt
+            // beim gewöhnlichen Fehler.
+            $this->breaker?->recordFailure(
+                $e instanceof ThrottledException ? $e->retryAfterSeconds : null,
+            );
             $this->logger?->error('ids_sensor: Versand fehlgeschlagen: {message}', [
                 'message' => $e->getMessage(),
                 'exception' => $e,
@@ -199,7 +229,7 @@ final class FrameDispatcher
      * Ob die Sendung die Größengrenze überschreitet.
      *
      * Ein Transportschutz, keine Konzeptzusage: Der Collector weist eine zu große Sendung
-     * mit `413` ab (Konzept 3.6), und {@see \ProjektMotor\IdsSensor\Exception\UnshippableFrameException}
+     * mit `413` ab (Konzept 3.6), und {@see UnshippableFrameException}
      * behandelt das als „geht nie". Der Frame käme also aus sich heraus nie durch. Ohne
      * diese Prüfung landete er trotzdem erst im Spool und blockierte ihn dort bei jedem
      * Lauf erneut.
@@ -241,8 +271,10 @@ final class FrameDispatcher
      */
     private function spool(array $payload, int $eventCount, string $reason): bool
     {
+        $vorher = $this->discardsByReason();
+
         if ($this->spool->append($payload)) {
-            $this->counters->increment(Counters::SPOOLED, $eventCount);
+            $this->counters->increment(Counters::SPOOLED_EVENTS, $eventCount);
             $this->logger?->info(
                 'ids_sensor: {count} Events in den Spool geschrieben ({reason}).',
                 ['count' => $eventCount, 'reason' => $reason],
@@ -251,8 +283,52 @@ final class FrameDispatcher
             return true;
         }
 
-        $this->counters->increment(Counters::DROPPED_SPOOL_FULL, $eventCount);
+        $this->counters->increment($this->reasonThatMoved($vorher), $eventCount);
 
         return false;
+    }
+
+    /**
+     * Die drei Verwerfungsstände des Spools, unter dem Namen ihres Zählers.
+     *
+     * @return array<string, int>
+     */
+    private function discardsByReason(): array
+    {
+        return [
+            Counters::DROPPED_SPOOL_FULL => $this->spool->discardedFull(),
+            Counters::DROPPED_SPOOL_UNWRITABLE => $this->spool->discardedUnwritable(),
+            Counters::DROPPED_SPOOL_UNENCODABLE => $this->spool->discardedUnencodable(),
+        ];
+    }
+
+    /**
+     * Welcher der drei Gründe die abgelehnte Zeile verworfen hat.
+     *
+     * Hier stand ein pauschales `DROPPED_SPOOL_FULL` für jedes gescheiterte `append()`.
+     * Für zwei der drei Gründe war das falsch: Ein nicht beschreibbares Verzeichnis und
+     * ein nicht kodierbarer Payload wurden als „Platte voll" gemeldet und schickten den
+     * Betreiber zu einer Maßnahme, die nichts bewirkt. Der Spool unterschied sie längst —
+     * die Zahlen standen nur im `spool`-Block des Heartbeats unter den Namen
+     * `discarded_*`, die Konzept 3.4 ausdrücklich abgeschafft hat.
+     *
+     * Verglichen wird der Stand VOR und NACH dem Versuch, statt die Zahlen des Spools zu
+     * übernehmen. Der Grund ist die Einheit: `ids.event_loss` summiert Events, der Spool
+     * zählt Zeilen. Nur so bleibt der Zähler in derselben Einheit wie seine Nachbarn.
+     *
+     * @param array<string, int> $vorher
+     */
+    private function reasonThatMoved(array $vorher): string
+    {
+        foreach ($this->discardsByReason() as $counter => $nachher) {
+            if ($nachher > $vorher[$counter]) {
+                return $counter;
+            }
+        }
+
+        // Eine Ablehnung ohne bewegten Grund: möglich bei einer fremden
+        // SpoolInterface-Umsetzung. Der Rückfall ist der bisherige Zähler — eine
+        // Verwerfung ungezählt zu lassen wäre der schlechtere Ausgang (Konzept 4.).
+        return Counters::DROPPED_SPOOL_FULL;
     }
 }

@@ -80,6 +80,71 @@ final class DocumentationTest extends TestCase
         'layers.kernel.events.exception',
     ];
 
+    /**
+     * Begriffe, deren Sache es nicht mehr gibt — als Muster, mit dem Ersatz als Meldung.
+     *
+     * `sampeln` und seine Beugungen brauchen ein eigenes Muster: Die deutsche Form
+     * enthält die Zeichenkette „sampl" gerade NICHT, weshalb eine Suche nach „sampling"
+     * fünf Fundstellen übersah.
+     *
+     * @var array<string, string>
+     */
+    private const ABGESCHAFFT = [
+        '\bsamp(el|le)\w*' => 'Sampling ist vollständig entfallen (Konzept 4.2.3).',
+        '\bsampling\b' => 'Sampling ist vollständig entfallen (Konzept 4.2.3).',
+        '\bbroker\b' => 'Der Transport geht per REST an den Collector (Konzept 3.6).',
+        '\bredis\b' => 'Redis ist in beiden Rollen entfallen (Konzept 2.1, 4.2.1).',
+        '\binstance_id\b' => 'Heißt seit Fassung 2 sensor_id (Konzept 1).',
+        '\benvironment_(map|fallback)\b' => 'Ersatzlos entfallen; der Collector vergibt environment_id (Konzept 2.2.1).',
+        '\bdiscarded_(full|unwritable|unencodable)\b' => 'Heißt dropped_* und steht bei den Zählern (Konzept 3.4).',
+    ];
+
+    /**
+     * Zwei Dateien sind ganz ausgenommen.
+     *
+     * Beide vergleichen durchgehend mit dem früheren Entwurf, und dafür müssen sie ihn
+     * benennen können. Der Changelog IST die Historie; das Konzept begründet an vielen
+     * Stellen, warum etwas entfallen ist, und eine Begründung ohne den alten Namen wäre
+     * keine.
+     *
+     * @var list<string>
+     */
+    private const AUSGENOMMEN = [
+        'CHANGELOG.md',
+        'doc/concept/concept-v1.md',
+    ];
+
+    /**
+     * Einzelne Zeilen, die einen abgeschafften Begriff tragen dürfen.
+     *
+     * Erkannt an einem Textausschnitt und nicht an einer Zeilennummer: Eine Nummer
+     * verschiebt sich beim nächsten Absatz darüber, und die Ausnahme gälte dann für die
+     * falsche Zeile — lautlos.
+     *
+     * Jeder Eintrag braucht einen Grund. Es gibt genau zwei zulässige:
+     *
+     *  - **Rückblick.** Die Stelle erklärt, was sich geändert hat, und muss den alten
+     *    Namen dafür nennen. Ein Leser, der von der früheren Fassung kommt, sucht genau
+     *    danach.
+     *  - **Fehlalarm.** Das Wort meint hier etwas anderes. `Redis` als
+     *    PHP-Session-Handler hat mit dem entfallenen Transport nichts zu tun; die Klasse
+     *    beschreibt, was ein `session_start()` unter diesem Handler kostet, und das gilt
+     *    unverändert.
+     *
+     * @var list<string>
+     */
+    private const ERLAUBTE_ZEILEN = [
+        // Rückblick — für Nutzer, die von der früheren Fassung aktualisieren.
+        'the sensor now talks to the collector over HTTPS and brings its own client',
+        'Das ist der Vorteil gegenüber einer Broker-ACL',
+        'Beides ist entfallen: Es gibt keinen Broker mehr',
+        'schema_version 1 entstand die instance_id aus dem Hostnamen',
+        'den Namen `discarded_full`, `discarded_unwritable` und `discarded_unencodable`',
+        'dropped_spool_unwritable`, `dropped_spool_unencodable',
+        // Fehlalarm — ein PHP-Session-Handler, nicht der entfallene Transport.
+        'Unter einem PDO- oder Redis-Session-Handler',
+    ];
+
     /** Diagrammtypen, die GitHub rendert. */
     private const MERMAID_TYPEN = [
         'flowchart', 'graph', 'sequenceDiagram', 'stateDiagram-v2', 'stateDiagram',
@@ -356,6 +421,151 @@ final class DocumentationTest extends TestCase
         }
 
         self::assertGreaterThanOrEqual(2, $geprueft, 'Zu wenige Beispiele gefunden — greift der Test noch?');
+    }
+
+    /**
+     * Abgeschaffte Begriffe überleben nicht in der Prosa.
+     *
+     * WOZU
+     *
+     * Die vorhandenen Prüfungen decken Konfigurationsschlüssel, Vorgabewerte, Verweise,
+     * Anker und Ereignis-Beispiele ab — also alles, was eine Struktur hat. Fließtext und
+     * Mermaid-Knoten haben keine, und genau dort blieben zwei abgeschaffte Konzepte
+     * stehen: Nach dem vollständigen Wegfall des Samplings stand „sampeln" noch in zwei
+     * Diagrammen, einer Leitfrage und einem Docblock; nach dem Wechsel auf REST hieß der
+     * Collector an mehreren Stellen weiter „Broker". Beides las sich wie eine Zusage und
+     * war keine.
+     *
+     * Der Test ist bewusst grob. Er beweist nicht, dass ein Satz stimmt — er verhindert
+     * nur, dass ein Wort überlebt, dessen Sache es nicht mehr gibt.
+     */
+    public function testNoRetiredConceptSurvivesInProse(): void
+    {
+        $funde = [];
+
+        foreach (self::prosaquellen() as $relativ => $inhalt) {
+            foreach (explode("\n", $inhalt) as $nummer => $zeile) {
+                if (self::istErlaubt($zeile)) {
+                    continue;
+                }
+
+                foreach (self::ABGESCHAFFT as $begriff => $ersatz) {
+                    if (1 !== preg_match('/'.$begriff.'/iu', $zeile)) {
+                        continue;
+                    }
+
+                    $funde[] = \sprintf('%s:%d — %s', $relativ, $nummer + 1, $ersatz);
+                }
+            }
+        }
+
+        self::assertSame([], $funde, \sprintf(
+            "Abgeschaffte Begriffe stehen noch da:\n  %s",
+            implode("\n  ", $funde),
+        ));
+    }
+
+    /**
+     * Kein Dokument nennt eine Klasse des Ereignisformats, die es nicht mehr gibt.
+     *
+     * Die Gegenrichtung zu {@see ArchitectureTest::testDocblockReferencesDoNotDangle()}:
+     * Jene prüft `{@see}`-Verweise auf `ProjektMotor\IdsSensor\*` und ist damit für das
+     * FREMDPAKET blind. Genau dort ist es passiert — `IdsEventData\Vocabulary\Environment`
+     * ist seit `ids-event-data` 0.2.0 gelöscht und stand danach weiter in `doc/03` und in
+     * `doc/concept/structure.md`. In `doc/03` fiel es beim Nachziehen auf, in
+     * `structure.md` nicht.
+     */
+    public function testNoDocumentNamesADeletedEventFormatClass(): void
+    {
+        $vorhanden = self::ereignisformatklassen();
+        $geprueft = 0;
+
+        foreach (self::prosaquellen() as $relativ => $inhalt) {
+            preg_match_all('/IdsEventData\\\\([A-Za-z0-9\\\\]+)/', $inhalt, $treffer);
+
+            foreach ($treffer[1] as $klasse) {
+                ++$geprueft;
+                self::assertContains($klasse, $vorhanden, \sprintf(
+                    '%s nennt IdsEventData\\%s — die Klasse gibt es im Paket nicht (mehr).',
+                    $relativ,
+                    $klasse,
+                ));
+            }
+        }
+
+        self::assertGreaterThan(5, $geprueft, 'Zu wenige Klassennamen gefunden — greift der Test noch?');
+    }
+
+    /**
+     * Die Klassen, die `projektmotor/ids-event-data` wirklich mitbringt, in Punktform
+     * ohne Wurzel-Namensraum.
+     *
+     * @return list<string>
+     */
+    private static function ereignisformatklassen(): array
+    {
+        $wurzel = self::WURZEL.'/vendor/projektmotor/ids-event-data/src';
+        $klassen = [];
+
+        $dateien = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($wurzel));
+
+        foreach ($dateien as $datei) {
+            \assert($datei instanceof \SplFileInfo);
+
+            if ('php' !== $datei->getExtension()) {
+                continue;
+            }
+
+            $relativ = substr((string) $datei->getRealPath(), \strlen((string) realpath($wurzel)) + 1);
+            $klassen[] = str_replace(['/', '.php'], ['\\', ''], $relativ);
+        }
+
+        sort($klassen);
+
+        return $klassen;
+    }
+
+    private static function istErlaubt(string $zeile): bool
+    {
+        foreach (self::ERLAUBTE_ZEILEN as $ausschnitt) {
+            if (str_contains($zeile, $ausschnitt)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Markdown UND Quelltext — ein abgeschaffter Begriff im Docblock ist derselbe Fehler
+     * wie einer in der Doku.
+     *
+     * @return array<string, string> Pfad relativ zur Wurzel => Inhalt
+     */
+    private static function prosaquellen(): array
+    {
+        $ergebnis = self::dokumente();
+
+        foreach (self::AUSGENOMMEN as $datei) {
+            unset($ergebnis[$datei]);
+        }
+
+        $dateien = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(self::WURZEL.'/src'));
+
+        foreach ($dateien as $datei) {
+            \assert($datei instanceof \SplFileInfo);
+
+            if ('php' !== $datei->getExtension()) {
+                continue;
+            }
+
+            $relativ = str_replace(realpath(self::WURZEL).'/', '', (string) $datei->getRealPath());
+            $ergebnis[$relativ] = (string) file_get_contents((string) $datei->getRealPath());
+        }
+
+        ksort($ergebnis);
+
+        return $ergebnis;
     }
 
     /**

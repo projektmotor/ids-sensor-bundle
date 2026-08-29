@@ -16,6 +16,8 @@ use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\BreakerState;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\BreakerStateStoreInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
+use ProjektMotor\IdsSensor\Exception\ThrottledException;
+use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Support\Telemetry\FailSafeLogger;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
@@ -62,7 +64,7 @@ final class FrameDispatcherTest extends TestCase
             ->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
 
         self::assertSame(1, $spool->spooledFrames());
-        self::assertSame(1, $counters->get(Counters::SPOOLED));
+        self::assertSame(1, $counters->get(Counters::SPOOLED_EVENTS));
         self::assertSame(0, $counters->get(Counters::SHIP_FAILED), 'Kein Versuch heißt auch kein Fehlschlag');
     }
 
@@ -213,7 +215,7 @@ final class FrameDispatcherTest extends TestCase
         )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
 
         self::assertSame(1, $counters->get(Counters::DROPPED_SPOOL_FULL));
-        self::assertSame(0, $counters->get(Counters::SPOOLED));
+        self::assertSame(0, $counters->get(Counters::SPOOLED_EVENTS));
     }
 
     /**
@@ -247,7 +249,130 @@ final class FrameDispatcherTest extends TestCase
         $dispatcher->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
 
         self::assertSame(1, $spool->spooledFrames(), 'Die Rettung in den Spool muss den Logfehler überleben');
-        self::assertSame(1, $counters->get(Counters::SPOOLED));
+        self::assertSame(1, $counters->get(Counters::SPOOLED_EVENTS));
+    }
+
+    /**
+     * Eine dauerhafte Ablehnung wird VERWORFEN, nicht gespoolt.
+     *
+     * Konzept 3.6 ist an dieser Stelle normativ: 400, 403, 413 und 422 heißen „geht
+     * nie". Hier stand nur der allgemeine \Throwable-Zweig, der beides gleich behandelte
+     * — und damit den Frame in den Spool legte, wo der Drainer ihn später an denselben
+     * Collector schickte und in denselben Fehler lief. Genau das Head-of-Line-Blocking,
+     * gegen das es {@see UnshippableFrameException} laut eigenem Docblock gibt.
+     */
+    public function testAPermanentRejectionIsDiscardedInsteadOfSpooled(): void
+    {
+        $spool = new CollectingSpool();
+        $counters = new Counters();
+
+        $gesendet = $this->dispatcher(
+            new CollectingShipper(new UnshippableFrameException('Der Collector hat die Sendung mit 422 abgelehnt.')),
+            $counters,
+            $spool,
+        )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        self::assertSame(0, $gesendet);
+        self::assertSame(0, $spool->spooledFrames(), 'Was nie durchkommt, gehört nicht in den Spool');
+        self::assertSame(1, $counters->get(Counters::DROPPED_REJECTED));
+    }
+
+    /**
+     * Und sie zählt NICHT als `ship_failed`.
+     *
+     * Die beiden Zähler führen zu entgegengesetzten Maßnahmen (Konzept 3.6):
+     * `ship_failed` heißt „den Collector prüfen", `dropped_rejected` heißt „den Payload
+     * prüfen". Eine gemeinsame Zahl ließe nicht erkennen, welche greift.
+     */
+    public function testAPermanentRejectionIsNotCountedAsAShippingFailure(): void
+    {
+        $counters = new Counters();
+
+        $this->dispatcher(
+            new CollectingShipper(new UnshippableFrameException('mit 400 abgelehnt')),
+            $counters,
+        )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        self::assertSame(0, $counters->get(Counters::SHIP_FAILED));
+    }
+
+    /**
+     * Der Breaker bleibt bei einer dauerhaften Ablehnung unberührt.
+     *
+     * Sonst öffnete er nach drei abgewiesenen Sendungen gegen einen völlig gesunden
+     * Collector — und der Sensor spoolte alles Weitere, obwohl nichts ausgefallen ist.
+     * Konzept 3.6 sagt für diese Zeilen ausdrücklich „Breaker unberührt".
+     */
+    public function testAPermanentRejectionLeavesTheBreakerUntouched(): void
+    {
+        $store = $this->breakerStore();
+        $breaker = new CircuitBreaker($store, failureThreshold: 1);
+
+        $this->dispatcher(
+            new CollectingShipper(new UnshippableFrameException('mit 403 abgelehnt')),
+            new Counters(),
+            null,
+            RuntimeProfile::POLICY_DIRECT,
+            262144,
+            $breaker,
+        )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        self::assertSame(0, $store->read()->failures, 'Eine Ablehnung ist kein Ausfall des Collectors');
+        self::assertFalse($breaker->isOpen());
+    }
+
+    /**
+     * `429` ist das Gegenteil: spoolen, nicht verwerfen.
+     *
+     * „Später erneut" und „geht nie" sehen als Antwortcode ähnlich aus und sind
+     * entgegengesetzt. Verwürfe der Sensor hier, wären die Events wegen einer
+     * vorübergehenden Ratengrenze endgültig verloren.
+     */
+    public function testARateLimitIsSpooledAndNotDiscarded(): void
+    {
+        $spool = new CollectingSpool();
+        $counters = new Counters();
+
+        $this->dispatcher(
+            new CollectingShipper(new ThrottledException('429', 120.0)),
+            $counters,
+            $spool,
+        )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        self::assertSame(1, $spool->spooledFrames());
+        self::assertSame(1, $counters->get(Counters::SHIP_FAILED));
+        self::assertSame(0, $counters->get(Counters::DROPPED_REJECTED));
+    }
+
+    /**
+     * `Retry-After` öffnet den Breaker sofort und für die verlangte Dauer.
+     *
+     * Konzept 3.6 verlangt beides in einer Zeile: spoolen UND `Retry-After` beachten.
+     * Ohne das sofortige Öffnen widerspräche sich das — unterhalb der Fehlerschwelle
+     * ginge der nächste Frame unmittelbar wieder hinaus, und die Wartezeit wäre
+     * entgegengenommen und im selben Atemzug ignoriert.
+     */
+    public function testRetryAfterOpensTheBreakerForTheRequestedDuration(): void
+    {
+        $store = $this->breakerStore();
+        // Schwelle 3: Ein einzelner Fehler öffnet den Breaker sonst NICHT.
+        $breaker = new CircuitBreaker($store, failureThreshold: 3, openForSeconds: 30);
+
+        $this->dispatcher(
+            new CollectingShipper(new ThrottledException('429', 300.0)),
+            new Counters(),
+            null,
+            RuntimeProfile::POLICY_DIRECT,
+            262144,
+            $breaker,
+        )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        self::assertTrue($breaker->isOpen(), 'Eine verlangte Wartezeit gilt ab dem ersten 429');
+        self::assertGreaterThan(
+            microtime(true) + 250,
+            $store->read()->openUntil,
+            'Die 300 s des Collectors dürfen nicht auf die konfigurierten 30 s zusammenfallen',
+        );
     }
 
     private function dispatcher(

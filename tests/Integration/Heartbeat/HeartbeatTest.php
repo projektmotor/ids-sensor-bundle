@@ -135,6 +135,57 @@ final class HeartbeatTest extends IntegrationTestCase
     }
 
     /**
+     * Die Zählerliste ist vollständig und geschlossen (Konzept 3.4).
+     *
+     * Jeder Zähler reist mit, auch mit dem Wert 0. Sonst wäre für den Collector „keine
+     * Verluste" nicht von „diese Sensorfassung kennt den Zähler nicht" zu unterscheiden —
+     * und genau diese Unterscheidung braucht er, wenn Sensoren verschiedener Fassungen
+     * gleichzeitig laufen (Konzept 3.7). Ohne sie ist `ids.event_loss` nicht bildbar.
+     */
+    public function testEveryCounterTravelsEvenAtZero(): void
+    {
+        $kernel = $this->boot('zaehlerliste');
+        $services = $this->services($kernel);
+
+        $request = Request::create('/ok');
+        $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
+
+        $payload = $this->heartbeats($services)[0];
+
+        self::assertSame(
+            Counters::ALL,
+            array_keys($payload['counters']),
+            'Die Liste aus Konzept 3.4 reist vollständig mit',
+        );
+    }
+
+    /**
+     * Der `spool`-Block meldet NUR Bestandsgrößen.
+     *
+     * Die drei Verwerfungsgründe standen hier unter den Namen `discarded_full`,
+     * `discarded_unwritable` und `discarded_unencodable`. Konzept 3.4 hat beides
+     * abgeschafft — die Namen („es gilt durchgehend die `dropped_*`-Schreibweise") und
+     * den Ort („die drei Verwerfungsgründe stehen bei den Zählern, wo sie hingehören").
+     * Ein Verlust, der nicht unter `dropped_*` steht, fehlt dem Collector in
+     * `ids.event_loss`.
+     */
+    public function testTheSpoolBlockCarriesOnlyStockFigures(): void
+    {
+        $kernel = $this->boot('spool-bestand');
+        $services = $this->services($kernel);
+
+        $request = Request::create('/ok');
+        $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
+
+        $payload = $this->heartbeats($services)[0];
+
+        self::assertSame(
+            ['bytes', 'spooled_frames', 'pending_files', 'oldest_pending_age_s'],
+            array_keys($payload['spool']),
+        );
+    }
+
+    /**
      * Zähler sind ABSOLUT, nicht als Zuwachs. Bei at-least-once-Zustellung (Konzept 4.)
      * würde eine erneute Zustellung Deltas doppelt zählen. process_epoch trennt einen
      * Neustart von einem Zählerrücksprung.
@@ -225,7 +276,7 @@ final class HeartbeatTest extends IntegrationTestCase
 
         /** @var Counters $counters */
         $counters = $services->get('ids_sensor.counters');
-        self::assertGreaterThan(0, $counters->get(Counters::SPOOLED));
+        self::assertGreaterThan(0, $counters->get(Counters::SPOOLED_EVENTS));
         self::assertSame(0, $counters->get(Counters::SENT));
         // Wichtig: NICHT als Fehlschlag gezählt — der Spool ist hier der planmäßige Weg.
         self::assertSame(0, $counters->get(Counters::SHIP_FAILED));

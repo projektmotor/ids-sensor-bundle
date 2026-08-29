@@ -13,7 +13,7 @@ Normalisierung, Redaktion (4.5.1), Versand an den Collector"*.
 | `Sensor/` | 2.1 Sensorik | **Phase A** — im Request, Erfassungsbudget 1500 µs |
 | `Processing/Normalization/` | 2.2 + 3.1 | **Phase B** — nach `Response::send()` |
 | `Delivery/Dispatch/` | 2.1 „Dispatch an den Transport" | Phase B — `kernel.terminate` |
-| `Delivery/Transport/` | 3.3 Transportformat | Phase B und CLI (`spool:flush`) |
+| `Delivery/Transport/` | 3.3 Transportformat, 3.6 Ingest-Schnittstelle | Phase B und CLI (`spool:flush`) |
 | `Delivery/Heartbeat/` | 3.4 | Phase B und CLI (`heartbeat`) |
 | `Support/PayloadConfidentialityCleanup/` | 4.5.1 | **beide Phasen** — Regeln beim Kompilieren |
 | `Support/RawPayload/` | 3 + 3.1 | Gate in Phase B, Builder ab Phase A (träge) |
@@ -52,7 +52,7 @@ Namensraum-Ersetzung.
 
 Der Grund für den Umzug: das Format ist der Vertrag zwischen **zwei** Paketen. Das
 IdsBackendBundle liest, was dieses Bundle schreibt. Läge es weiter hier, müsste das
-Backend Symfony Messenger, HttpFoundation und Redis mitziehen, nur um drei Enums zu
+Backend Symfony HttpFoundation und einen HTTP-Client mitziehen, nur um drei Enums zu
 kennen.
 
 Die vier Untergruppen dort spiegeln die Verschachtelung des Drahtformats; von oben nach
@@ -63,7 +63,7 @@ Frame/        Frame  DispatchPath              3.3   — was auf der Leitung lie
 Event/        EventSchema  NormalizedEvent     3.    — was im Frame liegt
               Actor  SensorIdentity
 Payload/      KernelPayload  SecurityPayload   3.1   — was im Event liegt
-Vocabulary/   Layer  Severity  Environment           — die geschlossenen Wertelisten
+Vocabulary/   Layer  Severity                        — die geschlossenen Wertelisten
 ```
 
 Was dieses Repository noch prüft, ist die Gegenrichtung: dass das Format nicht
@@ -109,7 +109,7 @@ trotzdem seinen eigenen Namen, damit die drei Phasenordner nebeneinander lesbar 
 und damit die nächste Phase-B-Arbeit einen Platz hat, an dem niemand überlegen muss.
 
 **`Delivery/`** ist der zweite Takt: das Ereignis verlässt den Prozess. `Dispatch/`
-entscheidet (flushen, sampeln, Broker oder Spool), `Transport/` führt aus, `Heartbeat/`
+entscheidet (flushen, Collector oder Spool), `Transport/` führt aus, `Heartbeat/`
 meldet, dass es den Sensor noch gibt. `Dispatch/` bleibt dabei die Spitze der Pipeline:
 niemand importiert von dort, auch nicht innerhalb der Gruppe.
 

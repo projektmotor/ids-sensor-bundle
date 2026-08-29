@@ -14,7 +14,7 @@ vollständiges Bild; wer eine bestimmte Frage hat, springt direkt.
 | 01 | [Überblick](01-ueberblick.md) | Was tut das Bundle, wo hört es auf, und was bedeutet „zwei Phasen"? |
 | 02 | [Beobachtungsebenen](02-beobachtungsebenen.md) | Was sieht Kernel, was Security, was Business — und was sieht keine davon? |
 | 03 | [Ereignisformat](03-ereignisformat.md) | Wie sieht ein Event aus, wie ein Frame, und was ist am Format verbindlich? |
-| 04 | [Request-Lebenszyklus](04-request-lebenszyklus.md) | Welcher Hook feuert wann, was kostet das, und wie wird gesampelt? |
+| 04 | [Request-Lebenszyklus](04-request-lebenszyklus.md) | Welcher Hook feuert wann, was kostet das, und was greift, wenn die Latenz drückt? |
 | 05 | [Versandweg](05-versandweg.md) | Collector oder Spool? Was macht der Circuit Breaker? |
 | 06 | [Vertraulichkeit](06-vertraulichkeit.md) | Wo greift die Denylist, und was schützt sie nicht? |
 | 07 | [Betrieb](07-betrieb.md) | Heartbeat, Verlustzähler, Endpunkt-Rechte, Fehlersuche |

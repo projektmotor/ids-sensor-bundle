@@ -119,6 +119,16 @@ final class PayloadFactory
      * Drain-Intervall bleibt. Ohne diese Zahl bemerkt niemand den fehlenden cron, bis der
      * Spool voll ist und verwirft — also bis der Datenverlust bereits eingetreten ist.
      *
+     * NUR BESTANDSGRÖSSEN
+     *
+     * Bytes, gespoolte Frames, wartende Dateien, Alter der ältesten — mehr steht hier
+     * nicht. Die drei Verwerfungsgründe standen bis dahin ebenfalls in diesem Block, unter
+     * den Namen `discarded_full`, `discarded_unwritable` und `discarded_unencodable`.
+     * Konzept 3.4 hat beides abgeschafft: die Namen („es gilt durchgehend die
+     * `dropped_*`-Schreibweise") und den Ort („die drei Verwerfungsgründe stehen bei den
+     * Zählern, wo sie hingehören"). Ein Verlust, der nicht unter `dropped_*` steht, fehlt
+     * dem Collector in `ids.event_loss` — und genau dafür gibt es die Zähler.
+     *
      * @return array<string, mixed>
      */
     private function spoolState(): array
@@ -132,9 +142,6 @@ final class PayloadFactory
         $state = [
             'bytes' => $spool->sizeInBytes(),
             'spooled_frames' => $spool->spooledFrames(),
-            'discarded_full' => $spool->discardedFull(),
-            'discarded_unwritable' => $spool->discardedUnwritable(),
-            'discarded_unencodable' => $spool->discardedUnencodable(),
         ];
 
         // waitingFiles() und nicht pendingFiles(): Der Betreiber will wissen, ob etwas

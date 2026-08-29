@@ -18,23 +18,21 @@ flowchart LR
         code -.->|"kernel, security<br/>and business events"| sensor
     end
 
-    broker[("Collector<br/>/api/v1/sensor-data")]
-
     subgraph collector["Separately operated collector"]
         direction TB
+        ingest[("Ingest endpoint<br/><small>/api/v1/sensor-data</small>")]
         consumer["IdsBackendBundle<br/><small>receive · detect · alert</small>"]
         db[("PostgreSQL")]
-        consumer --> db
+        ingest --> consumer --> db
     end
 
-    sensor -->|"write-only (POST)"| broker
-    broker -->|"read"| consumer
+    sensor -->|"write-only (POST)<br/>HTTPS"| ingest
 
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
     classDef data fill:#EEEDFE,stroke:#534AB7,color:#332C7A
     class code,sensor capture
-    class broker,consumer transport
+    class ingest,consumer transport
     class db data
     style app fill:#FBFBF9,stroke:#C8C6BE,color:#5F5E5A
     style collector fill:#FBFBF9,stroke:#C8C6BE,color:#5F5E5A
@@ -109,7 +107,7 @@ Details: [Observation layers](doc/02-beobachtungsebenen.md).
 | PHP | ≥ 8.2 |
 | Symfony | ^6.4 \| ^7.0 |
 | Collector | Reachable over HTTPS from the application |
-| Required extensions | `ext-json` |
+| Required extensions | `ext-json`, `ext-mbstring` |
 | Recommended | `ext-apcu` (cross-process throttling, breaker state, token cache) |
 
 ## Installation
@@ -227,7 +225,7 @@ Why this is not merely conservative, and what it costs:
 | Command | Purpose |
 |---|---|
 | `ids:sensor:setup-check` | Operational check. Exit code ≠ 0 means detection is ineffective. |
-| `ids:sensor:spool:flush` | Drains the spool towards the broker. Mandatory under mod_php. |
+| `ids:sensor:spool:flush` | Drains the spool towards the collector. Mandatory under mod_php. |
 | `ids:sensor:heartbeat` | Sends a liveness signal. For cron or a systemd timer. |
 
 ## Documentation
@@ -278,11 +276,11 @@ make cs-fix      # php-cs-fixer
 
 How `src/` is laid out and why — which namespace belongs to which section of the concept,
 and when its code runs — is documented in [`doc/concept/structure.md`](doc/concept/structure.md). Read it
-before moving anything: the layout carries five promises that
+before moving anything: the layout carries six promises that
 [`ArchitectureTest`](tests/Unit/ArchitectureTest.php) enforces.
 
 If the service wiring changes, the container fingerprint is the actual review artefact —
-it compares 15 configuration variants definition by definition:
+it compares 14 configuration variants definition by definition:
 
 ```bash
 docker compose run --rm -e IDS_UPDATE_FINGERPRINTS=1 php \

@@ -74,7 +74,7 @@ ein Beleg entstanden ist.
 
 | Kategorie | Vergleich | Einträge |
 |---|---|---|
-| Header | vollständiger Name | `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token` |
+| Header | vollständiger Name | `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token`, `X-Debug-Exception`, `X-Debug-Exception-File` |
 | Parameter | Teilzeichenkette im Namen | `password`, `passwd`, `pwd`, `secret`, `token`, `_token`, `api_key`, `apikey`, `private_key`, `credit_card`, `cvv`, `iban` |
 
 Groß-/Kleinschreibung sowie `-` und `_` werden vor dem Vergleich normalisiert: `api_key`,
