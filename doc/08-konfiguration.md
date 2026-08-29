@@ -125,6 +125,28 @@ die `correlation_id` eines Opfers übernehmen und die forensische Zuordnung verg
 | `ignored_paths` | `[]` | PCRE-Muster **mit Trennzeichen** (`#^/health$#`); **absichtlich leer** — Regel R2b lebt davon, Zugriffe auf `/_profiler` zu sehen |
 | `sub_requests` | `exceptions_only` | `none` · `exceptions_only` · `all` |
 | `capture_fatal_errors` | `true` | rettet den Puffer in den Spool, wenn der Prozess vor `kernel.terminate` stirbt |
+| `console.enabled` | `true` | erfasst `console.command` und `console.error` — deckt auch Messenger-Worker ab |
+| `console.ignored_commands` | `['#^ids:sensor:#']` | PCRE-Muster **mit Trennzeichen** gegen den Befehlsnamen |
+
+**Warum die Konsole zur Kernel-Ebene gehört.** `layer` ist ein geschlossenes Vokabular und
+bildet collectorseitig eine ENUM-Spalte ab; ein vierter Wert wäre ein Fassungswechsel des
+Ereignisformats samt Datenbankmigration. `event_type` ist offen, also tragen die beiden
+Konsolen-Ereignisse ihr eigenes Präfix innerhalb derselben Ebene. Die Ebene heißt nach dem
+Einstiegspunkt des Frameworks, nicht nach HTTP.
+
+**`console.ignored_commands` ist die einzige Ausschlussliste mit einer Vorgabe**, und das
+ist Absicht. `ids:sensor:spool:flush` läuft je Minute per cron; ohne den Ausschluss erzeugte
+er ein Ereignis, das der nächste Lauf versendet, um dabei das nächste zu erzeugen — eine
+Spur, die nur die eigene Maschinerie beschreibt und mit der cron-Frequenz wächst. Dass der
+Sensor lebt, meldet der Heartbeat, und zwar billiger. Der Unterschied zu `ignored_paths`:
+dort ginge Signal über die überwachte **Anwendung** verloren, hier fällt Selbstbeobachtung
+weg. Wer eigene Muster ergänzt, ersetzt die Vorgabe — die Zeile `#^ids:sensor:#` gehört
+dann mit in die eigene Liste.
+
+**Was die Konsole NICHT erfasst: die Aufrufargumente.** Eine Befehlszeile trägt regelmäßig
+genau die Werte, die die Denylist unkenntlich machen soll — `--password=`, ein Token als
+Stellungsargument, eine Verbindungszeichenkette. Übertragen wird der Befehlsname; bei
+`console.error` zusätzlich Ausnahmeklasse, redigierte Meldung und Exit-Code.
 
 ### `layers.security`
 

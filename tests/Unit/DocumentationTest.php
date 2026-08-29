@@ -50,14 +50,19 @@ final class DocumentationTest extends TestCase
     ];
 
     /**
-     * Zwischenknoten: Die Referenz führt sie als Überschrift, nicht als Tabellenzeile.
+     * Zwischenknoten: Die Referenz führt sie als Überschrift oder als gemeinsames
+     * Präfix ihrer Zeilen, nicht als eigene Tabellenzeile.
      *
-     * Sie tragen keinen eigenen Wert — erklärt wird der Abschnitt.
+     * Sie tragen keinen eigenen Wert — erklärt wird der Abschnitt. `layers.kernel.console`
+     * steht dabei nicht als Überschrift, sondern als Präfix zweier Zeilen in der
+     * Kernel-Tabelle (`console.enabled`, `console.ignored_commands`): Für zwei
+     * Schlüssel wäre ein eigener Abschnitt mehr Gliederung als Inhalt.
      *
      * @var list<string>
      */
     private const ABSCHNITTE = [
-        'session_hash', 'layers', 'layers.kernel', 'layers.kernel.events', 'layers.security',
+        'session_hash', 'layers', 'layers.kernel', 'layers.kernel.events',
+        'layers.kernel.console', 'layers.security',
         'layers.business', 'raw', 'payload_confidentiality_cleanup', 'budget',
         'flush', 'collector', 'spool', 'circuit_breaker', 'heartbeat', 'telemetry', 'logging',
         'correlation', 'fingerprint',

@@ -75,6 +75,42 @@ Zwei Voreinstellungen, die überraschen können und Absicht sind:
   Pfad ist meist eine Kopie des Elternpfades, was jede Schwellwertregel doppelt zählen
   ließe. Exceptions dagegen verschluckt `ignore_errors` und wären sonst nirgends sichtbar.
 
+### Dieselbe Ebene sieht auch die Konsole
+
+Console-Commands, Messenger-Worker und Cronjobs erzeugen keines der drei Events oben — sie
+laufen ohne HttpKernel. Ein Angreifer mit Codeausführung arbeitet genau dort.
+
+| Event | Wann | Klasse |
+|---|---|---|
+| `console.command` | jeder Konsolenlauf, auch `messenger:consume` | `Sensor\Console\CommandSensor` |
+| `console.error` | jeder mit einer Ausnahme gescheiterte Befehl | `Sensor\Console\CommandSensor` |
+
+**Warum das `layer: kernel` bleibt.** `layer` ist ein geschlossenes Vokabular und bildet
+collectorseitig eine ENUM-Spalte ab (*4.2.1*); ein vierter Wert wäre ein Fassungswechsel
+des Ereignisformats samt Datenbankmigration. `event_type` ist offen. Die Ebene heißt
+deshalb nach dem Einstiegspunkt des **Frameworks**, nicht nach HTTP.
+
+Drei Festlegungen, die dazugehören:
+
+- **Die Aufrufargumente reisen nicht mit.** Eine Befehlszeile führt regelmäßig genau die
+  Werte, die die Denylist unkenntlich machen soll — `--password=`, ein Token als
+  Stellungsargument. Übertragen wird der Befehlsname; bei `console.error` zusätzlich
+  Ausnahmeklasse, redigierte Meldung und Exit-Code.
+- **`console.error` ist `warning`, nicht `critical`.** Auf der Konsole gibt es kein
+  Gegenstück zu 5xx/4xx: Ein vertippter Befehl und ein abgestürzter Worker enden beide mit
+  einer Ausnahme. `critical` bleibt Serverfehlern vorbehalten (*2.2.1*). Der Stacktrace
+  geht dabei nicht verloren — `warning` trägt `raw`.
+- **`layers.kernel.console.ignored_commands` ist als einzige Ausschlussliste NICHT leer.**
+  Die Vorgabe `#^ids:sensor:#` nimmt die eigenen Befehle des Bundles aus. Der minütliche
+  `ids:sensor:spool:flush` erzeugte sonst ein Ereignis, das der nächste Lauf versendet, um
+  dabei das nächste zu erzeugen. Wer eigene Muster ergänzt, ersetzt die Vorgabe — die
+  Zeile gehört dann mit in die eigene Liste.
+
+**Eine Grenze, die benannt gehört:** Alle Ereignisse eines Worker-Laufs teilen sich eine
+Korrelationskennung, weil `console.command` je Prozess einmal feuert. Bei einem
+`messenger:consume`, das stundenlang läuft, ist das eine Spur je Prozess, keine je
+Nachricht.
+
 
 ## Security-Ebene (*2.1.2*)
 

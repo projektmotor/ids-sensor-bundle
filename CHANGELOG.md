@@ -13,6 +13,64 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Added — Die Kernel-Ebene sieht jetzt auch die Konsole (offener Punkt E1)
+
+Console-Commands, Messenger-Worker und Cronjobs erzeugten keines der drei
+HttpKernel-Ereignisse — ein Angreifer mit Codeausführung arbeitet aber genau dort. Das
+Bundle sah von der Konsole bislang nur die Korrelationskennung
+(`ConsoleCorrelationListener`) und den Versandzeitpunkt (`FlushListener`); beobachtet
+wurde nichts.
+
+Neu ist `Sensor\Console\CommandSensor` mit zwei Ereignissen:
+
+| `event_type` | Wann | Stufe | Payload |
+|---|---|---|---|
+| `console.command` | jeder Konsolenlauf, auch `messenger:consume` | `info` | `command` |
+| `console.error` | jeder mit einer Ausnahme gescheiterte Befehl | `warning` | `command`, `exception_class`, `exception_message`, `exit_code` |
+
+**Die Ebene bleibt `kernel`, `schema_version` bleibt 3.** `Vocabulary\Layer` bildet den
+collectorseitigen ENUM `layer_type` ab und ist ein geschlossenes Vokabular — ein vierter
+Wert wäre ein Fassungswechsel samt Datenbankmigration, bevor auch nur ein Sensor senden
+dürfte. `event_type` ist nach Konzept 3.7 offen. Die Ebene heißt damit nach dem
+Einstiegspunkt des Frameworks statt nach HTTP; die Ereignisse tragen trotzdem ihr eigenes
+Präfix, weil `kernel.console.*` denselben Wert mit einer anderen Bedeutung belegt hätte.
+
+**Kein Feld für die Aufrufargumente.** Eine Befehlszeile führt regelmäßig genau die Werte,
+die Konzept 4.5.1 unkenntlich machen soll: `--password=`, ein Token als
+Stellungsargument, eine Verbindungszeichenkette. Anders als beim Anfragekörper gäbe es
+keine Grammatik, an der sich Parameternamen erkennen ließen — ein solches Feld wäre ein
+Weg an der Redaktion vorbei ohne jede Gegenmaßnahme. Der Befehlsname selbst wird redigiert
+und auf 128 Zeichen gekürzt: Bei einem unbekannten Befehl IST er die Eingabe des Aufrufers.
+
+**`console.error` ist `warning`, nicht `critical`.** Auf der Konsole gibt es kein
+Gegenstück zur Aufteilung 5xx/4xx aus 2.2.1 — ein vertippter Befehlsname und ein
+abgestürzter Worker enden beide mit einer Ausnahme und Exit-Code 1. Jeden Konsolenfehler
+`critical` zu nennen entwertete den Begriff, den 2.2.1 Serverfehlern vorbehält, und die
+Alarmschwelle des Collectors hinge an der Tippsicherheit des Betreibers. Die Forensik
+verliert nichts: `warning` trägt `raw`, der Stacktrace reist also mit.
+
+**`layers.kernel.console.ignored_commands` ist die einzige Ausschlussliste mit einer
+Vorgabe.** `#^ids:sensor:#` nimmt die eigenen Befehle des Bundles aus. Ohne den Ausschluss
+erzeugte der minütliche `ids:sensor:spool:flush` ein Ereignis, das der nächste Lauf
+versendet, um dabei das nächste zu erzeugen — eine Spur, die ausschließlich die eigene
+Maschinerie beschreibt und mit der cron-Frequenz wächst. Dass der Sensor lebt, meldet der
+Heartbeat billiger. Der Unterschied zu `ignored_paths`, wo eine Vorgabe ausdrücklich
+abgelehnt wird: Dort ginge Signal über die überwachte **Anwendung** verloren, hier fällt
+Selbstbeobachtung weg. **Wer eigene Muster ergänzt, ersetzt die Vorgabe** — die Zeile
+gehört dann mit in die eigene Liste.
+
+Neue Schlüssel: `layers.kernel.console.enabled` (Vorgabe `true`) und
+`layers.kernel.console.ignored_commands`. Bei `enabled: false` wird gar kein Listener
+registriert, statt einen zur Laufzeit abzufragen — derselbe Grundsatz wie bei
+`ids_sensor.enabled`. Ohne `symfony/console` fällt der Sensor lautlos aus; die Komponente
+steht weiterhin nur unter `suggest`.
+
+**Eine Grenze, die benannt gehört:** Alle Ereignisse eines Worker-Laufs teilen sich eine
+Korrelationskennung, weil `console.command` je Prozess einmal feuert. Bei einem
+stundenlangen `messenger:consume` ist das eine Spur je Prozess, keine je Nachricht — der
+Vorbehalt, den `ConsoleCorrelation` schon für die Kennung festhält, gilt für die Ereignisse
+genauso.
+
 ### Fixed — Zwei Verweise zeigten auf die falsche Kennung
 
 Konzept 6 hat die offenen Betriebspunkte von `B*` auf `OB*` umbenannt, weil `B1`–`B10`

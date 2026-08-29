@@ -1,0 +1,30 @@
+# Die Konsolen-Erfassung der Kernel-Ebene (Konzept 3.1.1, offener Punkt E1).
+#
+# Eigene Datei und bedingter Import statt eines Laufzeit-Schalters: Bei
+# `console.enabled: false` soll gar kein Listener registriert sein — derselbe Grundsatz
+# wie beim FatalErrorFlushListener und bei ids_sensor.enabled.
+
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: true
+
+        bind:
+            $buffer: '@ids_sensor.event_buffer'
+            $binder: '@ids_sensor.captured_event_binder'
+            $budget: '@ids_sensor.capture_budget'
+            $rawBuilder: '@ids_sensor.raw.builder'
+
+    ids_sensor.console_options:
+        class: ProjektMotor\IdsSensor\Sensor\Console\Options
+        arguments:
+            $enabled: '%ids_sensor.layers.kernel.console.enabled%'
+            $ignoredCommands: '%ids_sensor.layers.kernel.console.ignored_commands%'
+
+    # 512, unter dem ConsoleCorrelationListener (1024): sonst trüge ausgerechnet das
+    # erste Ereignis des Laufs den Leerstring und fiele aus der Spur, die es eröffnet.
+    ids_sensor.sensor.console_command:
+        class: ProjektMotor\IdsSensor\Sensor\Console\CommandSensor
+        arguments:
+            $options: '@ids_sensor.console_options'

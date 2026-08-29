@@ -4,21 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e95a86c7971b90ae26999ebefe448012",
+    "content-hash": "aabf88f8c0e561784e0f89f822a1966e",
     "packages": [
         {
             "name": "projektmotor/ids-event-data",
-            "version": "0.3.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/projektmotor/ids-event-data.git",
-                "reference": "95d497300097b02b77577c0f9701f9058b637236"
-            },
+            "version": "0.4.0",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/projektmotor/ids-event-data/zipball/95d497300097b02b77577c0f9701f9058b637236",
-                "reference": "95d497300097b02b77577c0f9701f9058b637236",
-                "shasum": ""
+                "type": "path",
+                "url": "/ids-event-data",
+                "reference": "8171640012368fe35516bd38639d455883a94617"
             },
             "require": {
                 "ext-mbstring": "*",
@@ -38,7 +32,11 @@
                     "ProjektMotor\\IdsEventData\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "ProjektMotor\\IdsEventData\\Tests\\": "tests/"
+                }
+            },
             "license": [
                 "MIT"
             ],
@@ -56,11 +54,10 @@
                 "security",
                 "wire-format"
             ],
-            "support": {
-                "issues": "https://github.com/projektmotor/ids-event-data/issues",
-                "source": "https://github.com/projektmotor/ids-event-data/tree/0.3.1"
-            },
-            "time": "2026-08-29T19:01:23+00:00"
+            "transport-options": {
+                "symlink": false,
+                "relative": false
+            }
         },
         {
             "name": "psr/cache",

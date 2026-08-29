@@ -61,6 +61,8 @@ final class KernelEventNormalizer implements EventNormalizerInterface
             KernelPayload::EVENT_REQUEST => $this->requestPayload($captured),
             KernelPayload::EVENT_EXCEPTION => $this->exceptionPayload($captured, $status),
             KernelPayload::EVENT_RESPONSE => $this->responsePayload($captured, $status),
+            KernelPayload::EVENT_CONSOLE_COMMAND => $this->consoleCommandPayload($captured),
+            KernelPayload::EVENT_CONSOLE_ERROR => $this->consoleErrorPayload($captured),
             default => [],
         };
     }
@@ -163,6 +165,64 @@ final class KernelEventNormalizer implements EventNormalizerInterface
             ),
             KernelPayload::FIELD_ROUTE => FieldValue::asString($captured->get(KernelPayload::FIELD_ROUTE)),
         ];
+    }
+
+    /**
+     * Konzept 3.1.1 — console.command.
+     *
+     * Nur der Befehlsname. Die Aufrufargumente bleiben ausdrücklich draußen: eine
+     * Befehlszeile trägt regelmäßig genau die Werte, die Konzept 4.5.1 unkenntlich
+     * machen soll — `--password=`, ein Token als Stellungsargument, eine
+     * Verbindungszeichenkette.
+     *
+     * @return array<string, mixed>
+     */
+    private function consoleCommandPayload(CapturedEvent $captured): array
+    {
+        return [
+            KernelPayload::FIELD_COMMAND => $this->command($captured),
+        ];
+    }
+
+    /**
+     * Konzept 3.1.1 — console.error.
+     *
+     * Die Exception-Message läuft durch dieselbe Redaktion wie beim kernel.exception:
+     * Sie ist angreiferbeeinflusst, und ein Befehl, der eine URL mit Token entgegennimmt,
+     * schreibt sie bei einem Fehlschlag genau dorthin.
+     *
+     * @return array<string, mixed>
+     */
+    private function consoleErrorPayload(CapturedEvent $captured): array
+    {
+        return [
+            KernelPayload::FIELD_COMMAND => $this->command($captured),
+            KernelPayload::FIELD_EXCEPTION_CLASS => FieldValue::asString($captured->get(KernelPayload::FIELD_EXCEPTION_CLASS)),
+            KernelPayload::FIELD_EXCEPTION_MESSAGE => $this->sanitizeMessage(
+                FieldValue::asString($captured->get(KernelPayload::FIELD_EXCEPTION_MESSAGE)),
+            ),
+            KernelPayload::FIELD_EXIT_CODE => self::intOrNull($captured->get(KernelPayload::FIELD_EXIT_CODE)),
+        ];
+    }
+
+    /**
+     * Der Befehlsname, redigiert und gekürzt.
+     *
+     * Redigiert, weil er bei einem unbekannten Befehl die Eingabe des Aufrufers IST —
+     * `bin/console 'app:x --token=geheim'` landete sonst wortwörtlich im Ereignis.
+     */
+    private function command(CapturedEvent $captured): ?string
+    {
+        $command = FieldValue::asString($captured->get(KernelPayload::FIELD_COMMAND));
+
+        if (null === $command) {
+            return null;
+        }
+
+        return FieldValue::truncate(
+            $this->cleaner->cleanFreeText($command),
+            KernelPayload::MAX_COMMAND_LENGTH,
+        );
     }
 
     /**

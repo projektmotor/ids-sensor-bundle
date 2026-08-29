@@ -140,6 +140,8 @@ fehlgeschlagenen Request viermal fast dasselbe:
 | `kernel.response` | der gesamte Austausch: Anfrage-Header, Query, Formularfelder, **JSON-Körper**, Cookie-**Namen**, Antwort-Header |
 | `kernel.exception` | die Aufrufkette und der Exception-Verlauf |
 | `kernel.request` | **nichts** — das Event ist immer `info` und trüge `raw` nie |
+| `console.error` | die Aufrufkette und der Exception-Verlauf, wie beim `kernel.exception` |
+| `console.command` | **nichts** — immer `info`, aus demselben Grund wie `kernel.request` |
 | Security-Events | nichts; ihr `payload` ist vollständig |
 | Business-Events | der `payload` unbereinigt und redigiert, dazu `invalid_severity_hint`, falls `getSeverityHint()` unbrauchbar war |
 

@@ -78,6 +78,7 @@ final class ConfigurationReachTest extends TestCase
         'layers' => 'Zwischenknoten ohne eigenen Wert.',
         'layers.kernel' => 'Zwischenknoten.',
         'layers.kernel.events' => 'Zwischenknoten.',
+        'layers.kernel.console' => 'Zwischenknoten.',
         'layers.kernel.enabled' => 'Entscheidet in loadExtension() über den Import von services_kernel.yaml.',
         'layers.security' => 'Zwischenknoten.',
         'layers.security.enabled' => 'Wird mit der Verfügbarkeit des SecurityBundle zu ids_sensor.layers.security.active verrechnet.',

@@ -244,6 +244,21 @@ Der Zustand liegt **prozessübergreifend** (APCu, ersatzweise eine Datei), sonst
 
 **Pfade lassen sich ausnehmen, aber ohne Vorgabe.** `layers.kernel.ignored_paths` nimmt reguläre Ausdrücke, gegen die eingehende Pfade geprüft werden; Treffer erzeugen kein Event. Gedacht ist das für Health-Checks und Monitoring-Endpunkte, die im Minutentakt abgefragt werden und nichts aussagen. **Die Liste ist per Vorgabe leer, und das ist eine Sicherheitsentscheidung:** Regel R2b lebt davon, Zugriffe auf `/_profiler` zu sehen, und ein gut gemeinter Standardwert („interne Pfade ausnehmen") würde genau dieses Signal löschen. Wer Pfade ausnimmt, nimmt sie sehenden Auges aus der Erkennung.
 
+**Die Ebene deckt einen zweiten Einstiegspunkt ab: die Konsole.** Console-Commands, Messenger-Worker und Cronjobs erzeugen keines der drei Events oben — sie laufen ohne HttpKernel. Ein Angreifer mit Codeausführung arbeitet genau dort, und bis zur Schließung des offenen Punkts **E1** war das ein blinder Fleck. Zwei weitere Events schließen ihn:
+
+| Event | Warum relevant für IDS | Konkrete Felder |
+|---|---|---|
+| `console.command` | Jeder Konsolenlauf; deckt auch `messenger:consume` ab, weil ein Worker ein Command ist | Zeitstempel, Befehlsname, Korrelationskennung des Laufs |
+| `console.error` | Ein gescheiterter Befehl ist die Entsprechung zur `kernel.exception` — nur ohne HTTP-Statuscode | Zeitstempel, Befehlsname, Exception-Klasse (FQCN), Exception-Message (redigiert und gekürzt), Exit-Code, Korrelationskennung |
+
+**Sie liegen auf der Ebene `kernel` und tragen trotzdem das Präfix `console.`.** Der Grund ist die Fassungsregel aus 3.7: `layer` ist ein GESCHLOSSENES Vokabular und bildet collectorseitig den ENUM `layer_type` ab — ein vierter Wert wäre ein Fassungswechsel samt Datenbankmigration, bevor auch nur ein Sensor senden dürfte. `event_type` ist offen, neue Werte sind dort additiv. Die Ebene heißt damit nach dem Einstiegspunkt des Frameworks statt nach HTTP, und das ist die Bedeutung, die 4.2.1 für `layer_type` fortan trägt.
+
+**Die Aufrufargumente werden NICHT übertragen.** Eine Befehlszeile führt regelmäßig genau die Werte mit, die 4.5.1 unkenntlich machen soll: `--password=`, ein Token als Stellungsargument, eine Verbindungszeichenkette. Ein Feld dafür wäre ein zweiter Weg an der Redaktion vorbei, und anders als beim Anfragekörper gäbe es keine Grammatik, an der sich Parameternamen erkennen ließen. Der Befehlsname sagt, was lief; bei einem Fehlschlag steht der Rest im `raw` (Stacktrace, Ausnahmekette).
+
+**`console.error` wird als `warning` eingestuft, nicht als `critical`.** Auf der Konsole gibt es kein Gegenstück zur Aufteilung 5xx/4xx aus 2.2.1: Ein vertippter Befehlsname und ein abgestürzter Worker enden beide mit einer Ausnahme und Exit-Code 1. Jeden Konsolenfehler `critical` zu nennen entwertete den Begriff, den 2.2.1 ausdrücklich Serverfehlern vorbehält, und die Alarmschwelle hinge an der Tippsicherheit des Betreibers. Die Forensik verliert dadurch nichts — `warning` trägt `raw`.
+
+**Befehle lassen sich ausnehmen, und hier GIBT es eine Vorgabe.** `layers.kernel.console.ignored_commands` nimmt reguläre Ausdrücke gegen den Befehlsnamen; die Vorgabe ist `#^ids:sensor:#`, schließt also die eigenen Befehle des Bundles aus. Das ist die einzige nicht-leere Ausschlussvorgabe und die begründete Ausnahme zum Absatz darüber: `ids:sensor:spool:flush` läuft laut 3.6 je Minute per cron und erzeugte sonst ein Ereignis, das der nächste Lauf versendet, um dabei das nächste zu erzeugen — eine Spur, die ausschließlich die eigene Maschinerie beschreibt und mit der cron-Frequenz wächst. Der Unterschied zu `ignored_paths` ist der Gegenstand: Dort ginge Signal über die überwachte **Anwendung** verloren, hier fällt Selbstbeobachtung weg, die der Heartbeat (3.4) billiger leistet.
+
 #### 2.1.2 Security-Component-Events
 
 **Konkreter Vorschlag — drei Events:**
@@ -555,6 +570,28 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 ```
 - `path` und `route` werden aus dem zugehörigen Request **redundant übernommen** (siehe 3.2)
 
+##### `console.command`
+```json
+{
+  "command": "app:import-users"
+}
+```
+- Nur der Name. Die Aufrufargumente werden ausdrücklich **nicht** übertragen (siehe 2.1.1)
+- Der Name wird redigiert und auf 128 Zeichen gekürzt: Bei einem unbekannten Befehl IST er die Eingabe des Aufrufers
+
+##### `console.error`
+```json
+{
+  "command": "app:import-users",
+  "exception_class": "RuntimeException",
+  "exception_message": "Verbindung zur Quelle abgebrochen",
+  "exit_code": 1
+}
+```
+- `exception_message`: dieselbe Redaktion und Kürzung wie bei `kernel.exception`
+- `exit_code`: der Code, mit dem der Prozess enden wird — `null`, wenn ihn niemand gesetzt hat
+- Einstufung `warning`, nicht `critical` (Begründung in 2.1.1); `raw` trägt Stacktrace und Ausnahmekette
+
 #### 3.1.2 Security-Ebene / -Events
 
 ##### `security.authentication.success`
@@ -735,6 +772,8 @@ Das Schema oben legt für `raw` nur „unverarbeitete Original-Nutzlast, Struktu
 | `kernel.response` | `request_headers`, `response_headers` (beide redigiert), `query`, `request_params` (redigiert), `request_body` (redigiert, nur JSON), `request_body_omitted` (Grund, falls nicht übertragen), `cookie_names` (**nur Namen**), `cleanup_version` |
 | `kernel.exception` | `trace` (rahmenweise, nur `file`/`line`/`class`/`function`), `exception_chain` (Klasse, Datei, Zeile), `cleanup_version` |
 | `kernel.request` | **nichts** — siehe unten |
+| `console.error` | `trace` und `exception_chain` wie beim `kernel.exception`, `cleanup_version` |
+| `console.command` | **nichts** — das Event ist immer `info` und trüge `raw` nie, aus demselben Grund wie `kernel.request` |
 | Security-Events | **nichts** — ihr `payload` ist vollständig, der Austausch steht im `kernel.response` derselben `correlation_id` |
 | Business-Events | `payload` unbereinigt und redigiert, dazu `invalid_severity_hint`, falls der Hinweis der Anwendung unbrauchbar war |
 
@@ -1811,7 +1850,7 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 |---|---|---|---|
 | O1 | **Befundklasse `exposures`** — ein `404` auf `/_profiler` ist ein Befund über den Angreifer, ein `200` einer über die eigene Anwendung: anderer Adressat (Betrieb statt Sicherheitsüberwachung), anderer Lebenszyklus. R2b erzeugt derzeit einen Vorfall; eine bestätigte Fehlkonfiguration ist aber ein Zustand, der bis zur Behebung offen bleibt. Zu klären: Abgrenzung zu `alerts`, Lebenszyklus (offen/behoben/erneut aufgetreten), aktive vs. passive Prüfung. | H | — |
 | O2 | **`resource_type` / `resource_id` ableiten** — B7, P1 und P2 vergleichen „benachbarte IDs desselben Ressourcentyps", der `kernel.response`-Payload enthält aber nur `path` und `route`. Ohne Extraktion aus Route und Routenparametern sind die drei Regeln nur über String-Analyse umsetzbar. | H | B7, P1, P2 |
-| E1 | **CLI- und Worker-Kontext** — Console-Commands, Messenger-Worker und Cronjobs erzeugen keine HttpKernel-Events. Ein Angreifer mit Codeausführung arbeitet genau dort. Symfony bietet `console.command` und `console.error`; im Konzept bisher nicht vorgesehen. | H | — |
+| E1 | ~~**CLI- und Worker-Kontext**~~ — **erledigt** durch die Umsetzung: `console.command` und `console.error` stehen in 2.1.1 und 3.1.1. Sie liegen auf der Ebene `kernel` und tragen trotzdem ihr eigenes Präfix — `layer` ist ein geschlossenes Vokabular, `event_type` ein offenes, also kostet die Konsole keine Fassung. Die Aufrufargumente bleiben ausdrücklich draußen (4.5.1), und die eigenen Befehle des Bundles sind per Vorgabe ausgeschlossen, weil der minütliche Spool-Drainer sich sonst selbst beobachtete. | — | — |
 | E4 | **Metrikkatalog der Anomalieschicht** — 4.3.5 nennt Beispiele, aber keinen verbindlichen Satz. `metric_baselines` existiert damit ohne definierten Inhalt. Nach 4.2.3 ist die Aggregation zugleich Voraussetzung für die kurze `info`-Retention. | H | 4.2.3 (3), P1–P3 |
 | O4 | **Baseline-Verfahren** — für P1–P3: Mindesthistorie pro Nutzer, Verhalten bei Neunutzern, Umgang mit selten aktiven Konten. **Neu hinzugekommen:** dazu die drei Größen, die 4.3.5 verlangt, ohne sie festzulegen — Mindestfallzahl je Bucket (geprüft an `metric_baselines.sample_count`), Untergrenze für `stddev` und die Entscheidung, ob statt Mittelwert und Streuung Median und MAD gerechnet werden. Ohne sie schlägt die Anomalieregel bei jeder Metrik an, die häufig 0 ist. | H | P1–P3, 4.3.5 |
 | E2 | **Baseline-Poisoning** — wer langsam anfängt, trainiert die 30-Tage-Baseline auf sein eigenes Verhalten. Klassische Schwäche anomaliebasierter Verfahren, in 4.3.5 nicht adressiert. | M | — |

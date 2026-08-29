@@ -51,7 +51,13 @@
                     },
                     "ignored_paths": [],
                     "sub_requests": "exceptions_only",
-                    "capture_fatal_errors": true
+                    "capture_fatal_errors": true,
+                    "console": {
+                        "enabled": true,
+                        "ignored_commands": [
+                            "#^ids:sensor:#"
+                        ]
+                    }
                 },
                 "security": {
                     "enabled": true,
@@ -152,6 +158,10 @@
         "ids_sensor.layers.business.ip_from_request": true,
         "ids_sensor.layers.business.user_from_token": true,
         "ids_sensor.layers.kernel.capture_fatal_errors": true,
+        "ids_sensor.layers.kernel.console.enabled": true,
+        "ids_sensor.layers.kernel.console.ignored_commands": [
+            "#^ids:sensor:#"
+        ],
         "ids_sensor.layers.kernel.enabled": true,
         "ids_sensor.layers.kernel.events.exception": true,
         "ids_sensor.layers.kernel.events.request": true,
@@ -539,6 +549,23 @@
                     []
                 ],
                 "kernel.event_subscriber": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.console_options": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Console\\Options",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                true,
+                "%ids_sensor.layers.kernel.console.ignored_commands%"
+            ],
+            "tags": {
+                "container.no_preload": [
                     []
                 ]
             }
@@ -1089,6 +1116,30 @@
             ],
             "tags": {
                 "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.sensor.console_command": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Console\\CommandSensor",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.captured_event_binder",
+                "@ids_sensor.capture_budget",
+                "@ids_sensor.console_options",
+                "@ids_sensor.raw.builder"
+            ],
+            "tags": {
+                "container.no_preload": [
+                    [],
+                    []
+                ],
+                "kernel.event_subscriber": [
                     []
                 ]
             }

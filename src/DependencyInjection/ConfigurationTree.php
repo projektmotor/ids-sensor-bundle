@@ -46,6 +46,24 @@ final class ConfigurationTree
     public const SUB_REQUEST_MODES = ['none', 'exceptions_only', 'all'];
 
     /**
+     * Die eigenen Befehle des Bundles, von der Konsolen-Erfassung ausgenommen.
+     *
+     * Die einzige nicht-leere Ausschlussvorgabe im ganzen Baum, und sie braucht ihre
+     * Begründung: `ids:sensor:spool:flush` läuft laut Konzept 3.6 je Minute per cron.
+     * Ohne den Ausschluss erzeugte er ein `console.command`, das der nächste Lauf
+     * versendet, um dabei das nächste zu erzeugen — eine Spur, die ausschließlich die
+     * eigene Maschinerie beschreibt und mit der cron-Frequenz wächst.
+     *
+     * Der Unterschied zu `ignored_paths`, wo eine Vorgabe ausdrücklich abgelehnt wird:
+     * Dort ginge Signal über die überwachte ANWENDUNG verloren (`/_profiler` ist ein
+     * Angriffsziel). Hier fällt Selbstbeobachtung weg. Dass der Sensor lebt, meldet der
+     * Heartbeat (Konzept 3.4), und zwar billiger.
+     *
+     * @var list<string>
+     */
+    public const DEFAULT_IGNORED_COMMANDS = ['#^ids:sensor:#'];
+
+    /**
      * Die feste, dokumentierte Feldfolge aus Konzept 2.2.4 — Bildung der
      * Sitzungskontext-Felder. Bewusst schmal: je mehr Header einfließen, desto
      * häufiger ändert sich der Fingerprint aus harmlosen Gründen und desto mehr
@@ -184,6 +202,53 @@ final class ConfigurationTree
         return $node;
     }
 
+    /**
+     * Die Konsolen-Erfassung — Konzept 3.1.1, offener Punkt E1.
+     *
+     * Hängt unter `layers.kernel`, weil die Ereignisse auf der Kernel-EBENE liegen:
+     * `Vocabulary\Layer` ist ein geschlossenes Vokabular, ein vierter Wert wäre ein
+     * Fassungswechsel. Ein eigener Knoten und nicht zwei weitere Schalter unter
+     * `events`, weil die Ausschlussliste dazugehört und `events` nur Wahrheitswerte
+     * führt.
+     */
+    private static function consoleNode(): ArrayNodeDefinition
+    {
+        $node = new ArrayNodeDefinition('console');
+        $node
+            ->addDefaultsIfNotSet()
+            ->children()
+                ->booleanNode('enabled')
+                    ->defaultTrue()
+                    ->info(
+                        'Erfasst console.command und console.error. Deckt auch Messenger-Worker ab — '
+                        .'messenger:consume ist ein Command.'
+                    )
+                ->end()
+                ->arrayNode('ignored_commands')
+                    ->scalarPrototype()
+                        ->validate()
+                            // Dieselbe Falle wie bei ignored_paths: ein Muster ohne
+                            // Trennzeichen kompiliert nicht und trifft deshalb nie.
+                            ->ifTrue(static fn (mixed $pattern): bool => !\is_string($pattern) || false === @preg_match($pattern, ''))
+                            ->thenInvalid(
+                                'Ungültiger regulärer Ausdruck %s. ignored_commands sind PCRE-Muster MIT '
+                                .'Trennzeichen — also "#^app:cron:#" statt "app:cron:".'
+                            )
+                        ->end()
+                    ->end()
+                    ->defaultValue(self::DEFAULT_IGNORED_COMMANDS)
+                    ->info(
+                        'PCRE-Muster MIT Trennzeichen gegen den Befehlsnamen. Anders als ignored_paths '
+                        .'NICHT leer: die Vorgabe schließt die eigenen Befehle des Bundles aus. '
+                        .'ids:sensor:spool:flush läuft je Minute per cron und erzeugte sonst ein '
+                        .'Ereignis, das der nächste Lauf versendet, um dabei das nächste zu erzeugen.'
+                    )
+                ->end()
+            ->end();
+
+        return $node;
+    }
+
     private static function layersNode(): ArrayNodeDefinition
     {
         $node = new ArrayNodeDefinition('layers');
@@ -248,6 +313,7 @@ final class ConfigurationTree
                                 .'tatsächlich gesehen hat.'
                             )
                         ->end()
+                        ->append(self::consoleNode())
                     ->end()
                 ->end()
                 ->arrayNode('security')

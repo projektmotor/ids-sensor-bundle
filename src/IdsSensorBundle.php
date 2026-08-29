@@ -227,6 +227,8 @@ final class IdsSensorBundle extends AbstractBundle
         $builder->setParameter('ids_sensor.layers.kernel.events.exception', $kernelLayer['events']['exception']);
         $builder->setParameter('ids_sensor.layers.kernel.sub_requests', $kernelLayer['sub_requests']);
         $builder->setParameter('ids_sensor.layers.kernel.ignored_paths', $kernelLayer['ignored_paths']);
+        $builder->setParameter('ids_sensor.layers.kernel.console.enabled', $kernelLayer['console']['enabled']);
+        $builder->setParameter('ids_sensor.layers.kernel.console.ignored_commands', $kernelLayer['console']['ignored_commands']);
 
         // Die vollständige Konfiguration bleibt als Parameter erhalten, damit
         // ids:sensor:setup-check sie zur Laufzeit anzeigen kann.
@@ -249,6 +251,13 @@ final class IdsSensorBundle extends AbstractBundle
             // Parameter, den niemand las.
             if (true === $kernelLayer['capture_fatal_errors']) {
                 $container->import('../config/services_kernel_fatal_errors.yaml');
+            }
+
+            // Ebenfalls bedingt: Ohne symfony/console gibt es die Ereignisse nicht, und
+            // ein abgeschalteter Sensor soll gar nicht erst registriert sein — derselbe
+            // Grundsatz wie bei ids_sensor.enabled.
+            if (true === $kernelLayer['console']['enabled']) {
+                $container->import('../config/services_kernel_console.yaml');
             }
         }
 

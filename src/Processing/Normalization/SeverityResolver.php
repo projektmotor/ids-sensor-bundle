@@ -40,7 +40,19 @@ final class SeverityResolver
 
     /**
      * Kernel-Events: kernel.request ist immer info, exception und response hängen
-     * am Statuscode.
+     * am Statuscode, die beiden Konsolen-Ereignisse an nichts.
+     *
+     * WARUM console.error NUR warning IST
+     *
+     * Auf der Konsole gibt es kein Gegenstück zur Aufteilung 5xx/4xx, an der die
+     * beiden HTTP-Zweige hängen: Ein vertippter Befehlsname und ein abgestürzter
+     * Worker enden beide mit einer Ausnahme und Exit-Code 1. Konzept 2.2.1 behält
+     * `critical` ausdrücklich Serverfehlern vor — jeden Konsolenfehler so
+     * einzustufen, hieße den Begriff zu entwerten, und die Alarmschwelle des
+     * Collectors hinge dann an der Tippsicherheit des Betreibers.
+     *
+     * Die Forensik verliert dadurch nichts: `warning` trägt `raw`
+     * ({@see Severity::carriesRaw()}), der Stacktrace reist also mit.
      */
     public function forKernel(string $eventType, ?int $httpStatus): Severity
     {
@@ -48,6 +60,8 @@ final class SeverityResolver
             KernelPayload::EVENT_REQUEST => Severity::Info,
             KernelPayload::EVENT_EXCEPTION => self::forExceptionStatus($httpStatus),
             KernelPayload::EVENT_RESPONSE => self::forResponseStatus($httpStatus),
+            KernelPayload::EVENT_CONSOLE_COMMAND => Severity::Info,
+            KernelPayload::EVENT_CONSOLE_ERROR => Severity::Warning,
             default => Severity::Info,
         };
     }
