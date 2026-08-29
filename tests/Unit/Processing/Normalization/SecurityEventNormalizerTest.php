@@ -16,7 +16,7 @@ use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Processing\Normalization\SecurityEventNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
-use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
+use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialUuidGenerator;
 
 /**
  * Prüft die Payload-Strukturen aus Konzept 3.1.2 feldgenau.
@@ -130,7 +130,7 @@ final class SecurityEventNormalizerTest extends TestCase
     private function normalizer(): SecurityEventNormalizer
     {
         return new SecurityEventNormalizer(
-            new EventFactory(new SequentialEventIdGenerator()),
+            new EventFactory(new SequentialUuidGenerator()),
             new SeverityResolver(),
         );
     }

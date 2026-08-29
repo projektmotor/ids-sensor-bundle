@@ -22,6 +22,7 @@ use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Support\Telemetry\FailSafeLogger;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingSpool;
+use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialUuidGenerator;
 use ProjektMotor\IdsSensor\Tests\Fixtures\ThrowingLogger;
 
 /**
@@ -45,6 +46,58 @@ final class FrameDispatcherTest extends TestCase
         self::assertSame(1, $gesendet);
         self::assertSame(1, $shipper->frameCount());
         self::assertSame(1, $counters->get(Counters::SENT));
+    }
+
+    /**
+     * Jede Sendung bekommt ihre eigene Kennung. Ohne sie könnte der Collector zwei
+     * Sendungen nicht auseinanderhalten — und mit einer wiederholten Zustellung
+     * derselben Sendung erst recht nicht (Konzept 4.2.2).
+     */
+    public function testEveryDispatchCarriesItsOwnFrameId(): void
+    {
+        $shipper = new CollectingShipper();
+        $dispatcher = $this->dispatcher($shipper, new Counters());
+
+        $dispatcher->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+        $dispatcher->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        $kennungen = array_column($shipper->frames(), 'frame_id');
+
+        self::assertCount(2, $kennungen);
+        self::assertNotEmpty($kennungen[0]);
+        self::assertNotSame($kennungen[0], $kennungen[1], 'Zwei Sendungen, zwei Kennungen');
+    }
+
+    /**
+     * Die Kennung entsteht VOR der Verzweigung Collector/Spool. Ginge sie erst im
+     * Direktzweig aus, trüge ein gespoolter Frame gar keine — und der Collector
+     * bekäme ausgerechnet für den Nachlauf keinen Zeilenschlüssel.
+     */
+    public function testASpooledFrameCarriesAFrameIdAsWell(): void
+    {
+        $spool = new CollectingSpool();
+
+        $this->dispatcher(new CollectingShipper(), new Counters(), $spool, RuntimeProfile::POLICY_SPOOL)
+            ->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
+
+        self::assertCount(1, $spool->frames());
+        self::assertNotEmpty($spool->frames()[0]['frame_id']);
+    }
+
+    /**
+     * Auch der Shutdown-Pfad nach einem Fatal Error. Er umgeht den Collector, nicht
+     * aber das Format: Was dort in den Spool geht, wird später nachgesendet und
+     * braucht denselben Zeilenschlüssel.
+     */
+    public function testTheShutdownPathAlsoCarriesAFrameId(): void
+    {
+        $spool = new CollectingSpool();
+
+        $this->dispatcher(new CollectingShipper(), new Counters(), $spool)
+            ->dispatchToSpool($this->identity(), [$this->event()]);
+
+        self::assertCount(1, $spool->frames());
+        self::assertNotEmpty($spool->frames()[0]['frame_id']);
     }
 
     /**
@@ -241,6 +294,7 @@ final class FrameDispatcherTest extends TestCase
             $counters,
             new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
             $spool,
+            new SequentialUuidGenerator('frame-'),
             262144,
             null,
             new FailSafeLogger(new ThrowingLogger()),
@@ -388,6 +442,7 @@ final class FrameDispatcherTest extends TestCase
             $counters,
             new RuntimeProfile($policy),
             $spool ?? new CollectingSpool(),
+            new SequentialUuidGenerator('frame-'),
             $maxFrameBytes,
             $breaker,
         );

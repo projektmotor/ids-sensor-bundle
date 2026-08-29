@@ -214,7 +214,7 @@
             "critical"
         ],
         "ids_sensor.raw.skip_multipart": true,
-        "ids_sensor.schema_version": 3,
+        "ids_sensor.schema_version": 4,
         "ids_sensor.sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
         "ids_sensor.session_hash.cookie_name": null,
         "ids_sensor.session_hash.enabled": true,
@@ -616,7 +616,7 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "@ids_sensor.event_id_generator",
+                "@ids_sensor.uuid_generator",
                 "@ids_sensor.raw.gate"
             ],
             "tags": []
@@ -649,16 +649,6 @@
                     []
                 ]
             }
-        },
-        "ids_sensor.event_id_generator": {
-            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\UuidV7EventIdGenerator",
-            "public": false,
-            "shared": true,
-            "lazy": false,
-            "abstract": false,
-            "synthetic": false,
-            "arguments": [],
-            "tags": []
         },
         "ids_sensor.fatal_error_flush_listener": {
             "class": "ProjektMotor\\IdsSensor\\Delivery\\Dispatch\\FatalErrorFlushListener",
@@ -710,6 +700,7 @@
                 "@ids_sensor.counters",
                 "@ids_sensor.runtime_profile",
                 "@ids_sensor.spool",
+                "@ids_sensor.uuid_generator",
                 262144,
                 "@ids_sensor.circuit_breaker",
                 "@ids_sensor.logger"
@@ -1206,6 +1197,20 @@
             ],
             "tags": {
                 "container.no_preload": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.uuid_generator": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\UuidV7Generator",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": {
+                "container.hot_path": [
                     []
                 ]
             }

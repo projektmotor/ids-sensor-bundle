@@ -27,7 +27,7 @@ use ProjektMotor\IdsSensor\Support\Telemetry\DeferredCounters;
 use ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingSpool;
-use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
+use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialUuidGenerator;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\ThrowingLogger;
 use Symfony\Component\HttpFoundation\Request;
@@ -197,7 +197,7 @@ final class FlushListenerTest extends TestCase
                 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             ),
             [new KernelEventNormalizer(
-                new EventFactory(new SequentialEventIdGenerator()),
+                new EventFactory(new SequentialUuidGenerator()),
                 new SeverityResolver(),
                 new QueryNormalizer(TestCleaner::default()),
                 TestCleaner::default(),
@@ -208,6 +208,7 @@ final class FlushListenerTest extends TestCase
                 $counters,
                 new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
                 new CollectingSpool(),
+                new SequentialUuidGenerator('frame-'),
             ),
             $counters,
             new DeferredCounters($counters, $buffer, new CaptureBudget(1500)),
@@ -248,7 +249,7 @@ final class FlushListenerTest extends TestCase
                 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             ),
             [new KernelEventNormalizer(
-                new EventFactory(new SequentialEventIdGenerator()),
+                new EventFactory(new SequentialUuidGenerator()),
                 new SeverityResolver(),
                 new QueryNormalizer(TestCleaner::default()),
                 TestCleaner::default(),
@@ -259,6 +260,7 @@ final class FlushListenerTest extends TestCase
                 $counters,
                 new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
                 new CollectingSpool(),
+                new SequentialUuidGenerator('frame-'),
             ),
             $counters,
             new DeferredCounters($counters, $buffer, new CaptureBudget(0)),
@@ -278,7 +280,7 @@ final class FlushListenerTest extends TestCase
                 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             ),
             [new KernelEventNormalizer(
-                new EventFactory(new SequentialEventIdGenerator()),
+                new EventFactory(new SequentialUuidGenerator()),
                 new SeverityResolver(),
                 new QueryNormalizer(TestCleaner::default()),
                 TestCleaner::default(),
@@ -289,6 +291,7 @@ final class FlushListenerTest extends TestCase
                 $counters,
                 new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
                 $spool,
+                new SequentialUuidGenerator('frame-'),
             ),
             $counters,
             new DeferredCounters($counters, $buffer, new CaptureBudget(0)),

@@ -111,7 +111,12 @@ final class HeartbeatTest extends IntegrationTestCase
         self::assertSame($this->applicationId, $payload['application_id']);
         self::assertSame('3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', $payload['environment_id']);
         self::assertSame('c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4', $payload['sensor_id']);
-        self::assertSame(3, $payload['schema_version']);
+        self::assertSame(4, $payload['schema_version']);
+
+        // Der Heartbeat ist keine Sendung von Ereignissen und trägt deshalb kein
+        // frame_id — seine Fassung steigt trotzdem mit, weil das Drahtformat EINE
+        // Fassung hat und nicht eine je Nachrichtenart (Konzept 3.4).
+        self::assertArrayNotHasKey('frame_id', $payload);
 
         // Der Modus entscheidet, was ein Schweigen bedeutet — deshalb reist er mit.
         self::assertSame('both', $payload['heartbeat_mode']);

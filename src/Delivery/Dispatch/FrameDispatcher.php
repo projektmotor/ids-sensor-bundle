@@ -14,6 +14,7 @@ use ProjektMotor\IdsSensor\Delivery\Transport\Shipper\ShipperInterface;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\SpoolInterface;
 use ProjektMotor\IdsSensor\Exception\ThrottledException;
 use ProjektMotor\IdsSensor\Exception\UnshippableFrameException;
+use ProjektMotor\IdsSensor\Processing\Normalization\UuidGeneratorInterface;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 
@@ -30,6 +31,17 @@ use Psr\Log\LoggerInterface;
  * Frame-Bau zu setzen.
  *
  * Was übrig bleibt, ist die Pipeline: puffern, normalisieren, redigieren, übergeben.
+ *
+ * EINE KENNUNG JE SENDUNG, VOR DER VERZWEIGUNG
+ *
+ * Die frame_id wird gezogen, wenn der Frame gebaut wird — also BEVOR feststeht, ob
+ * er zum Collector oder in den Spool geht. Das ist der Punkt, an dem die Sendung
+ * entsteht; alles Spätere sind Wege, die sie nimmt.
+ *
+ * Zöge der Spool-Zweig eine eigene Kennung, wäre ein fehlgeschlagener Direktversuch
+ * mit anschließendem Nachsenden zweimal dieselbe Sendung unter zwei Schlüsseln —
+ * und die Duplikaterkennung des Collectors träfe genau den Fall nicht, für den es
+ * sie gibt (Konzept 4.2.2).
  *
  * KEIN ShipperInterface
  *
@@ -53,6 +65,11 @@ final class FrameDispatcher
         // Argument hätte bedeutet, dass Events lautlos verschwinden — genau das, was der
         // Docblock von spool() ausschließt.
         private readonly SpoolInterface $spool,
+        // Nicht nullable, aus demselben Grund wie $runtime und $spool: Ein fehlendes
+        // Argument bedeutete Frames ohne Zeilenschlüssel beim Collector — also eine
+        // Doppelzustellung, die niemand mehr als solche erkennt. Auch das ist die
+        // stille Richtung.
+        private readonly UuidGeneratorInterface $frameIds,
         // Obergrenze je Sendung. 0 hebt sie auf.
         private readonly int $maxFrameBytes = 262144,
         private readonly ?CircuitBreaker $breaker = null,
@@ -80,6 +97,7 @@ final class FrameDispatcher
         // Die Zählerstände werden VOR dem Versandversuch genommen. Andernfalls trüge ein
         // Frame sein eigenes `sent` beziehungsweise `ship_failed`.
         $frame = new Frame(
+            $this->frameIds->generate(),
             $identity,
             $events,
             new \DateTimeImmutable('now', new \DateTimeZone('UTC')),
@@ -112,6 +130,7 @@ final class FrameDispatcher
     public function dispatchToSpool(SensorIdentity $identity, array $events): int
     {
         $frame = new Frame(
+            $this->frameIds->generate(),
             $identity,
             $events,
             new \DateTimeImmutable('now', new \DateTimeZone('UTC')),

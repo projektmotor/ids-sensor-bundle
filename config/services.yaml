@@ -41,13 +41,13 @@ services:
             $environmentId: '%ids_sensor.environment_id%'
             $sensorId: '%ids_sensor.sensor_id%'
 
-    ids_sensor.event_id_generator:
-        class: ProjektMotor\IdsSensor\Processing\Normalization\UuidV7EventIdGenerator
+    ids_sensor.uuid_generator:
+        class: ProjektMotor\IdsSensor\Processing\Normalization\UuidV7Generator
 
     ids_sensor.event_factory:
         class: ProjektMotor\IdsSensor\Processing\Normalization\EventFactory
         arguments:
-            $idGenerator: '@ids_sensor.event_id_generator'
+            $idGenerator: '@ids_sensor.uuid_generator'
             $rawGate: '@ids_sensor.raw.gate'
 
     # kernel.reset kommt über ResetInterface (autoconfigure). reset() zählt dabei noch nicht
@@ -167,6 +167,7 @@ services:
             $counters: '@ids_sensor.counters'
             $runtime: '@ids_sensor.runtime_profile'
             $spool: '@ids_sensor.spool'
+            $frameIds: '@ids_sensor.uuid_generator'
             $maxFrameBytes: '%ids_sensor.flush.max_frame_bytes%'
             $breaker: '@ids_sensor.circuit_breaker'
 

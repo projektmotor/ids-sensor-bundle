@@ -27,7 +27,7 @@ use ProjektMotor\IdsSensor\Support\RawPayload\Gate;
 final class EventFactory
 {
     public function __construct(
-        private readonly EventIdGeneratorInterface $idGenerator,
+        private readonly UuidGeneratorInterface $idGenerator,
         private readonly ?Gate $rawGate = null,
     ) {
     }

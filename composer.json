@@ -21,7 +21,7 @@
         "php": ">=8.2",
         "ext-json": "*",
         "ext-mbstring": "*",
-        "projektmotor/ids-event-data": "^0.4",
+        "projektmotor/ids-event-data": "^0.5",
         "psr/log": "^1.1|^2.0|^3.0",
         "symfony/config": "^6.4|^7.0",
         "symfony/console": "^6.4|^7.0",

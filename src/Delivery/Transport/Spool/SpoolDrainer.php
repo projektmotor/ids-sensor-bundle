@@ -25,6 +25,27 @@ use Psr\Log\LoggerInterface;
  * zu machen. Gesetzt wird nur der dispatch_path, damit der Collector die Verzögerung
  * einordnen kann.
  *
+ * ALTE SPOOL-ZEILEN GEHEN UNVERAENDERT HINAUS
+ *
+ * Nach einem Sensor-Update liegen Zeilen mit schema_version 3 und ohne frame_id auf
+ * der Platte. Sie werden gesendet, wie sie liegen — Konzept 3.3 sagt zu, dass eine
+ * Spool-Zeile ihre eigene, ältere Fassung mit sich trägt, und der Collector leitet
+ * die fehlende Kennung nach derselben Stelle deterministisch ab.
+ *
+ * Drei Dinge geschehen hier deshalb ausdrücklich NICHT:
+ *
+ * - schema_version wird nicht auf 4 gehoben. Die Zeile hat kein frame_id; sie als
+ *   Fassung 4 auszugeben wäre eine Falschauskunft an den Collector, der daraufhin
+ *   eine frames-Zeile ohne Primärschlüssel bauen wollte.
+ * - Es wird keine Kennung nachgereicht. Sie wäre bei jedem Zustellversuch eine
+ *   andere, und Zustellversuche wiederholen sich: reclaimStalled() holt eine
+ *   .draining-Datei zurück, deren Zeilen bereits gesendet sein können. Aus einer
+ *   erkennbaren Doppelzustellung würde eine unerkennbare — das Gegenteil dessen,
+ *   wozu das Feld eingeführt wurde.
+ * - Es gibt keine Guard-Klausel auf frame_id. Sie verwürfe punktgenau den
+ *   Altbestand, also den Teil des Spools, der am ehesten schon einen Ausfall
+ *   überlebt hat.
+ *
  * WARUM FileSpool UND NICHT SpoolInterface
  *
  * Weil der Drainer keine Nutzung des Spools ist, sondern seine andere Hälfte.
@@ -318,6 +339,10 @@ final class SpoolDrainer
      *
      * Damit ist der Wert wieder das, was Konzept 3.3.1 verlangt: „kein Schalter, sondern
      * ein vom Sensor abgeleiteter Tatsachenwert".
+     *
+     * Angefasst werden GENAU diese zwei Schlüssel. schema_version und frame_id bleiben
+     * unberührt — auch dann, wenn die Zeile aus Fassung 3 stammt und gar kein frame_id
+     * hat. Warum das so bleiben muss, steht im Klassenkopf.
      *
      * @param array<string, mixed> $frame
      *

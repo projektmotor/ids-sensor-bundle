@@ -170,6 +170,48 @@ final class FileSpoolTest extends TestCase
     }
 
     /**
+     * Der Regressionstest für den Sensor-Update-Fall.
+     *
+     * Beim Update auf Fassung 4 liegen Zeilen der Fassung 3 im Spool — ohne
+     * frame_id, weil es das Feld damals nicht gab. Sie gehen unverändert hinaus:
+     * keine nachgereichte Kennung (sie wäre bei jedem Zustellversuch eine andere),
+     * keine angehobene Fassung (die Zeile hat kein frame_id) und keine Prüfung, die
+     * sie verwürfe. Der Collector leitet die Kennung nach Konzept 3.3 selbst ab.
+     */
+    public function testALegacyLineWithoutFrameIdIsStillDelivered(): void
+    {
+        $spool = $this->spool();
+        $spool->append($this->legacyFrame('alt'));
+        $spool->seal();
+
+        $shipper = new CollectingShipper();
+        $result = (new SpoolDrainer($spool, $shipper))->drain();
+
+        self::assertSame(1, $result['frames']);
+        self::assertSame(0, $result['discarded']);
+
+        $gesendet = $shipper->frames()[0];
+        self::assertSame(3, $gesendet['schema_version'], 'Die Fassung der Zeile bleibt, wie sie war');
+        self::assertArrayNotHasKey('frame_id', $gesendet, 'Es wird keine Kennung erfunden');
+        self::assertSame('alt', $gesendet['events'][0]['payload']['marker']);
+    }
+
+    /**
+     * Umgekehrt: Trägt die Zeile eine Kennung, kommt genau sie beim Collector an.
+     * Daran hängt, dass eine Wiederholung als dieselbe Sendung erkannt wird.
+     */
+    public function testTheFrameIdSurvivesTheDrainUnchanged(): void
+    {
+        $spool = $this->filled($this->spool(), 'a');
+        $erwartet = $this->frame('a')['frame_id'];
+
+        $shipper = new CollectingShipper();
+        (new SpoolDrainer($spool, $shipper))->drain();
+
+        self::assertSame($erwartet, $shipper->frames()[0]['frame_id']);
+    }
+
+    /**
      * Ein dauerhaft unversendbarer Frame darf die Datei nicht festhalten.
      *
      * Nach dem ersten erreichbarkeitsbedingten Fehlschlag bricht der Drainer ab und hebt
@@ -623,6 +665,24 @@ final class FileSpoolTest extends TestCase
      * versiegeln, so wie es in Produktion die Größen- oder Altersschranke bzw. der
      * Drainer über `idleActiveFiles()` tut.
      */
+    /**
+     * Eine Zeile, wie der Sensor sie bis Fassung 3 geschrieben hat: ohne frame_id.
+     *
+     * Absichtlich veraltet und deshalb ein eigener Helfer — nach einem Sensor-Update
+     * liegen solche Zeilen auf der Platte, und der Drainer muss sie weiter
+     * versenden können.
+     *
+     * @return array<string, mixed>
+     */
+    private function legacyFrame(string $marker): array
+    {
+        $frame = $this->frame($marker);
+        $frame['schema_version'] = 3;
+        unset($frame['frame_id']);
+
+        return $frame;
+    }
+
     private function filled(FileSpool $spool, string ...$markers): FileSpool
     {
         foreach ($markers as $marker) {
@@ -652,7 +712,8 @@ final class FileSpoolTest extends TestCase
     private function frame(string $marker): array
     {
         return [
-            'v' => 1,
+            'schema_version' => 4,
+            'frame_id' => '0198f2c1-4a7b-7e30-9d51-'.str_pad(bin2hex($marker), 12, '0', \STR_PAD_LEFT),
             'sensor' => ['application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', 'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'],
             'flushed_at' => (new \DateTimeImmutable())->format('Y-m-d\TH:i:s.v\Z'),
             'dispatch_path' => 'direct',

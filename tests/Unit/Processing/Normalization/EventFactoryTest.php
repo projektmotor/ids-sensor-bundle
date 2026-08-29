@@ -12,7 +12,7 @@ use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
-use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
+use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialUuidGenerator;
 
 final class EventFactoryTest extends TestCase
 {
@@ -134,7 +134,7 @@ final class EventFactoryTest extends TestCase
 
     private function factory(): EventFactory
     {
-        return new EventFactory(new SequentialEventIdGenerator());
+        return new EventFactory(new SequentialUuidGenerator());
     }
 
     private function identity(): SensorIdentity

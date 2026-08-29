@@ -16,7 +16,7 @@ use ProjektMotor\IdsSensor\Processing\Normalization\QueryNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\RouteResourceResolver;
 use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
-use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
+use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialUuidGenerator;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 
 /**
@@ -284,7 +284,7 @@ final class KernelEventNormalizerTest extends TestCase
     private function normalizer(): KernelEventNormalizer
     {
         return new KernelEventNormalizer(
-            new EventFactory(new SequentialEventIdGenerator()),
+            new EventFactory(new SequentialUuidGenerator()),
             new SeverityResolver(),
             new QueryNormalizer(TestCleaner::default()),
             TestCleaner::default(),

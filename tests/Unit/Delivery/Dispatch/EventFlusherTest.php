@@ -27,7 +27,7 @@ use ProjektMotor\IdsSensor\Support\Telemetry\DeferredCounters;
 use ProjektMotor\IdsSensor\Support\Telemetry\LatencyRecorder;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingShipper;
 use ProjektMotor\IdsSensor\Tests\Fixtures\CollectingSpool;
-use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
+use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialUuidGenerator;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 
 final class EventFlusherTest extends TestCase
@@ -288,6 +288,7 @@ final class EventFlusherTest extends TestCase
             $this->counters,
             new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
             new CollectingSpool(),
+            new SequentialUuidGenerator('frame-'),
         );
     }
 
@@ -314,6 +315,7 @@ final class EventFlusherTest extends TestCase
             $this->counters,
             new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
             $spool,
+            new SequentialUuidGenerator('frame-'),
             maxFrameBytes: 10,
         );
 
@@ -336,7 +338,7 @@ final class EventFlusherTest extends TestCase
     private function kernelNormalizer(): KernelEventNormalizer
     {
         return new KernelEventNormalizer(
-            new EventFactory(new SequentialEventIdGenerator()),
+            new EventFactory(new SequentialUuidGenerator()),
             new SeverityResolver(),
             new QueryNormalizer(TestCleaner::default()),
             TestCleaner::default(),

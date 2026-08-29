@@ -16,9 +16,12 @@ use Symfony\Component\Uid\Uuid;
  * (Konzept 4.2.1). Zeitgeordnete IDs schreiben dort in benachbarte Index-Bereiche
  * statt über den ganzen Baum gestreut.
  *
+ * Für die frame_id gilt dasselbe Argument wortgleich: frames ist nach flushed_at
+ * partitioniert und hat PRIMARY KEY (frame_id, flushed_at).
+ *
  * @internal
  */
-final class UuidV7EventIdGenerator implements EventIdGeneratorInterface
+final class UuidV7Generator implements UuidGeneratorInterface
 {
     public function generate(): string
     {

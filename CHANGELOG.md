@@ -11,6 +11,78 @@ jederzeit ändern — durchgesetzt von
 ein eigenes Paket und einen eigenen Changelog:
 [`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data).
 
+## [0.3.0] — 2026-08-30
+
+Setzt `projektmotor/ids-event-data` `^0.5` voraus.
+
+### Breaking — `schema_version` 4: jeder Frame trägt eine `frame_id`
+
+Der Collector bekommt eine Tabelle `frames`, in der jede Sendung als Zeile steht
+(Konzept 4.2.1). Sie braucht einen Schlüssel, und bei at-least-once-Zustellung muss ein
+erneut zugestellter Frame erkennbar sein — dieselbe Aufgabe, die `event_id` seit jeher
+eine Ebene tiefer löst. Ohne ihn zählte jede Auswertung über die Zustellqualität eine
+Wiederholung als zweite Sendung.
+
+**Der Collector muss vor dem Sensor stehen.** Ein Sensor der Fassung 4 gegen einen
+Collector der Fassung 3 ist nach Konzept 3.7 zwar verträglich — unbekannte
+Top-Level-Felder landen in `unknown_fields` —, aber die `frames`-Tabelle bliebe leer, und
+sichtbar wäre das nirgends.
+
+### Added — die Kennung entsteht im `FrameDispatcher`, einmal je Sendung
+
+Sie wird **vor** der Verzweigung Collector/Spool gezogen. Das ist der Punkt, an dem die
+Sendung entsteht; alles Spätere sind Wege, die sie nimmt. Zöge der Spool-Zweig eine
+eigene Kennung, wäre ein fehlgeschlagener Direktversuch mit anschließendem Nachsenden
+zweimal dieselbe Sendung unter zwei Schlüsseln — und die Duplikaterkennung des
+Collectors träfe genau den Fall nicht, für den sie gebaut wurde.
+
+Der Generator ist ein Pflichtargument, aus demselben Grund wie `$runtime` und `$spool` an
+derselben Stelle: Ein fehlendes Argument bedeutete Frames ohne Zeilenschlüssel, also eine
+unerkennbare Doppelzustellung — die stille Richtung.
+
+### Changed — ein Generator für beide Kennungen
+
+`EventIdGeneratorInterface`/`UuidV7EventIdGenerator` heißen jetzt
+`UuidGeneratorInterface`/`UuidV7Generator`, der Dienst `ids_sensor.event_id_generator`
+heißt `ids_sensor.uuid_generator`. Zwei identische Vier-Zeilen-Klassen nebeneinander
+wären Duplikation gewesen; der alte Name an der neuen Verwendungsstelle wäre eine
+Unwahrheit — eine `frame_id` ist keine `event_id`. Die Begründung für v7 gilt für beide
+wortgleich: `frames` ist nach `flushed_at` partitioniert und hat
+`PRIMARY KEY (frame_id, flushed_at)`, zeitgeordnete Kennungen schreiben dort in
+benachbarte Index-Bereiche. Beides trägt `@internal`, Semver ist nicht berührt.
+
+Nebenwirkung im Container-Abdruck: Der Dienst trägt jetzt `container.hot_path`, weil der
+`frame_dispatcher` von ihm abhängt. Das ist richtig — er läuft im Request-Pfad.
+
+### Fixed — der Spool ist ein Bestandsformat, und der Drainer behandelt ihn so
+
+Beim Sensor-Update liegen Zeilen mit `schema_version: 3` und ohne `frame_id` auf der
+Platte. Sie werden **unverändert** nachgesendet: `SpoolDrainer::markPath()` setzt
+weiterhin nur `dispatch_path` und `spool_delay_ms`, und `HttpShipper::ship()` bekommt
+**keine** Prüfung auf `frame_id`. Eine solche Prüfung hätte punktgenau den Altbestand
+verworfen — den Teil des Spools, der am ehesten schon einen Ausfall überlebt hat.
+
+Ebenso wenig wird beim Drain eine Kennung nachgereicht. Sie wäre bei jedem
+Zustellversuch eine andere, und Zustellversuche wiederholen sich: `reclaimStalled()` holt
+eine `.draining`-Datei zurück, deren Zeilen bereits gesendet sein können. Eine erfundene
+Kennung machte aus der erkennbaren Doppelzustellung eine unerkennbare — das Gegenteil
+dessen, wozu das Feld eingeführt wurde. Der Collector leitet sie stattdessen aus
+`sensor_id | process_epoch | pid | flushed_at` ab (Konzept 3.3).
+
+Neuer Regressionstest
+`FileSpoolTest::testALegacyLineWithoutFrameIdIsStillDelivered()`. Nebenbefund derselben
+Stelle: Der Frame-Helfer dort trug noch das seit Fassung 2 entfallene `v => 1` — er
+bildet jetzt die aktuelle Form ab, und der veraltete Zustand steht absichtlich in einem
+eigenen `legacyFrame()`.
+
+### Changed — Konzept und Dokumentation nachgezogen
+
+Konzept 3.3 (Frame-Beispiel und die Kennung), 3.4 (Heartbeat — er bekommt **kein**
+`frame_id`, seine Fassung steigt trotzdem), 3.6, 3.7 (die Bump-Regel für ein neues
+Pflichtfeld) und 4.1. Abschnitt 4.2 ist dabei neu gegliedert: 4.2.1 trägt das
+vollständige, ausführbare Schema an einem Stück, 4.2.2 die gesamte Begründung samt der
+neuen Tabellen `frames` und `heartbeats`. `doc/03`, `doc/05` und `doc/07` folgen.
+
 ## [0.2.0] — 2026-08-29
 
 Die erste Fassung, die den REST-Transport ausliefert — und die erste, in der die

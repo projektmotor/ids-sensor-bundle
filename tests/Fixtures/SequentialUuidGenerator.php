@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Fixtures;
 
-use ProjektMotor\IdsSensor\Processing\Normalization\EventIdGeneratorInterface;
+use ProjektMotor\IdsSensor\Processing\Normalization\UuidGeneratorInterface;
 
 /**
- * Vorhersagbare Event-IDs für Tests und Golden Files.
+ * Vorhersagbare Kennungen für Tests und Golden Files — event_id wie frame_id.
  */
-final class SequentialEventIdGenerator implements EventIdGeneratorInterface
+final class SequentialUuidGenerator implements UuidGeneratorInterface
 {
     private int $next = 1;
 
