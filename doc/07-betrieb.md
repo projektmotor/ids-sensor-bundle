@@ -170,6 +170,24 @@ der Sensor an `WorkerMessageHandledEvent` und `WorkerMessageFailedEvent`, damit 
 seine Business-Events nicht bis zum Prozessende puffert. Fehlt es, entfallen diese beiden
 Flush-Punkte und sonst nichts.
 
+## Der Spool ist ein Datenspeicher
+
+Bei erreichbarem Collector geht jeder Frame direkt hinaus, und auf der Platte bleibt nichts.
+Bei einem Ausfall ist das anders: Dann liegen **vollständige Frames samt `raw`** in
+`spool.dir` — unverschlüsselt, auf der Platte der überwachten Anwendung, also genau dort, wo
+ein Angreifer mit Codeausführung sie fände.
+
+Daraus folgen drei Betriebspflichten:
+
+- **Rechte.** Das Verzeichnis gehört dem Nutzer, unter dem PHP läuft, und sonst niemandem.
+  Es hat im Dokumentenwurzelverzeichnis nichts zu suchen.
+- **Der cron muss laufen.** `ids:sensor:spool:flush` leert ihn; läuft er nicht, wächst der
+  Spool bis `spool.max_bytes` und verwirft danach — die Ereignisse sind dann weg, und die
+  bereits geschriebenen liegen weiter da.
+- **Aufbewahrung.** Was hier liegt, unterliegt denselben Fristen wie die Daten beim
+  Collector. Die datenschutzrechtliche Seite steht in
+  [06 — Vertraulichkeit](06-vertraulichkeit.md#betreiberpflichten-ob8).
+
 ## Trusted Proxies
 
 Steht die Anwendung hinter einem Reverse Proxy und ist `framework.trusted_proxies` nicht

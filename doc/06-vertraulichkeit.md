@@ -215,13 +215,12 @@ Größe des Körpers steht ohnehin als `payload.content_length` im Event, die *S
 Deserialisierungsversuchs geht also nicht verloren.
 
 Umgekehrt gilt: Ein JSON-Körper enthält in der Regel **mehr** personenbezogene Daten als ein
-Formular, nicht weniger. Der offene Punkt zum Datenschutz unten wird dadurch größer.
+Formular, nicht weniger. Was daraus folgt, steht unten unter „Betreiberpflichten".
 
-`raw` enthält personenbezogene Daten. Die Entscheidung, Datenschutzaspekte dort nachrangig
-zu behandeln, ist im Konzept bewusst getroffen (Priorität auf forensische Vollständigkeit)
-und **vor einem produktiven Einsatz mit echten Nutzerdaten erneut zu prüfen** — betroffen
-sind Rechtsgrundlage, Aufbewahrungsfristen und Auskunftsfähigkeit. Offener Punkt OB8 in
-(*6.3*).
+`raw` enthält personenbezogene Daten. Die Entscheidung, Datenschutzaspekte im Bundle
+nachrangig zu behandeln, ist im Konzept bewusst getroffen — Priorität auf forensische
+Vollständigkeit. Sie ist damit **nicht** die Aussage, dass es keine gibt, sondern die, dass
+sie außerhalb des Bundles liegen (*OB8*).
 
 Wer `raw` ganz vermeiden will: `raw.enabled: false`. Wer nur den sensibelsten Teil
 weglassen will: `raw.include_request_body: false`. Beides kostet forensische Tiefe, nicht
@@ -243,6 +242,81 @@ nur er kennt die Regeln.
 wird, überträgt personenbezogene Daten bei Vorgängen, die bislang keine übertrugen. Die
 Liste gehört deshalb zu den Punkten, die im Abschnitt „Betreiberpflichten" unten
 dokumentiert sein wollen — und nicht weiter gefasst, als der Beleg es verlangt.
+
+## Betreiberpflichten (*OB8*)
+
+Das Bundle stellt Vertraulichkeit von **Zugangsdaten** her. Datenschutz stellt es nicht her,
+und es kann es nicht: Ob eine Verarbeitung zulässig ist, wie lange sie zulässig bleibt und
+wer darüber Auskunft bekommt, entscheidet sich an der Anwendung und ihrem Betrieb, nicht an
+einer Denylist. Die drei Fragen gehören deshalb **vor** den produktiven Einsatz mit echten
+Nutzerdaten geklärt — hier steht, welcher Hebel des Bundles jeweils dazugehört.
+
+### 1. Rechtsgrundlage
+
+Der Sensor verarbeitet personenbezogene Daten in drei Feldgruppen, unabhängig von jeder
+Konfiguration:
+
+| Wo | Was | Abschaltbar über |
+|---|---|---|
+| `actor.user` | die Benutzerkennung, häufig eine E-Mail-Adresse | — (Pflichtfeld, siehe unten) |
+| `actor.ip` | die Client-IP | — (Pflichtfeld) |
+| `actor.session_id_hash`, `actor.client_fingerprint` | Wiedererkennungsmerkmale | `session_hash.enabled`, `fingerprint.enabled` |
+| `raw` | Formularfelder, JSON-Körper, Header, Query | `raw.enabled`, `raw.include_request_body` |
+
+Die vier `actor.*`-Felder sind laut (*2.2.4*) „immer vorhanden, aber nullable" — sie lassen
+sich nicht wegkonfigurieren, weil ohne Akteur keine der nutzerbezogenen Regeln arbeitet.
+Wer sie nicht verarbeiten darf, kann das Bundle nicht betreiben; das ist die ehrliche
+Auskunft und keine Einstellung.
+
+`raw` ist der einzige Block, der ganz entfallen kann. Das kostet forensische Tiefe, nicht
+Erkennung — die Regeln arbeiten auf `payload`.
+
+### 2. Aufbewahrungsfristen
+
+**Der Sensor speichert nichts dauerhaft.** Er hält Ereignisse für die Dauer eines Requests
+im Puffer und, wenn der Collector nicht erreichbar ist, im Spool auf der Platte. Zwei
+Stellen gehören trotzdem in eine Löschfrist-Betrachtung:
+
+| Ort | Inhalt | Grenze |
+|---|---|---|
+| `spool.dir` | vollständige Frames samt `raw`, unverschlüsselt | `spool.max_bytes`; geleert vom minütlichen `ids:sensor:spool:flush` |
+| Logdateien | keine Ereignisdaten, aber Fehlermeldungen des Sensors | Logrotation der Anwendung |
+
+Der Spool ist der Punkt, der überrascht: Bei einem längeren Ausfall des Collectors liegen
+dort personenbezogene Daten auf der Platte der überwachten Anwendung — genau dort, wo ein
+Angreifer mit Codeausführung sie fände. Er gehört auf ein Verzeichnis mit
+Betriebssystemrechten, die der Webserver-Nutzer allein hat, und er gehört überwacht:
+Läuft der cron nicht, wächst er bis `spool.max_bytes` und verwirft dann.
+
+**Die eigentliche Aufbewahrung liegt beim Collector** (*4.2.3*) und ist dort gestuft. Wer
+Fristen festlegt, legt sie dort fest, nicht hier.
+
+### 3. Auskunftsfähigkeit
+
+Ein Auskunftsersuchen trifft den Collector, nicht den Sensor — dort liegen die Daten. Was
+der Sensor dafür liefern muss, ist die **Auffindbarkeit**: `actor.user` ist das Feld, über
+das sich die Ereignisse einer Person zusammenführen lassen, und es steht in jedem Ereignis,
+in dem eine Identität bekannt war.
+
+Zwei Dinge, die dabei zu bedenken sind:
+
+- **`actor.user` ist angreiferkontrolliert** (*4.5.3*). Bei einem gescheiterten
+  Anmeldeversuch steht dort die *versuchte* Kennung — die kann jede beliebige Zeichenkette
+  sein, auch die einer unbeteiligten Person. Eine Auskunft, die stur nach `actor.user`
+  filtert, gibt fremde Ereignisse heraus.
+- **`session_id_hash` und `client_fingerprint` sind Pseudonyme, keine Anonymisierung.** Sie
+  verketten Ereignisse derselben Sitzung beziehungsweise desselben Clients und fallen
+  damit unter dieselbe Betrachtung wie die Kennung selbst.
+
+### Was der Betreiber zusätzlich entscheidet
+
+Zwei Einstellungen erweitern die Verarbeitung über die Vorgabe hinaus und gehören deshalb
+ausdrücklich dokumentiert, wenn sie benutzt werden:
+
+- **`raw.always_for`** überträgt Belege bei Vorgängen, die bislang keine übertrugen (siehe
+  oben). Nicht weiter fassen, als der Beleg es verlangt.
+- **eine eigene Redaktionsliste mit `merge_defaults: false`** verkleinert die Denylist und
+  kann Felder freischalten, die die mitgelieferte Liste abdeckt.
 
 ## Abgrenzung: drei Dinge, die alle „bereinigen"
 

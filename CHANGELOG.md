@@ -13,6 +13,35 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Changed — Datenschutz ist entschieden, nicht offen (offener Punkt OB8)
+
+Der Punkt stand als „bewusst nachrangig behandelt, vor produktivem Einsatz erneut zu
+prüfen" — eine Vertagung ohne Adressat. Er ist jetzt beantwortet, und die Antwort ist eine
+Abgrenzung: **Das Bundle stellt Vertraulichkeit von Zugangsdaten her, nicht Datenschutz,
+und kann es nicht.** Ob eine Verarbeitung zulässig ist, wie lange sie zulässig bleibt und
+wer Auskunft bekommt, entscheidet sich an der Anwendung und ihrem Betrieb, nicht an einer
+Denylist.
+
+`doc/06` formuliert die drei Fragen deshalb als **Betreiberpflichten** aus, jeweils mit dem
+Hebel, der dazugehört. Zwei Feststellungen daraus verdienen es, hier zu stehen:
+
+**Die vier `actor.*`-Felder sind nicht abschaltbar.** `session_id_hash` und
+`client_fingerprint` haben Schalter, `actor.user` und `actor.ip` nicht — ohne Akteur
+arbeitet keine der nutzerbezogenen Regeln. Wer sie nicht verarbeiten darf, kann das Bundle
+nicht betreiben. Das ist die ehrliche Auskunft und keine Einstellung.
+
+**Der Spool ist ein Datenspeicher.** Bei erreichbarem Collector bleibt auf der Platte
+nichts; bei einem Ausfall liegen dort vollständige Frames samt `raw`, unverschlüsselt, auf
+der Platte der überwachten Anwendung — genau dort, wo ein Angreifer mit Codeausführung sie
+fände. `doc/07` führt das jetzt als eigenen Abschnitt mit drei Betriebspflichten:
+Verzeichnisrechte, laufender cron, Aufbewahrung.
+
+Dazu ein Hinweis zur Auskunftsfähigkeit, der bislang nirgends stand: `actor.user` ist bei
+Anmeldefehlversuchen die *versuchte* Kennung und damit angreiferkontrolliert. Eine Auskunft,
+die stur danach filtert, gibt fremde Ereignisse heraus.
+
+Kein Code — die Änderung liegt in `doc/06`, `doc/07` und Konzept 6.3.
+
 ### Added — `raw.always_for`: Belege für Befunde auf `info`-Events (offener Punkt OB11)
 
 Ob `raw` mitreist, hing ausschließlich an `event_severity`. Ein Alarm entsteht aber erst im
