@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7faf376acfdf65b9f8867ed6cdf90cf7",
+    "content-hash": "503a7835e01e9299bb01233556bc7f1a",
     "packages": [
         {
             "name": "projektmotor/ids-event-data",
-            "version": "0.4.0",
+            "version": "0.5.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/projektmotor/ids-event-data.git",
-                "reference": "aa11a632c3d96917006f7a2afbdf4b10700e425b"
+                "reference": "bc44ba9094722e236dbec82e43ccbdb0f79e7091"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/projektmotor/ids-event-data/zipball/aa11a632c3d96917006f7a2afbdf4b10700e425b",
-                "reference": "aa11a632c3d96917006f7a2afbdf4b10700e425b",
+                "url": "https://api.github.com/repos/projektmotor/ids-event-data/zipball/bc44ba9094722e236dbec82e43ccbdb0f79e7091",
+                "reference": "bc44ba9094722e236dbec82e43ccbdb0f79e7091",
                 "shasum": ""
             },
             "require": {
@@ -58,9 +58,9 @@
             ],
             "support": {
                 "issues": "https://github.com/projektmotor/ids-event-data/issues",
-                "source": "https://github.com/projektmotor/ids-event-data/tree/0.4.0"
+                "source": "https://github.com/projektmotor/ids-event-data/tree/0.5.0"
             },
-            "time": "2026-08-29T21:01:01+00:00"
+            "time": "2026-08-29T22:11:20+00:00"
         },
         {
             "name": "psr/cache",
