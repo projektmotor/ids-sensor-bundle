@@ -633,7 +633,7 @@ Ein Request erzeugt typischerweise drei bis fünf Events, bei vielen Autorisieru
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "sensor": { "application_id": "9b1c4f80-…", "environment_id": "3f6d21ac-…", "sensor_id": "c40a7e13-…", "process_epoch": "01a0…", "pid": 4711 },
   "flushed_at": "2026-08-14T10:15:32.487Z",
   "dispatch_path": "direct",
@@ -676,7 +676,7 @@ Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Er
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "sent_at": "2026-08-14T10:15:32.487Z",
   "application_id": "9b1c4f80-…", "environment_id": "3f6d21ac-…", "sensor_id": "c40a7e13-…",
   "process_epoch": "01a0…", "pid": 4711,

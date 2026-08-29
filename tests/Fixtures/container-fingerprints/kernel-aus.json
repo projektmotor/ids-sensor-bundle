@@ -198,7 +198,7 @@
             "critical"
         ],
         "ids_sensor.raw.skip_multipart": true,
-        "ids_sensor.schema_version": 2,
+        "ids_sensor.schema_version": 3,
         "ids_sensor.sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
         "ids_sensor.session_hash.cookie_name": null,
         "ids_sensor.session_hash.enabled": true,

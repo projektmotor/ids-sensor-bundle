@@ -108,12 +108,25 @@ Stellen, die bewusst mit dem früheren Entwurf vergleichen.
 `IdsEventData\*`-Namen gegen die Dateien im Paket ab — die Gegenrichtung zu
 `ArchitectureTest::testDocblockReferencesDoNotDangle()`, die für das Fremdpaket blind ist.
 
-> **Offen und ausdrücklich nicht mit erledigt: der Fassungswechsel.** Konzept 3.7 sagt jetzt
-> ausgeschrieben, dass die Umbenennung eines Zählers ein `schema_version`-Bump ist — die
-> Regel fehlte, weil eine Umbenennung durch beide Listen fiel (sie ist Zugang *und* Wegfall,
-> und der Vorgang entfällt gerade nicht). `spooled` → `spooled_events` ist damit ein Bump.
-> `EventSchema::SCHEMA_VERSION` liegt in `projektmotor/ids-event-data` und kann hier nicht
-> steigen; die Zahl bleibt vorerst bei 2. **Vor einem Release ist dort auf 3 zu gehen.**
+**Der Fassungswechsel ist vollzogen: `schema_version` steht auf 3.** Konzept 3.7 sagt jetzt
+ausgeschrieben, dass die Umbenennung eines Zählers ein Bump ist — die Regel fehlte, weil
+eine Umbenennung durch beide Listen fiel: Sie ist Zugang *und* Wegfall, und der Vorgang
+entfällt gerade nicht. `spooled` → `spooled_events` ist damit einer, und seit 3.4 verlangt,
+dass jeder Zähler auch mit dem Wert `0` mitreist, ist jeder Zählerschlüssel ein Pflichtfeld
+— für die galt die Regel immer schon.
+
+**Abhängigkeit:** `projektmotor/ids-event-data` steigt auf `^0.3.1`. Dort ändert sich allein
+`EventSchema::SCHEMA_VERSION`; die PHP-API des Pakets bleibt unberührt. Am Event und am
+Frame ändert sich **kein Feld** — die Fassung steigt nur wegen des `counters`-Blocks.
+
+**Für den Collector:** Die Auswertung von `ids.event_loss` muss um `dropped_rejected`,
+`dropped_spool_unwritable` und `dropped_spool_unencodable` erweitert und von `spooled` auf
+`spooled_events` umgestellt werden. Ein Collector der Fassung 2 läse `spooled` sonst
+dauerhaft als `0`.
+
+Der Container-Abdruck ändert sich dabei in 14 Dateien um **je eine Zeile** — den Parameter
+`ids_sensor.schema_version`. Nichts an der Verdrahtung; genau das macht der Abdruck
+sichtbar.
 
 ### Fixed — die Dokumentation beschreibt wieder, was ausgeliefert wird
 

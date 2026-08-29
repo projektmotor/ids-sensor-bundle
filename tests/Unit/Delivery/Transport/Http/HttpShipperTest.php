@@ -214,6 +214,6 @@ final class HttpShipperTest extends TestCase
      */
     private function frame(): array
     {
-        return ['schema_version' => 2, 'events' => [['event_id' => '01a0']]];
+        return ['schema_version' => 3, 'events' => [['event_id' => '01a0']]];
     }
 }
