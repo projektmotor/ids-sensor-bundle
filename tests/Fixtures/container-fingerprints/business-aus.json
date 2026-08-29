@@ -439,7 +439,7 @@
                 "console.command": [
                     {
                         "command": "ids:sensor:spool:flush",
-                        "description": "Sendet die im Spool liegenden IDS-Frames an den Broker nach",
+                        "description": "Sendet die im Spool liegenden IDS-Frames an den Collector nach",
                         "help": null
                     },
                     []
@@ -459,7 +459,7 @@
                 [
                     "setDescription",
                     [
-                        "Sendet die im Spool liegenden IDS-Frames an den Broker nach"
+                        "Sendet die im Spool liegenden IDS-Frames an den Collector nach"
                     ]
                 ]
             ]

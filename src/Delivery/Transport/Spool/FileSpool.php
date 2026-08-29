@@ -10,7 +10,7 @@ use Psr\Log\LoggerInterface;
  * Legt Frames als JSON Lines auf die Platte, eine Zeile je Frame.
  *
  * Zwei Verwendungen:
- *  - Broker nicht erreichbar oder Circuit Breaker offen (Ausnahmefall)
+ *  - Collector nicht erreichbar oder Circuit Breaker offen (Ausnahmefall)
  *  - Laufzeiten ohne abkoppelbare Antwort, also mod_php (Regelfall dort)
  *
  * EINE DATEI PRO PROZESS, nicht eine gemeinsame. Damit ist kein Verlass auf die
@@ -314,7 +314,7 @@ final class FileSpool implements SpoolInterface
     }
 
     /**
-     * ALLES, was auf der Platte liegt und noch nicht beim Broker ist — für die Meldung.
+     * ALLES, was auf der Platte liegt und noch nicht beim Collector ist — für die Meldung.
      *
      * Der Unterschied zu {@see pendingFiles()} ist die Frage, die gestellt wird.
      * `pendingFiles()` beantwortet „was darf der Drainer abholen" und lässt Aktives

@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Prüft das Verhalten bei nicht erreichbarem Broker durch den echten Container.
+ * Prüft das Verhalten bei nicht erreichbarem Collector durch den echten Container.
  *
  * Der Kern der Grundsatzentscheidung fail-open aus Konzept 4.: eine Störung des IDS
  * darf die überwachte Anwendung unter keinen Umständen beeinträchtigen — und der
@@ -62,10 +62,10 @@ final class ResilienceTest extends IntegrationTestCase
     }
 
     /**
-     * Ein nicht erreichbarer Broker darf keinen Fehler in die Anwendung tragen — und
+     * Ein nicht erreichbarer Collector darf keinen Fehler in die Anwendung tragen — und
      * die Events müssen im Spool landen statt verloren zu gehen.
      */
-    public function testAnUnreachableBrokerLandsInTheSpoolWithoutError(): void
+    public function testAnUnreachableCollectorLandsInTheSpoolWithoutError(): void
     {
         $kernel = $this->boot('resilience-down');
         $services = $this->services($kernel);
@@ -89,7 +89,7 @@ final class ResilienceTest extends IntegrationTestCase
     }
 
     /**
-     * Der Breaker öffnet nach der Schwelle und schneidet danach den Broker-Zugriff ab.
+     * Der Breaker öffnet nach der Schwelle und schneidet danach den Collector-Zugriff ab.
      *
      * Das ist der Unterschied zwischen fail-open in der Theorie und in der Praxis:
      * ohne diese Abkürzung kostet jeder weitere Request ein Timeout, und der
@@ -118,7 +118,7 @@ final class ResilienceTest extends IntegrationTestCase
         self::assertTrue($breaker->isOpen(), 'Nach zwei Fehlschlägen muss der Breaker offen sein');
         self::assertSame(2, $counters->get(Counters::SHIP_FAILED));
 
-        // Der dritte Versuch darf den Broker nicht mehr anfassen: ship_failed bleibt
+        // Der dritte Versuch darf den Collector nicht mehr anfassen: ship_failed bleibt
         // stehen, gespoolt wird trotzdem.
         $collector->append($this->kernelRequest());
         $kernel->terminate(Request::create('/'), new Response());

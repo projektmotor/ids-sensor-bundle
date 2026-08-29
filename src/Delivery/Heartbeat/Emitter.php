@@ -18,30 +18,30 @@ use Psr\Log\LoggerInterface;
  * Das ist die eine Stelle, an der der Sensor bewusst NICHT auf den Spool zurückfällt, und
  * die Begründung ist der Zweck des Heartbeats selbst: er ist eine Aussage über das JETZT.
  * Ein gespoolter Heartbeat käme Minuten oder Stunden später an und behauptete Leben zu
- * einem Zeitpunkt, an dem der Sensor den Broker gerade nicht erreichte. Der Collector
- * würde `ids.sensor_silent` unterdrücken — für einen Sensor, der tatsächlich nichts
+ * einem Zeitpunkt, an dem der Sensor die Gegenstelle gerade nicht erreichte. Der
+ * Collector würde `ids.sensor_silent` unterdrücken — für einen Sensor, der tatsächlich nichts
  * liefern konnte. Der Alarm wäre nachträglich weggeräumt, obwohl er berechtigt war.
  *
  * Scheitert der Versand, ist Schweigen die richtige Auskunft: der Sensor erreicht den
- * Broker nicht, und exakt das soll der Collector erkennen. Gezählt wird es trotzdem.
+ * Collector nicht, und exakt das soll dieser erkennen. Gezählt wird es trotzdem.
  *
  * DER BREAKER WIRD GELESEN, ABER NUR EINSEITIG BESCHRIEBEN
  *
  * Gelesen: im request-getriebenen Modus läuft der Versand in `kernel.terminate`, und bei
- * einem Broker-Ausfall würde jeder Versuch ein Timeout kosten und einen Worker belegen.
+ * einem Collector-Ausfall würde jeder Versuch ein Timeout kosten und einen Worker belegen.
  * Genau davor schützt der Breaker beim Frame-Versand; der Heartbeat darf diese Absicherung
  * nicht umgehen.
  *
  * Ein Fehlschlag wird aber NICHT in den Breaker gezählt. Der Grund ist gemessen und nicht
  * theoretisch: Frame-Versand und Heartbeat laufen im selben kernel.terminate. Zählten
- * beide, ergäbe EIN Broker-Ausfall ZWEI Fehlschläge, und ein konfiguriertes
+ * beide, ergäbe EIN Collector-Ausfall ZWEI Fehlschläge, und ein konfiguriertes
  * `failure_threshold: 2` wäre faktisch 1. Der Wert bedeutete etwas anderes, als er sagt —
  * und niemand könnte den Unterschied an der Konfiguration ablesen. Die Schwelle gehört dem
  * Frame-Pfad, also dem Pfad, der Antwortzeit kostet. Eigene Fehlschläge zählt der Heartbeat
  * in `heartbeat_failed`.
  *
  * Ein ERFOLG wird hingegen vermerkt: ein durchgekommener Heartbeat ist ein
- * angenommenes XADD und damit genau die Half-Open-Probe, auf die der Breaker wartet. Die
+ * angenommene Sendung und damit genau die Half-Open-Probe, auf die der Breaker wartet. Die
  * Asymmetrie ist Absicht — sie kann die Erholung nur beschleunigen, niemals das Verstummen.
  *
  * @internal
@@ -73,7 +73,7 @@ final class Emitter implements EmitterInterface
 
         // Unter einer Laufzeit ohne abkoppelbare Antwort (mod_php) darf Phase B kein
         // Netzwerk anfassen — auch nicht für einen Heartbeat. Er ist zwar klein, aber ein
-        // TLS-Handschlag zu Redis kostet 1–5 ms, und bei einer chunked übertragenen Antwort
+        // TLS-Handschlag zum Collector kostet 1–5 ms, und bei einer chunked übertragenen Antwort
         // wäre das echte Antwortzeit.
         //
         // FOLGE FÜR DEN BETRIEB, die in die README gehört: unter mod_php ist

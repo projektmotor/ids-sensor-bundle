@@ -146,12 +146,12 @@ final class FlushListener implements EventSubscriberInterface
      * Ob das Versandbudget aus Konzept 4. aufgebraucht ist.
      *
      * „Hartes Timeout von 50 ms; danach Abbruch des Versands, der Request läuft normal
-     * weiter." Durchsetzbar ist das nur ZWISCHEN Broker-Operationen — PHP kann einen
+     * weiter." Durchsetzbar ist das nur ZWISCHEN zwei Sendungen — PHP kann einen
      * laufenden Syscall nicht abbrechen, und genau so steht es auch in
      * doc/08-konfiguration.md.
      *
      * Im Request-Pfad gibt es genau eine solche Naht: zwischen dem Frame und dem
-     * Lebenszeichen. Hat der Frame das Budget schon verbraucht — ein Broker, der
+     * Lebenszeichen. Hat der Frame das Budget schon verbraucht — ein Collector, der
      * schleppend antwortet, statt sauber zu scheitern —, entfällt der Heartbeat. Er ist
      * die verzichtbare der beiden Sendungen: Er wiederholt sich im nächsten Intervall
      * von selbst, während die Events dieses Requests einmalig sind.

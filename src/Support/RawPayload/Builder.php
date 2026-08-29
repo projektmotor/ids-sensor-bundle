@@ -450,8 +450,8 @@ final class Builder
      * WARUM DAS NÖTIG IST: raw ist das einzige Feld, dessen Größe die Gegenseite
      * bestimmt. Ein Angreifer kann 200 Formularfelder mit je 512 Zeichen senden oder eine
      * tief verschachtelte Exception-Kette auslösen. Ohne Obergrenze könnte er mit einer
-     * einzigen Anfrage einen Frame erzeugen, der die Größengrenze des Spools oder des
-     * Brokers reißt — und damit ALLE Events dieses Requests verwirft. Das wäre ein
+     * einzigen Anfrage einen Frame erzeugen, der die Größengrenze des Spools oder die des
+     * Collectors reißt — und damit ALLE Events dieses Requests verwirft. Das wäre ein
      * gezielt auslösbarer blinder Fleck, also genau das Gegenteil eines IDS.
      *
      * Abgebaut wird in der Reihenfolge der übergebenen Schlüssel, also vom Verzichtbaren

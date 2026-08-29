@@ -7,11 +7,11 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Spool;
 /**
  * Nimmt Frames auf, die nicht direkt versendet werden konnten oder dürfen.
  *
- * Der Spool ist KEIN Übertragungsweg, sondern eine lokale Zwischenablage. Das
- * IdsBackendBundle liest ihn nie — es liest ausschließlich vom Broker. Den Versand
- * übernimmt ein zweiter Prozess auf demselben System
- * ({@see \ProjektMotor\IdsSensor\Command\SpoolFlushCommand}), der dieselben
- * XADD-only-Rechte verwendet. Die Paketgrenze bleibt damit das Format aus Konzept
+ * Der Spool ist KEIN Übertragungsweg, sondern eine lokale Zwischenablage. Der Collector
+ * kennt ihn nicht — er nimmt ausschließlich über seine Ingest-Endpunkte entgegen. Den
+ * Versand übernimmt ein zweiter Prozess auf demselben System
+ * ({@see \ProjektMotor\IdsSensor\Command\SpoolFlushCommand}) mit denselben Zugangsdaten
+ * und denselben drei POST-Adressen. Die Paketgrenze bleibt damit das Format aus Konzept
  * Abschnitt 3, und niemand braucht Dateizugriff auf den fremden Host.
  *
  * @internal

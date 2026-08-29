@@ -18,11 +18,11 @@ use Psr\Log\LoggerInterface;
 
 /**
  * Phase B: leert den Puffer, normalisiert und übergibt dem
- * {@see FrameDispatcher}, der über Broker oder Spool entscheidet.
+ * {@see FrameDispatcher}, der über Collector oder Spool entscheidet.
  *
  * Läuft nach dem Absenden der Antwort. Das ist der Kern der Zweiteilung aus Konzept
  * 2.1: im Request wird nur gesammelt, hier wird gearbeitet. Ein Netzwerk-Roundtrip
- * zum Broker kostet allein schon mehr als das gesamte Erfassungsbudget von 5 ms —
+ * zum Collector kostet allein schon mehr als das gesamte Erfassungsbudget von 5 ms —
  * er darf also nicht stattfinden, während der Client wartet.
  *
  * Wirft unter keinen Umständen nach außen (Konzept 4. IdsBackendBundle —
@@ -76,7 +76,7 @@ final class EventFlusher
     }
 
     /**
-     * Leert den Puffer in den Spool, ohne den Broker anzufassen.
+     * Leert den Puffer in den Spool, ohne den Collector anzufassen.
      *
      * Für den Shutdown-Pfad: Stirbt der Prozess an einem Fatal Error, feuert kein
      * kernel.terminate, und der Puffer ginge mitsamt seiner Events ungezählt verloren —

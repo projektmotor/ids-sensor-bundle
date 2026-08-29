@@ -403,8 +403,8 @@ final class ConfigurationTree
                     ->defaultValue(50)
                     ->min(0)
                     ->info(
-                        'Versandbudget nach dem Absenden der Antwort. Wird als Frist ZWISCHEN '
-                        .'Broker-Operationen geprüft — PHP kann einen laufenden Syscall nicht abbrechen.'
+                        'Versandbudget nach dem Absenden der Antwort. Wird als Frist ZWISCHEN zwei '
+                        .'Sendungen geprüft — PHP kann einen laufenden Syscall nicht abbrechen.'
                     )
                 ->end()
                 ->integerNode('connect_timeout_ms')->defaultValue(20)->min(0)->end()
@@ -536,7 +536,7 @@ final class ConfigurationTree
         $node
             ->addDefaultsIfNotSet()
             ->info(
-                'Ohne Circuit Breaker kostet ein Broker-Ausfall jeden Request ein Timeout und erschöpft '
+                'Ohne Circuit Breaker kostet ein Collector-Ausfall jeden Request ein Timeout und erschöpft '
                 .'den Worker-Pool — fail-open würde unter Last closed failen.'
             )
             ->children()

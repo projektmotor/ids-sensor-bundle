@@ -19,13 +19,13 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
  * mitbringt, und prüft anschließend auf BYTE-EBENE, dass kein einziger dieser Werte den
  * Sensor verlässt — und zwar auf BEIDEN Wegen:
  *
- *  1. auf der Leitung, also im JSON, das der Messenger-Serializer an Redis gibt;
+ *  1. auf der Leitung, also im JSON, das der Sensor an den Collector sendet;
  *  2. im Spool, also in der Datei auf der Platte des Anwendungshosts.
  *
  * Beide Wege getrennt zu prüfen ist keine Doppelung. Der Spool ist der Weg, den man
  * vergisst: er ist eine gewöhnliche Datei neben der Anwendung, niemand behandelt ihn als
  * Beweisspeicher, und unter mod_php läuft JEDER Frame darüber (Plan: Laufzeitmodelle).
- * Eine Redaktion, die nur den Broker-Pfad abdeckt, hätte dort eine Klartextkopie
+ * Eine Redaktion, die nur den Collector-Pfad abdeckt, hätte dort eine Klartextkopie
  * hinterlassen.
  *
  * Geprüft wird auf dem Rohstring und nicht auf dekodierten Feldern: nur so fällt ein Wert
@@ -444,7 +444,7 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         $spool = $services->get('ids_sensor.spool');
         $files = $spool->waitingFiles();
 
-        self::assertNotSame([], $files, 'Ohne erreichbaren Broker muss gespoolt werden');
+        self::assertNotSame([], $files, 'Ohne erreichbaren Collector muss gespoolt werden');
 
         $content = '';
 

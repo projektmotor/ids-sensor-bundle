@@ -16,12 +16,12 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Spool;
  */
 enum DrainOutcome
 {
-    /** Beim Broker angekommen. */
+    /** Beim Collector angekommen. */
     case Sent;
 
     /** Geht nie: unlesbare Zeile oder dauerhaft unkodierbarer Frame. Weg damit. */
     case Discarded;
 
-    /** Der Broker war nicht erreichbar. Zeile aufheben, später erneut versuchen. */
+    /** Der Collector war nicht erreichbar. Zeile aufheben, später erneut versuchen. */
     case Retryable;
 }

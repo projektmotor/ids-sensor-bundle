@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\DependencyInjection\ConfigurationTree;
 use Symfony\Component\Config\Definition\ArrayNode;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
@@ -31,6 +32,22 @@ use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 final class DocumentationTest extends TestCase
 {
     private const WURZEL = __DIR__.'/../..';
+
+    /**
+     * Was in einem Ereignis-Beispiel überhaupt vorkommen darf.
+     *
+     * Die neun Pflichtfelder plus die beiden Behälter (actor, payload) plus raw als
+     * einziges optionales Feld. Absichtlich aus EventSchema abgeleitet statt hier
+     * aufgezählt: Eine zweite Liste liefe genauso auseinander wie die Doku es tat.
+     *
+     * @var list<string>
+     */
+    private const ERLAUBTE_EREIGNISFELDER = [
+        ...EventSchema::MANDATORY_FIELDS,
+        EventSchema::FIELD_ACTOR,
+        EventSchema::FIELD_PAYLOAD,
+        EventSchema::FIELD_RAW,
+    ];
 
     /**
      * Zwischenknoten: Die Referenz führt sie als Überschrift, nicht als Tabellenzeile.
@@ -280,6 +297,68 @@ final class DocumentationTest extends TestCase
     }
 
     /**
+     * Die Ereignis-Beispiele in der Doku zeigen das Format, das der Sensor wirklich sendet.
+     *
+     * WOZU
+     *
+     * Die Umstellung auf Fassung 2 hat `instance_id` durch `sensor_id` ersetzt,
+     * `environment` durch `environment_id` und `schema_version` aus dem Ereignis in den
+     * Frame verschoben. Der Quellcode zog nach, `doc/03-ereignisformat.md` und die README
+     * nicht — beide zeigten monatelang ein Ereignis, das der Collector mit `422`
+     * abgewiesen hätte. Kein Test hat es bemerkt, weil die vorhandenen Prüfungen
+     * Konfigurationsschlüssel, Verweise, Anker, Vorgabewerte und Mermaid abdecken, aber
+     * kein einziges Beispiel.
+     *
+     * Maßgeblich ist {@see EventSchema} und nicht diese Klasse: Beim nächsten
+     * Fassungswechsel ändert sich dort eine Liste, und dieser Test zeigt, welche Absätze
+     * nachzuziehen sind.
+     */
+    public function testTheEventExamplesMatchTheSchema(): void
+    {
+        $geprueft = 0;
+
+        foreach (self::ereignisbeispiele() as $herkunft => $beispiel) {
+            ++$geprueft;
+            $felder = array_keys($beispiel);
+
+            foreach (EventSchema::MANDATORY_FIELDS as $pflichtfeld) {
+                self::assertContains($pflichtfeld, $felder, \sprintf(
+                    '%s: Das Pflichtfeld "%s" aus EventSchema fehlt im Beispiel.',
+                    $herkunft,
+                    $pflichtfeld,
+                ));
+            }
+
+            self::assertSame([], array_diff($felder, self::ERLAUBTE_EREIGNISFELDER), \sprintf(
+                '%s: Das Beispiel zeigt Felder, die EventSchema nicht kennt. Genau so sind '
+                .'instance_id und environment nach dem Wechsel auf Fassung 2 stehen geblieben.',
+                $herkunft,
+            ));
+
+            self::assertArrayNotHasKey(
+                EventSchema::FIELD_SCHEMA_VERSION,
+                $beispiel,
+                \sprintf(
+                    '%s: schema_version gehört seit Fassung 2 in den Frame, nicht ins Ereignis '
+                    .'(Konzept 3.3).',
+                    $herkunft,
+                ),
+            );
+
+            /** @var array<string, mixed> $actor */
+            $actor = $beispiel[EventSchema::FIELD_ACTOR];
+
+            self::assertSame(EventSchema::ACTOR_FIELDS, array_keys($actor), \sprintf(
+                '%s: actor trägt genau die vier Felder aus EventSchema::ACTOR_FIELDS — '
+                .'alle vorhanden, alle nullable (Konzept 2.2.4).',
+                $herkunft,
+            ));
+        }
+
+        self::assertGreaterThanOrEqual(2, $geprueft, 'Zu wenige Beispiele gefunden — greift der Test noch?');
+    }
+
+    /**
      * Jeder Mermaid-Block ist gefüllt und nennt einen Diagrammtyp.
      *
      * Billiger Schutz gegen abgeschnittene Blöcke und Tippfehler im Typ. Ob das
@@ -306,6 +385,45 @@ final class DocumentationTest extends TestCase
         }
 
         self::assertGreaterThan(5, $bloecke, 'Zu wenige Diagramme gefunden — greift der Test noch?');
+    }
+
+    /**
+     * Die JSON-Blöcke der Dokumentation, die ein Ereignis zeigen.
+     *
+     * Erkannt am Feld `event_id`: Die Doku enthält auch Frames, Heartbeats und
+     * Antwortkörper, und die tragen es nicht. Ein Block, der sich nicht dekodieren
+     * lässt, ist selbst ein Befund — ein Beispiel, das kein gültiges JSON ist, kann
+     * niemand übernehmen.
+     *
+     * @return array<string, array<string, mixed>> Herkunft (Datei + Blocknummer) => Ereignis
+     */
+    private static function ereignisbeispiele(): array
+    {
+        $beispiele = [];
+
+        foreach (self::dokumente() as $relativ => $inhalt) {
+            preg_match_all('/```json\n(.*?)```/s', $inhalt, $treffer);
+
+            foreach ($treffer[1] as $nummer => $block) {
+                if (!str_contains($block, '"event_id"')) {
+                    continue;
+                }
+
+                $dekodiert = json_decode($block, true);
+
+                self::assertIsArray($dekodiert, \sprintf(
+                    '%s, JSON-Block %d: lässt sich nicht dekodieren — %s',
+                    $relativ,
+                    $nummer + 1,
+                    json_last_error_msg(),
+                ));
+
+                /** @var array<string, mixed> $dekodiert */
+                $beispiele[\sprintf('%s, JSON-Block %d', $relativ, $nummer + 1)] = $dekodiert;
+            }
+        }
+
+        return $beispiele;
     }
 
     /**

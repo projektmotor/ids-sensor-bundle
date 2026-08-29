@@ -425,7 +425,7 @@ final class SetupCheckCommand extends Command
             if (!is_writable($ancestor)) {
                 $this->findings[] = \sprintf(
                     'Das Spool-Verzeichnis "%s" existiert nicht und "%s" ist nicht beschreibbar. '
-                    .'Damit gibt es keinen Rückfall bei einem Broker-Ausfall.',
+                    .'Damit gibt es keinen Rückfall bei einem Collector-Ausfall.',
                     $directory,
                     $ancestor,
                 );
@@ -571,7 +571,7 @@ final class SetupCheckCommand extends Command
         if (0 === $breaker['open_for_s']) {
             $this->findings[] =
                 'circuit_breaker.open_for_s ist 0. Der Breaker zählt dann Fehlschläge, sperrt aber '
-                .'nie — jeder Request zahlt bei einem Broker-Ausfall weiterhin die vollen Timeouts. '
+                .'nie — jeder Request zahlt bei einem Collector-Ausfall weiterhin die vollen Timeouts. '
                 .'Genau der Fall, für den es den Breaker gibt, ist damit ungeschützt.';
         }
 

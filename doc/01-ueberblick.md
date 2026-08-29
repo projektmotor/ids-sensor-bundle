@@ -16,23 +16,22 @@ flowchart LR
         code -.->|"Kernel-, Security-,<br/>Business-Ereignisse"| sensor
     end
 
-    broker[("Collector<br/><small>/api/v1/sensor-data</small>")]
-
     subgraph collector["Getrennt betriebener Collector"]
         direction TB
-        consumer["IdsBackendBundle<br/><small>empfängt · erkennt · alarmiert</small>"]
+        ingest["Ingest-Endpunkt<br/><small>/api/v1/sensor-data</small>"]
+        consumer["IdsBackendBundle<br/><small>erkennt · alarmiert</small>"]
         db[("PostgreSQL")]
+        ingest --> consumer
         consumer --> db
     end
 
-    sensor -->|"nur POST"| broker
-    broker -->|"lesen"| consumer
+    sensor -->|"nur POST · HTTPS"| ingest
 
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
     classDef data fill:#EEEDFE,stroke:#534AB7,color:#332C7A
     class sensor,code capture
-    class broker,consumer transport
+    class ingest,consumer transport
     class db data
     style app fill:#FBFBF9,stroke:#C8C6BE,color:#5F5E5A
     style collector fill:#FBFBF9,stroke:#C8C6BE,color:#5F5E5A

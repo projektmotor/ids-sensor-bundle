@@ -46,25 +46,13 @@ Replikate eines Deployments eine ConfigMap — die Kennung muss also je Node kom
 Secret, Downward API oder knotenspezifische Datei. `application_id` und `environment_id`
 dürfen geteilt sein.
 
-Die mitgelieferte Abbildung — eigene Einträge werden **hinzugemischt**, nicht dagegen
-ausgetauscht:
-
-| Rohwert | → | Rohwert | → |
-|---|---|---|---|
-| `prod`, `production`, `live` | `prod` | `dev`, `develop`, `development` | `dev` |
-| `staging`, `stage`, `preprod` | `staging` | `local`, `test` | `dev` |
-
-```yaml
-ids_sensor:
-    environment_map:
-        prod_eu_west: prod      # ergänzt, die Vorgaben bleiben
-    environment_fallback: prod
-```
-
-Der Rückfall ist `prod` und nicht `dev`: fälschlich als `prod` markierter Verkehr wird
-weiterhin erkannt; fälschlich als `dev` markierter fällt aus **jeder**
-Produktionsauswertung heraus. `ids:sensor:setup-check` bricht mit Rückgabewert 1 ab, wenn
-der Wert nicht abbildbar ist.
+**`environment_id`**: Bis Fassung 1 stand hier eine Zuordnungstabelle, die freie
+Umgebungsnamen auf die drei festen Werte `prod`, `staging` und `dev` abbildete, samt
+Rückfallwert für alles Unbekannte. Beides ist ersatzlos entfallen. Umgebungen sind heute
+registrierte Gebilde mit eigener UUID und frei wählbarem Namen; der Sensor bildet nichts
+mehr ab und kann damit auch nichts mehr falsch abbilden. Ist die Kennung im
+Anwendungsregister nicht eingetragen, weist der Collector die Sendung mit `422` ab (*3.6*)
+— laut statt lautlos.
 
 ## `session_hash`
 

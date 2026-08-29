@@ -94,7 +94,7 @@ final class FlushListenerTest extends TestCase
      * Ist das Versandbudget beim Frame aufgebraucht, entfällt das Lebenszeichen.
      *
      * Konzept 4.: „Hartes Timeout von 50 ms; danach Abbruch des Versands, der Request
-     * läuft normal weiter." Durchsetzbar ist das nur ZWISCHEN Broker-Operationen — PHP
+     * läuft normal weiter." Durchsetzbar ist das nur ZWISCHEN zwei Sendungen — PHP
      * kann einen laufenden Syscall nicht abbrechen. Im Request-Pfad gibt es genau eine
      * solche Naht: zwischen Frame und Heartbeat.
      *
@@ -134,7 +134,7 @@ final class FlushListenerTest extends TestCase
      * schließt das aus, und die betroffenen Requests sind selten die uninteressanten:
      * Ein OOM ist ein möglicher Ausgang eines Speicherangriffs.
      *
-     * NUR in den Spool: Ein Broker-Versuch mit 20 ms Timeout überschritte das
+     * NUR in den Spool: Ein Collector-Versuch mit 20 ms Timeout überschritte das
      * Shutdown-Budget schon für sich genommen, und der Zustand des sterbenden Prozesses
      * ist ohnehin unzuverlässig.
      */
@@ -148,7 +148,7 @@ final class FlushListenerTest extends TestCase
 
         $this->flusherWith($buffer, $shipper, $spool)->flushToSpool();
 
-        self::assertSame(0, $shipper->frameCount(), 'Der Broker wird im Shutdown nicht angefasst');
+        self::assertSame(0, $shipper->frameCount(), 'Der Collector wird im Shutdown nicht angefasst');
         self::assertCount(1, $spool->frames(), 'Der Frame muss auf der Platte liegen');
         self::assertSame(
             'deferred',

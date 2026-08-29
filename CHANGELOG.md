@@ -13,6 +13,49 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Fixed — die Dokumentation beschreibt wieder, was ausgeliefert wird
+
+Die Umstellung auf REST und `schema_version` 2 hat Quellcode und Teile der Doku nachgezogen,
+`doc/02`, `doc/03` und `doc/09` aber gar nicht angefasst. Keine öffentliche API ändert sich;
+korrigiert wird, was schlicht falsch dastand.
+
+**Das Ereignisformat-Kapitel beschrieb Fassung 1.** `doc/03-ereignisformat.md` und die README
+zeigten ein Ereignis mit `schema_version` (steht seit Fassung 2 im **Frame**), `instance_id`
+(entfallen), `environment` als Enum (heute `environment_id` als UUID) und `application_id` als
+freiem Namen. Wer dem Beispiel folgte, baute gegen ein Format, das der Collector mit `422`
+abweist. Die Tabelle der geschlossenen Wertelisten führte zudem
+`IdsEventData\Vocabulary\Environment` — **die Klasse ist seit `ids-event-data` 0.2.0
+gelöscht**; an ihre Stelle tritt `Frame\DispatchPath`.
+
+**Damit das nicht wiederkehrt:** `DocumentationTest::testTheEventExamplesMatchTheSchema()`
+liest die JSON-Beispiele aus Doku und README und gleicht sie gegen `EventSchema` ab —
+Pflichtfelder vorhanden, `actor` genau die vier Felder, kein Feld, das das Schema nicht kennt,
+und kein `schema_version` im Ereignis. Die bisherigen Prüfungen deckten Konfigurationsschlüssel,
+Verweise, Anker, Vorgabewerte und Mermaid ab, aber kein einziges Beispiel.
+
+**`environment_map` und `environment_fallback` standen in der Konfigurationsreferenz**, obwohl
+es sie im `ConfigurationTree` nicht mehr gibt. `doc/08-konfiguration.md` erklärt jetzt
+stattdessen, warum der Sensor nichts mehr abbildet. Der vorhandene Test fand das nicht: Er
+prüft Tabellenzellen, die Fundstellen lagen in einem YAML-Block und im Fließtext.
+
+**Weitere Berichtigungen:** Die Heartbeat-Drosselung war mit `instance_id` erklärt, benutzt
+aber `application_id` + `sensor_id` (`doc/07`). Die Fehlersuche-Tabelle nannte `NOPERM … XGROUP`
+und `auto_setup` — Redis-Reste; an ihre Stelle treten Zeilen für `403` und `422`. Das
+Übersichtsdiagramm in `doc/01` modellierte noch `sensor → broker → lesen → consumer` statt des
+direkten `POST` auf den Ingest-Endpunkt. Und `FrameDispatcher::tooLarge()` begründete die
+Größengrenze mit Redis' `proto-max-bulk-len` statt mit dem `413` des Collectors.
+
+**Ein Wort je Konzept.** 84 Stellen in Quellcode, Konfiguration und Tests sagten „Broker" —
+darunter zwei Meldungen des `setup-check`, die Fehlermeldung von `ids:sensor:heartbeat` und die
+Beschreibung von `ids:sensor:spool:flush`, die in `bin/console list` erscheint. Sie sagen jetzt
+„Collector". Stehen bleiben die beiden Stellen, die bewusst mit dem *früheren* Entwurf
+vergleichen.
+
+**Nebenbefund aus derselben Umstellung:** `symfony/http-client` stand in `require` **und**
+`require-dev`. `composer validate --strict` bricht darauf ab — der Schritt läuft in CI, die
+also seit `539a230` rot war. Der Eintrag in `require-dev` ist entfallen. Dazu entfernt:
+`diag.php`, eine leere Datei, die versehentlich mitgecommittet wurde.
+
 ### Breaking — Sampling entfällt, der Sitzungshash kommt ohne Schlüssel aus
 
 Die acht zurückgestellten Befunde der Tiefenprüfung sind eingearbeitet (Konzept 2.2.4, 2.3,

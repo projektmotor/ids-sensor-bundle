@@ -37,7 +37,7 @@ final class BreakerState
         // `openUntil` ist absolute Wanduhrzeit und überlebt im Dateirückfall Prozess und
         // Neustart — dort gibt es keine TTL, die einen Uhr-Rücksprung kappt. Springt die
         // Uhr um eine Stunde zurück, bliebe der Breaker eine Stunde offen: Der Sensor
-        // spoolte durchgehend, obwohl der Broker längst wieder läuft, und im Heartbeat
+        // spoolte durchgehend, obwohl der Collector längst wieder läuft, und im Heartbeat
         // stünde `state: open` ohne einen einzigen frischen Fehlschlag.
         //
         // Länger als die konfigurierte Offen-Zeit kann der Zustand nie berechtigt sein.

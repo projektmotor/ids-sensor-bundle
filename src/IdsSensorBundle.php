@@ -27,7 +27,8 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  * Erhält bewusst KEINEN Datenbankzugriff: trüge das Bundle die
  * PostgreSQL-Zugangsdaten, hätte die überwachte Anwendung Zugriff auf ihren
  * eigenen Beweisspeicher, und ein Angreifer mit Codeausführung könnte seine Spuren
- * löschen. Die Manipulationsgrenze verläuft am Broker (Konzept 2.).
+ * löschen. Die Manipulationsgrenze verläuft am Ingest-Endpunkt des Collectors
+ * (Konzept 2.): Der Sensor kennt drei Adressen, und alle drei nehmen nur entgegen.
  *
  * Nutzt AbstractBundle statt Bundle+Extension+Configuration. Der ausschlaggebende
  * Grund ist getPath(): es liefert dirname($classFile, 2), also bei
@@ -171,7 +172,7 @@ final class IdsSensorBundle extends AbstractBundle
         $builder->setParameter('ids_sensor.budget.capture_us', $config['budget']['capture_us']);
         $builder->setParameter('ids_sensor.budget.max_events_per_request', $config['budget']['max_events_per_request']);
         // Konzept 4.: „Hartes Timeout von 50 ms; danach Abbruch des Versands, der Request
-        // läuft normal weiter." Durchgesetzt zwischen den Broker-Operationen im
+        // läuft normal weiter." Durchgesetzt zwischen zwei Sendungen im
         // FlushListener — siehe dort, warum das die einzige durchsetzbare Lesart ist.
         $builder->setParameter('ids_sensor.budget.dispatch_ms', $config['budget']['dispatch_ms']);
         $builder->setParameter('ids_sensor.logging.channel', $config['logging']['channel']);

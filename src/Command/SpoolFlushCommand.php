@@ -13,7 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Sendet die im Spool liegenden Frames an den Broker nach.
+ * Sendet die im Spool liegenden Frames an den Collector nach.
  *
  * MUSS auf demselben System laufen wie die überwachte Anwendung — nur dort gibt es
  * Zugriff auf die Spool-Dateien. Der Collector liest den Spool nie.
@@ -34,7 +34,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 #[AsCommand(
     name: 'ids:sensor:spool:flush',
-    description: 'Sendet die im Spool liegenden IDS-Frames an den Broker nach',
+    description: 'Sendet die im Spool liegenden IDS-Frames an den Collector nach',
 )]
 final class SpoolFlushCommand extends Command
 {

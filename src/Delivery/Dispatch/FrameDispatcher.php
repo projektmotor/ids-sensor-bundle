@@ -16,7 +16,7 @@ use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 
 /**
- * Entscheidet, auf welchem Weg eine Sendung hinausgeht: Broker oder Spool.
+ * Entscheidet, auf welchem Weg eine Sendung hinausgeht: Collector oder Spool.
  *
  * WOZU EIN EIGENER DIENST
  *
@@ -68,7 +68,7 @@ final class FrameDispatcher
     public function dispatch(SensorIdentity $identity, array $events, DispatchPath $path): int
     {
         // Unter einer Laufzeit ohne abkoppelbare Antwort (mod_php) ist der planmäßige
-        // Weg der Spool, nicht der Broker. Der Frame trägt das als `deferred` — nicht als
+        // Weg der Spool, nicht der Collector. Der Frame trägt das als `deferred` — nicht als
         // `recovered`, weil die Verzögerung hier begrenzt ist und der Collector die
         // Echtzeit-Regeln weiter anwenden darf.
         if (DispatchPath::Direct === $path) {
@@ -92,7 +92,7 @@ final class FrameDispatcher
     }
 
     /**
-     * Baut den Frame und legt ihn OHNE Broker-Versuch in den Spool.
+     * Baut den Frame und legt ihn OHNE Collector-Versuch in den Spool.
      *
      * Für den Shutdown-Pfad nach einem Fatal Error. Dort ist ein Netzwerkzugriff die
      * falsche Wahl: Der Prozess stirbt gerade, der Zustand ist unzuverlässig, und ein
@@ -136,7 +136,7 @@ final class FrameDispatcher
 
         if ($this->tooLarge($payload)) {
             // NICHT spoolen: Der Drainer schickte denselben Frame später an denselben
-            // Broker und liefe in denselben Fehler — die Zeile blockierte den Spool, bis
+            // Collector und liefe in denselben Fehler — die Zeile blockierte den Spool, bis
             // er voll ist. Genau das Head-of-Line-Blocking, gegen das es
             // UnshippableFrameException gibt.
             //
@@ -167,7 +167,7 @@ final class FrameDispatcher
 
         // Ist der Breaker offen, findet KEIN Verbindungsversuch statt. Das ist der
         // Unterschied zwischen fail-open in der Theorie und in der Praxis: ohne diese
-        // Abkürzung kostet ein Broker-Ausfall jeden Request ein Timeout und erschöpft
+        // Abkürzung kostet ein Collector-Ausfall jeden Request ein Timeout und erschöpft
         // den Worker-Pool.
         if (null !== $this->breaker && $this->breaker->isOpen()) {
             $this->spool($payload, $frame->count(), 'Circuit Breaker offen');
@@ -198,9 +198,11 @@ final class FrameDispatcher
     /**
      * Ob die Sendung die Größengrenze überschreitet.
      *
-     * Ein Broker-Schutz, keine Konzeptzusage: Redis lehnt eine Nachricht oberhalb von
-     * `proto-max-bulk-len` ab, und der Frame käme aus sich heraus nie durch. Ohne diese
-     * Prüfung landete er im Spool und blockierte ihn dort bei jedem Lauf erneut.
+     * Ein Transportschutz, keine Konzeptzusage: Der Collector weist eine zu große Sendung
+     * mit `413` ab (Konzept 3.6), und {@see \ProjektMotor\IdsSensor\Exception\UnshippableFrameException}
+     * behandelt das als „geht nie". Der Frame käme also aus sich heraus nie durch. Ohne
+     * diese Prüfung landete er trotzdem erst im Spool und blockierte ihn dort bei jedem
+     * Lauf erneut.
      *
      * Gemessen wird der kodierte Umfang, nicht geschätzt. Das kostet ein zweites
      * `json_encode` — aber erst NACH dem Absenden der Antwort, und nur wenn eine Grenze

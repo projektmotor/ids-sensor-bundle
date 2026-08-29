@@ -90,7 +90,7 @@ final class SetupCheckCommandTest extends TestCase
      * `open_for_s: 0` ist die stillste denkbare Fehlkonfiguration.
      *
      * Der Breaker zählt dann Fehlschläge, meldet `half_open` — und sperrt nie. Jeder
-     * Request zahlt bei einem Broker-Ausfall weiterhin die vollen Timeouts, also genau
+     * Request zahlt bei einem Collector-Ausfall weiterhin die vollen Timeouts, also genau
      * das, wogegen es den Breaker gibt. Der Konfigurationsbaum kann die 0 nicht
      * ablehnen (sie ist der Typ-Platzhalter für `int`) und weist die Prüfung
      * ausdrücklich dem verbrauchenden Dienst zu; für den Breaker tat sie niemand.

@@ -30,7 +30,7 @@ final class CircuitBreakerTest extends TestCase
      * Der eigentliche Zweck: nach der Schwelle findet KEIN Verbindungsversuch mehr
      * statt.
      *
-     * Ohne das kostet ein Broker-Ausfall jeden Request ein Timeout. Bei 20 ms Connect-
+     * Ohne das kostet ein Collector-Ausfall jeden Request ein Timeout. Bei 20 ms Connect-
      * und 30 ms Read-Timeout sind das bis zu 50 ms Belegung pro Request — ein
      * FPM-Pool mit 32 Kindprozessen bei 200 Requests pro Sekunde ist damit erschöpft.
      * fail-open würde unter Last ins Gegenteil kippen.
@@ -107,7 +107,7 @@ final class CircuitBreakerTest extends TestCase
 
     /**
      * Der Betreiber muss sehen können, ob und wie oft der Breaker gegriffen hat —
-     * sonst ist ein Broker-Ausfall genau die stille Störung, die das Konzept
+     * sonst ist ein Collector-Ausfall genau die stille Störung, die das Konzept
      * vermeiden will.
      */
     public function testSnapshotReportsTheState(): void
@@ -141,7 +141,7 @@ final class CircuitBreakerTest extends TestCase
      * `openUntil` ist absolute Wanduhrzeit und überlebt im Dateirückfall Prozess und
      * Neustart; dort gibt es keine TTL, die einen Rücksprung kappt. Springt die Uhr um
      * eine Stunde zurück, bliebe der Breaker eine Stunde offen: Der Sensor spoolte
-     * durchgehend, obwohl der Broker längst wieder läuft, und der Heartbeat meldete
+     * durchgehend, obwohl der Collector längst wieder läuft, und der Heartbeat meldete
      * `state: open` ohne einen einzigen frischen Fehlschlag.
      *
      * Länger als die konfigurierte Offen-Zeit kann der Zustand nie berechtigt sein.

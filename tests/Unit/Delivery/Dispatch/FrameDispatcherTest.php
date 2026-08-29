@@ -52,7 +52,7 @@ final class FrameDispatcherTest extends TestCase
      * Bei einer chunked übertragenen Antwort wartet der Client noch, und jede
      * Millisekunde hier wäre echte Antwortzeit.
      */
-    public function testARuntimeWithoutDetachableResponseNeverTouchesTheBroker(): void
+    public function testARuntimeWithoutDetachableResponseNeverTouchesTheCollector(): void
     {
         $shipper = new CollectingShipper(new \RuntimeException('darf nie aufgerufen werden'));
         $spool = new CollectingSpool();
@@ -85,10 +85,10 @@ final class FrameDispatcherTest extends TestCase
     /**
      * Ist der Breaker offen, findet ebenfalls kein Verbindungsversuch statt.
      *
-     * Ohne diese Abkürzung kostet ein Broker-Ausfall jeden Request ein Timeout und
+     * Ohne diese Abkürzung kostet ein Collector-Ausfall jeden Request ein Timeout und
      * erschöpft den Worker-Pool — fail-open kippte unter Last ins Gegenteil.
      */
-    public function testAnOpenBreakerSkipsTheBrokerEntirely(): void
+    public function testAnOpenBreakerSkipsTheCollectorEntirely(): void
     {
         $shipper = new CollectingShipper(new \RuntimeException('darf nie aufgerufen werden'));
         $spool = new CollectingSpool();
@@ -115,7 +115,7 @@ final class FrameDispatcherTest extends TestCase
         $breaker = new CircuitBreaker($this->breakerStore(), 1, 30);
 
         $gesendet = $this->dispatcher(
-            new CollectingShipper(new \RuntimeException('Broker weg')),
+            new CollectingShipper(new \RuntimeException('Collector weg')),
             $counters,
             $spool,
             breaker: $breaker,
@@ -130,7 +130,7 @@ final class FrameDispatcherTest extends TestCase
     /**
      * Ein übergroßer Frame wird verworfen und NICHT gespoolt.
      *
-     * Der Drainer schickte denselben Frame später an denselben Broker und liefe in
+     * Der Drainer schickte denselben Frame später an denselben Collector und liefe in
      * denselben Fehler — die Zeile blockierte den Spool, bis er voll ist. Verworfen wird
      * er deshalb, gezählt aber in jedem Fall (Konzept 4.).
      */
@@ -158,13 +158,13 @@ final class FrameDispatcherTest extends TestCase
     }
 
     /**
-     * Der Shutdown-Pfad geht ohne Broker-Versuch in den Spool.
+     * Der Shutdown-Pfad geht ohne Collector-Versuch in den Spool.
      *
      * Der Prozess stirbt gerade, der Zustand ist unzuverlässig, und ein
      * Verbindungsversuch mit 20 ms Timeout überschritte das Shutdown-Budget schon für
      * sich genommen.
      */
-    public function testTheShutdownPathSpoolsWithoutTouchingTheBroker(): void
+    public function testTheShutdownPathSpoolsWithoutTouchingTheCollector(): void
     {
         $spool = new CollectingSpool();
 
@@ -207,7 +207,7 @@ final class FrameDispatcherTest extends TestCase
         $counters = new Counters();
 
         $this->dispatcher(
-            new CollectingShipper(new \RuntimeException('Broker weg')),
+            new CollectingShipper(new \RuntimeException('Collector weg')),
             $counters,
             new CollectingSpool(acceptsNothing: true),
         )->dispatch($this->identity(), [$this->event()], DispatchPath::Direct);
@@ -235,7 +235,7 @@ final class FrameDispatcherTest extends TestCase
         $counters = new Counters();
 
         $dispatcher = new FrameDispatcher(
-            new CollectingShipper(new \RuntimeException('Broker weg')),
+            new CollectingShipper(new \RuntimeException('Collector weg')),
             $counters,
             new RuntimeProfile(RuntimeProfile::POLICY_DIRECT),
             $spool,

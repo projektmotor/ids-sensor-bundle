@@ -120,7 +120,8 @@ services:
         tags:
             - { name: ids_sensor.event_normalizer }
 
-    # Vorgabe ohne DSN: so ist das Erfassungsbudget messbar, bevor ein Broker existiert.
+    # Vorgabe ohne collector.base_uri: so ist das Erfassungsbudget messbar, bevor ein
+    # Collector erreichbar ist.
     # services_transport.yaml ersetzt ihn.
     ids_sensor.shipper:
         class: ProjektMotor\IdsSensor\Delivery\Transport\Shipper\NullShipper
@@ -148,11 +149,11 @@ services:
             $heartbeatScheduler: '@?ids_sensor.heartbeat.scheduler'
             $sessionCookieName: '%ids_sensor.session_hash.cookie_name%'
 
-    # Entscheidet über Broker oder Spool. Bewusst NICHT lazy und ohne Arbeit im
+    # Entscheidet über Collector oder Spool. Bewusst NICHT lazy und ohne Arbeit im
     # Konstruktor: der Dienst wird vom FlushListener in kernel.terminate angefordert,
     # also außerhalb des try/catch im Flusher. Eine Exception beim Bauen entstünde
     # unmittelbar in der überwachten Anwendung — genau der Fall, den Konzept 4.
-    # ausschließt. Aus demselben Grund ist der Redis-Transport `lazy: true`.
+    # ausschließt.
     ids_sensor.frame_dispatcher:
         class: ProjektMotor\IdsSensor\Delivery\Dispatch\FrameDispatcher
         arguments:

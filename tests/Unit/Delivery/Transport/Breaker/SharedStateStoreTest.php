@@ -86,7 +86,7 @@ final class SharedStateStoreTest extends TestCase
      * verwendbar, während `apcu_store()` folgenlos blieb und `apcu_fetch()` immer
      * `$success = false` lieferte — der Rückfall wurde NIE erreicht, und der Breaker war
      * in jedem CLI-Prozess still wirkungslos. Betroffen war unter anderem der
-     * cron-getriebene `ids:sensor:spool:flush` gegen einen ausgefallenen Broker: kein
+     * cron-getriebene `ids:sensor:spool:flush` gegen einen ausgefallenen Collector: kein
      * Öffnen, also bei jedem Lauf das volle Timeout.
      *
      * Im UNTERPROZESS mit `-d apc.enable_cli=0`, weil die Testumgebung APCu in der CLI
@@ -131,7 +131,7 @@ final class SharedStateStoreTest extends TestCase
      * DER Test für die Unteilbarkeit: Gleichzeitiges Hochzählen darf nichts verschlucken.
      *
      * Vorher zählte der Breaker mit `read()` + `write()`, und das ist ein Lost Update.
-     * Fällt der Broker aus, laufen n FPM-Kinder gleichzeitig durch diesen Pfad, lesen alle
+     * Fällt der Collector aus, laufen n FPM-Kinder gleichzeitig durch diesen Pfad, lesen alle
      * `failures = 0` und schreiben alle `1` — der Zähler stieg nicht mit der Zahl der
      * Fehlschläge, sondern wurde ständig zurückgesetzt. Die Schwelle wurde im ungünstigen
      * Fall NIE erreicht: ausgerechnet unter Last, also in genau dem Szenario, für das
@@ -203,7 +203,7 @@ final class SharedStateStoreTest extends TestCase
      * Das ist nicht theoretisch: Der Rückfall ist der Pfad, den eine Installation ohne
      * APCu dauerhaft benutzt, und eine halb geschriebene `breaker.state` ist nach einem
      * abgebrochenen Deploy oder einer vollen Platte der Normalfall. Läse sie als „offen",
-     * spoolte der Sensor durchgehend, obwohl der Broker läuft.
+     * spoolte der Sensor durchgehend, obwohl der Collector läuft.
      *
      * Die Gegenprobe mit einer GÜLTIGEN Datei steht davor: Ohne sie wäre „closed" auch
      * dann grün, wenn der Unterprozess die Datei gar nicht anfasst.
@@ -235,7 +235,7 @@ final class SharedStateStoreTest extends TestCase
             'closed',
             $this->readWithoutApcu(),
             'Eine unlesbare Zustandsdatei muss als geschlossen gelten — „offen" hieße: dauerhaft '
-            .'spoolen, obwohl der Broker läuft',
+            .'spoolen, obwohl der Collector läuft',
         );
     }
 

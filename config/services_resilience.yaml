@@ -1,6 +1,6 @@
 # Resilienz: Circuit Breaker und Datei-Spool.
 #
-# Der Breaker verhindert, dass ein Broker-Ausfall jeden Request ein Timeout kostet und den
+# Der Breaker verhindert, dass ein Collector-Ausfall jeden Request ein Timeout kostet und den
 # Worker-Pool erschöpft — ohne ihn kippt fail-open unter Last ins Gegenteil. Der Spool nimmt
 # auf, was währenddessen nicht versendet werden kann.
 
@@ -17,7 +17,7 @@ services:
     # bei PHP-FPM in jedem Kindprozess bei Null an — genau dann soll der Breaker greifen.
     #
     # $scopeKey ist die application_id und nicht die sensor_id: der Breaker-Zustand gilt je
-    # Anwendung, nicht je Instanz. Zwei Instanzen derselben Anwendung sehen denselben Broker,
+    # Anwendung, nicht je Instanz. Zwei Instanzen derselben Anwendung sehen denselben Collector,
     # also ist auch sein Ausfall gemeinsam.
     ids_sensor.breaker.state_store:
         class: ProjektMotor\IdsSensor\Delivery\Transport\Breaker\SharedStateStore

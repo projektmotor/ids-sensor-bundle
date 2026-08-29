@@ -35,7 +35,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *
  * NUR IN DEN SPOOL
  *
- * Kein Broker-Versuch: Der Prozess stirbt gerade, sein Zustand ist unzuverlässig, und
+ * Kein Collector-Versuch: Der Prozess stirbt gerade, sein Zustand ist unzuverlässig, und
  * ein Verbindungsversuch mit 20 ms Timeout überschritte das Shutdown-Budget aus
  * `budget.fatal_dispatch_ms` schon für sich genommen. Der Spool ist genau dafür da.
  *

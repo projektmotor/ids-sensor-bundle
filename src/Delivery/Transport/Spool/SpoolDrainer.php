@@ -11,11 +11,11 @@ use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use Psr\Log\LoggerInterface;
 
 /**
- * Leert den Spool in Richtung Broker.
+ * Leert den Spool in Richtung Collector.
  *
  * Läuft auf DEMSELBEN System wie die überwachte Anwendung — nur dort gibt es Zugriff
- * auf die Spool-Dateien — und verwendet dieselben XADD-only-Zugangsdaten wie der
- * Sensor im Request. Für den Collector ändert sich nichts, und die asymmetrische
+ * auf die Spool-Dateien — und verwendet dieselben Zugangsdaten und dieselben drei
+ * POST-Adressen wie der Sensor im Request. Für den Collector ändert sich nichts, und die asymmetrische
  * Rechteverteilung aus Konzept 2. bleibt vollständig intakt.
  *
  * Als CLI-Prozess ohne Latenzbudget darf hier blockiert werden: es wartet kein Browser.
@@ -121,7 +121,7 @@ final class SpoolDrainer
             $result['discarded'] += $outcome['discarded'];
 
             if ($outcome['failed'] > 0) {
-                // Beim ersten Fehlschlag abbrechen: ist der Broker weg, bringt es
+                // Beim ersten Fehlschlag abbrechen: ist der Collector weg, bringt es
                 // nichts, die restlichen Dateien durchzuprobieren. Der Rest bleibt
                 // liegen und wird beim nächsten Lauf erneut versucht.
                 break;

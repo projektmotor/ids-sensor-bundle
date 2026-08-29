@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Delivery\Transport\Breaker;
 
 /**
- * Verhindert, dass ein Broker-Ausfall die überwachte Anwendung erdrosselt.
+ * Verhindert, dass ein Collector-Ausfall die überwachte Anwendung erdrosselt.
  *
  * DIESER BAUSTEIN IST NICHT OPTIONAL, und der Grund ist nicht Eleganz.
  *
- * Ohne Breaker sieht ein Broker-Ausfall so aus: jeder Request läuft in den
+ * Ohne Breaker sieht ein Collector-Ausfall so aus: jeder Request läuft in den
  * Verbindungs- oder Lese-Timeout. Bei 20 ms Connect- und 30 ms Read-Timeout sind das
  * bis zu 50 ms zusätzliche Belegung — pro Request, für die Dauer des Ausfalls. Ein
  * FPM-Pool mit 32 Kindprozessen bei 200 Requests pro Sekunde ist damit erschöpft, und
@@ -35,7 +35,7 @@ final class CircuitBreaker
     }
 
     /**
-     * Ob der Broker als tot gilt und übersprungen werden soll.
+     * Ob der Collector als tot gilt und übersprungen werden soll.
      */
     public function isOpen(): bool
     {

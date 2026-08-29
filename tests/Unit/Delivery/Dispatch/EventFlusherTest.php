@@ -119,13 +119,13 @@ final class EventFlusherTest extends TestCase
     }
 
     /**
-     * Die zentrale fail-open-Zusage: ein nicht erreichbarer Broker darf die
+     * Die zentrale fail-open-Zusage: ein nicht erreichbarer Collector darf die
      * überwachte Anwendung nicht behelligen.
      */
     public function testADispatchErrorIsNotCarriedOutwards(): void
     {
         $this->collector->append($this->kernelRequest());
-        $shipper = new CollectingShipper(new \RuntimeException('Redis weg'));
+        $shipper = new CollectingShipper(new \RuntimeException('Collector weg'));
 
         $sent = $this->flusher($shipper)->flush();
 
@@ -294,10 +294,10 @@ final class EventFlusherTest extends TestCase
      * Ein Frame über der Größengrenze wird verworfen und gezählt — nicht gespoolt.
      *
      * `flush.max_frame_bytes` war dokumentiert („Obergrenze je Frame") und wirkungslos:
-     * Es gab überhaupt keine Frame-Größengrenze. Redis lehnt eine Nachricht oberhalb von
-     * `proto-max-bulk-len` ab, der Frame kam also aus sich heraus nie durch.
+     * Es gab überhaupt keine Frame-Größengrenze. Der Collector weist eine zu große Sendung
+     * mit `413` ab (Konzept 3.6), der Frame kam also aus sich heraus nie durch.
      *
-     * Gespoolt wird er bewusst NICHT: Der Drainer schickte ihn später an denselben Broker
+     * Gespoolt wird er bewusst NICHT: Der Drainer schickte ihn später an denselben Collector
      * und liefe in denselben Fehler — die Zeile blockierte den Spool bei jedem Lauf, bis
      * er voll ist. Genau das Head-of-Line-Blocking, gegen das es
      * UnshippableFrameException gibt.
@@ -327,7 +327,7 @@ final class EventFlusherTest extends TestCase
         );
 
         self::assertSame(0, $flusher->flush());
-        self::assertSame(0, $shipper->frameCount(), 'Der Broker wird gar nicht erst angefasst');
+        self::assertSame(0, $shipper->frameCount(), 'Der Collector wird gar nicht erst angefasst');
         self::assertSame([], $spool->frames(), 'Und der Spool auch nicht — er würde nur blockiert');
         self::assertSame(1, $this->counters->get(Counters::DROPPED_FRAME_TOO_LARGE));
     }

@@ -14,7 +14,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * Der Nachsende-Command — unter mod_php der EINZIGE Transportweg.
  *
  * Damit ist er auch die Stelle mit dem größten Schadenspotenzial: Ohne die Schranke
- * gegen den fehlenden Broker leerte ein Lauf den Spool, meldete Erfolg, und kein
+ * gegen den fehlenden Collector leerte ein Lauf den Spool, meldete Erfolg, und kein
  * einziger Frame kam an. Der `NullShipper` wirft nie, also galt jede Zeile als
  * versendet und `finish()` löschte die Datei.
  */
@@ -45,14 +45,15 @@ final class SpoolFlushCommandTest extends TestCase
     }
 
     /**
-     * Ohne DSN gibt es keinen Broker — und ein Lauf wäre der lautlose Totalverlust.
+     * Ohne collector.base_uri gibt es keine Gegenstelle — und ein Lauf wäre der lautlose
+     * Totalverlust.
      *
      * Der Command hält deshalb an, statt zu laufen: Er würde die Dateien löschen,
      * nachdem der `NullShipper` jede Zeile widerspruchslos „versendet" hat. Unter mod_php
      * mit vergessener DSN war das der Weg, auf dem alle Events verschwanden, ohne dass
      * irgendetwas es meldete.
      */
-    public function testWithoutABrokerTheCommandRefusesToRun(): void
+    public function testWithoutACollectorTheCommandRefusesToRun(): void
     {
         $tester = $this->flush('ohne-dsn', ohneDsn: true);
 

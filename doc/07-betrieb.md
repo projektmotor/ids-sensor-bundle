@@ -54,17 +54,18 @@ Der Modus reist im Payload mit, damit der Collector die Aussagekraft eines ausbl
 Heartbeats kennt: bei `request` heißt Schweigen möglicherweise nur „kein Verkehr", bei
 `command` heißt es „etwas ist kaputt".
 
-### Warum die Drosselung die `instance_id` kennt
+### Warum die Drosselung die `sensor_id` kennt
 
 Der `Scheduler` drosselt **prozessübergreifend** — anders wäre er im request-getriebenen
 Modus wirkungslos, weil unter PHP-FPM jeder Request in einem anderen Prozess laufen kann
 und jeder für sich „noch nie gesendet" feststellen würde.
 
 Prozessübergreifend heißt bei APCu aber auch: geteilt zwischen **allen** Anwendungen, die
-dieses PHP-Pool benutzen. Ohne `instance_id` im Schlüssel würde die erste Instanz, die
-einen Heartbeat sendet, die Heartbeats aller anderen für ein Intervall unterdrücken — der
-Collector sähe eine einzige lebende Instanz und meldete für alle übrigen
-`ids.sensor_silent`. Also einen Dauerfalschalarm genau für die Instanzen, die in Ordnung
+dieses PHP-Pool benutzen. Der Schlüssel setzt sich deshalb aus `application_id` **und**
+`sensor_id` zusammen. Ohne die `sensor_id` darin würde der erste Sensor, der einen
+Heartbeat sendet, die Heartbeats aller anderen für ein Intervall unterdrücken — der
+Collector sähe einen einzigen lebenden Sensor und meldete für alle übrigen
+`ids.sensor_silent`. Also einen Dauerfalschalarm genau für die Sensoren, die in Ordnung
 sind.
 
 Die Ablage ist zweistufig: APCu zuerst, Datei als Rückfall. Der CLI-Prozess des
@@ -193,11 +194,11 @@ die Business-Ebene tatsächlich anbinden — siehe
 | Symptom | Wahrscheinliche Ursache |
 |---|---|
 | `Anmeldung am Collector scheiterte mit 401` | Benutzername oder Passwort stimmen nicht — `collector.username`/`collector.password` prüfen |
-| `NOPERM … XGROUP` beim ersten Prod-Versand | `auto_setup` wurde überschrieben |
+| Collector antwortet `403` | die Zugangsdaten gehören nicht zu dieser Kette Anwendung → Umgebung → Sensor; der Collector prüft die Eigentümerschaft, nicht den Pfad (*3.6*) |
+| Collector antwortet `422` | eine der drei Kennungen ist im Anwendungsregister nicht eingetragen — meist die `environment_id` |
 | Collector meldet `ids.sensor_silent`, Sensor läuft | Heartbeat-cron fehlt (unter mod_php Pflicht) |
 | Gar nichts kommt an, keine Fehlermeldung | unter mod_php: `spool:flush` läuft nicht, oder der Drain-Prozess sieht ein anderes Verzeichnis |
-| Alle Events tragen dieselbe `instance_id` | zur Build-Zeit aufgelöst statt zur Laufzeit |
+| Alle Events tragen dieselbe `sensor_id` | die Kennung stammt aus einer geteilten Konfiguration (ConfigMap) statt je Node — siehe (*2.3*) |
 | Alle Events tragen die Proxy-IP | `framework.trusted_proxies` fehlt |
-| Instanz taucht in keiner Auswertung auf | `environment` nicht abbildbar — der Collector verwirft |
 
 Der erste Griff ist in allen Fällen `ids:sensor:setup-check`; er prüft genau diese Punkte.

@@ -9,7 +9,7 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Shipper;
  *
  * Die Vorgabe, solange keine `collector.base_uri` konfiguriert ist. Damit ist das Bundle
  * installierbar, bevor Infrastruktur bereitsteht — und das Erfassungsbudget aus
- * Konzept 2.1 lässt sich beweisen, ohne dass Broker-Latenz und Sensor-Kosten
+ * Konzept 2.1 lässt sich beweisen, ohne dass Collector-Latenz und Sensor-Kosten
  * vermischt werden.
  *
  * NICHT der Kill-Schalter. Hier stand `ids_sensor.enabled: false` als zweite

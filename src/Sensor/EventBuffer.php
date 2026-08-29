@@ -13,7 +13,7 @@ use Symfony\Contracts\Service\ResetInterface;
  * Existiert, damit im Request nichts serialisiert oder versendet werden muss —
  * beides passiert erst nach dem Absenden der Antwort (Konzept 2.1 Sensorik —
  * Latenzbudget verbietet Datenbankabfragen im Request-Pfad, und ein
- * Netzwerk-Roundtrip zum Broker würde das 5-ms-Budget allein aufbrauchen).
+ * Netzwerk-Roundtrip zum Collector würde das 5-ms-Budget allein aufbrauchen).
  *
  * Die Obergrenze verhindert, dass eine Schleife mit vielen Autorisierungsprüfungen
  * den Speicher füllt.

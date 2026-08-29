@@ -120,7 +120,7 @@ final class HeartbeatCommand extends Command
             return Command::SUCCESS;
         }
 
-        $io->error('Heartbeat konnte nicht gesendet werden — Broker nicht erreichbar oder Circuit Breaker offen.');
+        $io->error('Heartbeat konnte nicht gesendet werden — Collector nicht erreichbar oder Circuit Breaker offen.');
 
         return Command::FAILURE;
     }

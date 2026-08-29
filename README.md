@@ -41,8 +41,9 @@ flowchart LR
 ```
 
 The sensor runs *inside* the application it monitors. If that application is compromised,
-so is the sensor — which is why it may only ever **write** to the broker, never read or
-delete.
+so is the sensor — which is why it may only ever **POST** to the collector's three ingest
+endpoints. No endpoint returns stored events, and there is no `DELETE`: an attacker inside
+the application can neither read nor erase what has already been sent.
 
 ## What it produces
 
@@ -50,16 +51,15 @@ One event, exactly as the collector receives it:
 
 ```json
 {
-  "schema_version": 1,
   "event_id": "b3f1e6b0-6e3a-4c9a-9f2e-2a6a2f4b9c11",
   "timestamp": "2026-08-13T10:15:32.421Z",
   "layer": "kernel",
   "event_type": "kernel.exception",
-  "correlation_id": "req-7f2a1c",
+  "correlation_id": "0198f2c1-4a7b-7e30-9d51-6b2f8c04a913",
   "event_severity": "warning",
-  "application_id": "shop-api",
-  "instance_id": "web-03",
-  "environment": "prod",
+  "application_id": "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31",
+  "environment_id": "3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522",
+  "sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
   "actor": {
     "user": null,
     "ip": "203.0.113.42",

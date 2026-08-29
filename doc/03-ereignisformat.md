@@ -19,11 +19,11 @@ mit allen Feldern und Bump-Regeln, steht im README des Pakets.
 flowchart TB
     subgraph frame["Frame — die Sendung (3.3)"]
         direction TB
-        fmeta["identity · flushed_at<br/>dispatch_path · counters<br/>process_epoch · pid"]
+        fmeta["schema_version · sensor · flushed_at<br/>dispatch_path · spool_delay_ms<br/>counters · process_epoch · pid"]
 
         subgraph event["Event — die Beobachtung (3.)"]
             direction TB
-            emeta["schema_version · event_id · timestamp<br/>layer · event_type · correlation_id<br/>event_severity · application_id<br/>instance_id · environment"]
+            emeta["event_id · timestamp · layer<br/>event_type · correlation_id<br/>event_severity · application_id<br/>environment_id · sensor_id"]
             actor["actor — wer<br/>user · ip · session_id_hash<br/>client_fingerprint"]
             payload["payload — was (3.1)<br/>Struktur je event_type"]
             raw["raw — der Rohbeleg<br/>nur bei warning/critical"]
@@ -51,16 +51,15 @@ Die Verzeichnisse des Formatpakets spiegeln genau diese Verschachtelung:
 
 ```json
 {
-  "schema_version": 1,
   "event_id": "b3f1e6b0-6e3a-4c9a-9f2e-2a6a2f4b9c11",
   "timestamp": "2026-08-13T10:15:32.421Z",
   "layer": "kernel",
   "event_type": "kernel.exception",
-  "correlation_id": "req-7f2a1c",
+  "correlation_id": "0198f2c1-4a7b-7e30-9d51-6b2f8c04a913",
   "event_severity": "warning",
-  "application_id": "shop-api",
-  "instance_id": "web-03",
-  "environment": "prod",
+  "application_id": "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31",
+  "environment_id": "3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522",
+  "sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
   "actor": {
     "user": null,
     "ip": "203.0.113.42",
@@ -75,7 +74,7 @@ Die Verzeichnisse des Formatpakets spiegeln genau diese Verschachtelung:
 }
 ```
 
-Die zehn Felder vor `actor` sowie die vier `actor.*`-Felder sind **Pflicht** — immer
+Die neun Felder vor `actor` sowie die vier `actor.*`-Felder sind **Pflicht** — immer
 vorhanden, unabhängig von der Ebene. Die `actor.*`-Felder sind dabei ausdrücklich
 *nullable*: bei `kernel.request` liegt meist noch kein Security-Token vor, bei
 zustandslosen API-Requests existiert keine Session, im CLI-Kontext kein HTTP-Kontext.
@@ -90,13 +89,19 @@ Migration auf der Gegenseite**, nicht ein lokales Hinzufügen.
 |---|---|---|
 | `layer` | `kernel` · `security` · `business` | `IdsEventData\Vocabulary\Layer` |
 | `event_severity` | `info` · `warning` · `critical` | `IdsEventData\Vocabulary\Severity` |
-| `environment` | `prod` · `staging` · `dev` | `IdsEventData\Vocabulary\Environment` |
+| `dispatch_path` | `direct` · `deferred` · `recovered` | `IdsEventData\Frame\DispatchPath` |
 
-`environment` ist der Wert, den man am leichtesten falsch setzt und dessen Fehler völlig
-lautlos bleibt: kommt beim Collector etwas anderes als diese drei an, scheitert das
-Einfügen — stiller Totalverlust dieser Instanz, von einem stillgelegten Sensor nicht zu
-unterscheiden. Deshalb gibt es `environment_map`, siehe
-[08 — Konfiguration](08-konfiguration.md#herkunftskennung).
+`dispatch_path` steht im **Frame**, nicht im Ereignis — es beschreibt die Sendung. Es
+gehört trotzdem hierher, weil es dieselbe Eigenschaft teilt: Der Collector führt es als
+ENUM, und ein unbekannter Wert lässt das Einfügen scheitern.
+
+**Die Umgebung stand hier bis Fassung 1 als vierte Zeile**, mit den festen Werten `prod`,
+`staging` und `dev` und einer Klasse `Vocabulary\Environment`. Beides ist entfallen:
+Umgebungen sind heute collectorseitig registrierte Gebilde mit eigener UUID und frei
+wählbarem Namen, und der Sensor kennt nur die `environment_id`. Damit ist auch die
+Fehlerquelle weg, um derentwillen es eine Zuordnungstabelle im Sensor gab — eine nicht
+abbildbare Umgebung landete über deren Vorgabewert stillschweigend in der falschen
+Auswertung. Wer den Anzeigenamen ändert, ändert nichts an der Kennung.
 
 ## Der Payload je Ebene (*3.1*)
 

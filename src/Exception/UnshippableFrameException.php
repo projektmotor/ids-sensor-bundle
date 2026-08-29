@@ -21,9 +21,9 @@ namespace ProjektMotor\IdsSensor\Exception;
  *  - ein gescheiterter Versand wird aufgehoben und beim nächsten Lauf erneut versucht
  *    — und danach bricht der Drainer ab und hebt den GESAMTEN Rest der Datei auf.
  *
- * Für einen Broker-Ausfall ist das genau richtig. Für einen Frame, der aus sich heraus
+ * Für einen Collector-Ausfall ist das genau richtig. Für einen Frame, der aus sich heraus
  * nie versendbar ist, bedeutet es Head-of-Line-Blocking: eine einzelne vergiftete Zeile
- * hält die ganze Spool-Datei auf Dauer fest, weil der Drainer „Broker weg" nicht von
+ * hält die ganze Spool-Datei auf Dauer fest, weil der Drainer „Collector weg" nicht von
  * „dieser Frame geht nie" unterscheiden kann.
  *
  * Diese Exception ist genau diese Unterscheidung. Sie wird vor dem allgemeinen

@@ -9,7 +9,7 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Breaker;
  *
  * Der Zustand MUSS prozessübergreifend sichtbar sein, sonst ist der Breaker
  * wirkungslos: unter PHP-FPM bearbeitet jedes Kindprozess-Exemplar eigene Requests,
- * und ein nur im Prozessspeicher gehaltener Zähler würde bei einem Broker-Ausfall in
+ * und ein nur im Prozessspeicher gehaltener Zähler würde bei einem Collector-Ausfall in
  * jedem Kindprozess von Null anfangen. Genau dann soll der Breaker aber greifen.
  *
  * @internal
@@ -26,7 +26,7 @@ interface BreakerStateStoreInterface
      * WOZU ES DAS BRAUCHT
      *
      * Der Breaker zählte mit `read()` + `write()`, und das ist ein Lost Update. Fällt der
-     * Broker aus, laufen n FPM-Kinder gleichzeitig durch diesen Pfad, lesen alle
+     * Collector aus, laufen n FPM-Kinder gleichzeitig durch diesen Pfad, lesen alle
      * `failures = 0` und schreiben alle `1`. Der Zähler stieg damit nicht mit der Zahl der
      * Fehlschläge, sondern wurde ständig zurückgesetzt — die Schwelle wurde im
      * ungünstigen Fall NIE erreicht, und `openCount` verzählte sich mit.

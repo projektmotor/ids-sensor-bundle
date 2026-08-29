@@ -172,7 +172,7 @@ final class FileSpoolTest extends TestCase
      * Ein dauerhaft unversendbarer Frame darf die Datei nicht festhalten.
      *
      * Nach dem ersten erreichbarkeitsbedingten Fehlschlag bricht der Drainer ab und hebt
-     * den GESAMTEN Rest auf — richtig bei einem Broker-Ausfall, fatal bei einem Frame,
+     * den GESAMTEN Rest auf — richtig bei einem Collector-Ausfall, fatal bei einem Frame,
      * der aus sich heraus nie durchgeht: eine einzelne vergiftete Zeile blockierte sonst
      * den Spool auf Dauer. UnshippableFrameException ist genau diese Unterscheidung.
      */
@@ -223,7 +223,7 @@ final class FileSpoolTest extends TestCase
      * den Klassenkopf — verschwand damit als Erfolg gemeldet.
      *
      * Geworfen wird jetzt `UnshippableFrameException`: Der Drainer unterscheidet sie
-     * schon immer vom Broker-Ausfall, verwirft die Zeile statt sie ewig zu wiederholen,
+     * schon immer vom Collector-Ausfall, verwirft die Zeile statt sie ewig zu wiederholen,
      * und der Verlust steht wenigstens im Protokoll.
      */
     public function testAFrameWithoutEventsIsNotCountedAsSent(): void
@@ -261,7 +261,7 @@ final class FileSpoolTest extends TestCase
 
         self::assertSame(1, $shipper->versuche, 'Der Versand wird versucht');
         self::assertSame(0, $result['frames'], 'Aber NICHT als gesendet gezählt');
-        self::assertSame(0, $result['failed'], 'Und auch kein Broker-Fehlschlag');
+        self::assertSame(0, $result['failed'], 'Und auch kein Collector-Fehlschlag');
     }
 
     /**
@@ -554,7 +554,7 @@ final class FileSpoolTest extends TestCase
     {
         $spool = $this->filled($this->spool(), 'a');
 
-        $result = (new SpoolDrainer($spool, new CollectingShipper(new \RuntimeException('Redis weg'))))->drain();
+        $result = (new SpoolDrainer($spool, new CollectingShipper(new \RuntimeException('Collector weg'))))->drain();
 
         self::assertSame(0, $result['frames']);
         self::assertSame(1, $result['failed']);
@@ -663,7 +663,7 @@ final class FailAfterFirstShipper implements ShipperInterface
     public function ship(array $frame): void
     {
         if ($this->shipped > 0) {
-            throw new \RuntimeException('Redis weg');
+            throw new \RuntimeException('Collector weg');
         }
 
         ++$this->shipped;

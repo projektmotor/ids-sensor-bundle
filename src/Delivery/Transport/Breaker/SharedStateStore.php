@@ -61,7 +61,7 @@ final class SharedStateStore implements BreakerStateStoreInterface
      * und `apcu_fetch()` immer `$success = false` lieferte. Folge: In jedem
      * CLI-Prozess las {@see read()} dauerhaft `closed()`, und der DATEIRÜCKFALL wurde
      * nie erreicht — der Breaker war dort still wirkungslos. Betroffen war unter anderem
-     * `ids:sensor:spool:flush` per cron gegen einen ausgefallenen Broker: kein Öffnen,
+     * `ids:sensor:spool:flush` per cron gegen einen ausgefallenen Collector: kein Öffnen,
      * also bei jedem Lauf das volle Timeout. Genau das Szenario, gegen das der Docblock
      * dieser Klasse argumentiert.
      *

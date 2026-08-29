@@ -164,7 +164,7 @@ herausgenommen hat. Für Container ist `/dev/shm/ids-spool` die Empfehlung.
 > **Falle bei Containern:** Der Drain-Prozess muss dasselbe Spool-Verzeichnis sehen wie der
 > Webserver. Entweder cron **im selben Container** oder ein Sidecar am selben Volume. Ein
 > Kubernetes-CronJob in einem **eigenen Pod funktioniert nicht** — er sieht den Spool des
-> Web-Pods nicht und versendet stillschweigend nichts. Dasselbe gilt für die `instance_id`,
+> Web-Pods nicht und versendet stillschweigend nichts. Dasselbe gilt für die `sensor_id`,
 > die dort ebenfalls falsch wäre.
 
 Es gibt bewusst **keinen** `spool.enabled`-Schalter: Der Spool ist kein Merkmal, sondern

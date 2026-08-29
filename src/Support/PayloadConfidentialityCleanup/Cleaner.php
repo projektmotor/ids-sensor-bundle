@@ -10,8 +10,9 @@ namespace ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup;
  * AUSFÜHRUNGSORT: DER SENSOR
  *
  * Konzept 4.5.1 legt das ausdrücklich fest und begründet es: liefe die Redaktion erst im
- * Consumer, liefen Klartext-Zugangsdaten über den Broker und landeten dort in Queues,
- * Logs und Spool-Dateien. In dieser Umsetzung gilt das doppelt, weil der Spool eine Datei
+ * Collector, gingen Klartext-Zugangsdaten über die Leitung und landeten in den
+ * Zugriffsprotokollen jedes Reverse Proxy auf dem Weg, in denen des Collectors und in den
+ * Spool-Dateien. In dieser Umsetzung gilt das doppelt, weil der Spool eine Datei
  * auf dem Anwendungshost ist — ein zweiter Ort, an dem Klartext liegen bliebe, und einer,
  * den niemand als Beweisspeicher behandelt und entsprechend schützt.
  *

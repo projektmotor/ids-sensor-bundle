@@ -298,7 +298,7 @@ final class HeartbeatTest extends IntegrationTestCase
      * Der Zweig ist der einzige des Emitters, der bislang nur indirekt geprüft war. Er
      * ist heikler, als er aussieht: Der Heartbeat ist die Stelle, an der ein Sensor
      * meldet, dass es ihn gibt. Ihn bei offenem Breaker zu unterdrücken, heißt, dass der
-     * Collector während eines Broker-Ausfalls `ids.sensor_silent` meldet — richtig, denn
+     * Collector während eines Collector-Ausfalls `ids.sensor_silent` meldet — richtig, denn
      * er hört tatsächlich nichts mehr. Falsch wäre, es NICHT zu zählen: Dann sähe der
      * Ausfall aus wie ein toter Sensor, und niemand könnte die beiden unterscheiden.
      */

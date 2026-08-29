@@ -32,7 +32,7 @@ use ProjektMotor\IdsEventData\Frame\DispatchPath;
  * merkt.
  *
  * Deshalb: wo die Antwort nicht abkoppelbar ist, redet Phase B überhaupt nicht mit dem
- * Broker. Der fertige Frame geht in den Spool — ein einzelner fwrite, typisch 10–100 µs,
+ * Collector. Der fertige Frame geht in den Spool — ein einzelner fwrite, typisch 10–100 µs,
  * kein Netzwerk, kein fsync. Der Versand übernimmt `ids:sensor:spool:flush` als eigener
  * Prozess auf demselben Host.
  *
@@ -80,7 +80,7 @@ final class RuntimeProfile
     }
 
     /**
-     * Darf Phase B den Broker direkt ansprechen?
+     * Darf Phase B den Collector direkt ansprechen?
      */
     public function shipsDirectly(): bool
     {
@@ -97,7 +97,7 @@ final class RuntimeProfile
      * Kein Schalter, sondern ein abgeleiteter Tatsachenwert — die Anwendung kann ihn
      * nicht setzen. `Deferred` heißt „planmäßig über den Spool, Verzögerung begrenzt auf
      * ein Drain-Intervall"; der Collector darf die Echtzeit-Regeln weiter anwenden.
-     * `Recovered` dagegen — gesetzt vom Drainer nach einem Broker-Ausfall — heißt
+     * `Recovered` dagegen — gesetzt vom Drainer nach einem Collector-Ausfall — heißt
      * „unbegrenzt verzögert".
      *
      * Diese Unterscheidung ist der Grund, warum es kein binäres `late`-Flag gibt: unter

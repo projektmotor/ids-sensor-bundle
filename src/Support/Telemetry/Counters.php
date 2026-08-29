@@ -34,7 +34,7 @@ final class Counters
     /** Erfasste Events, bevor irgendetwas verworfen wurde. */
     public const CAPTURED = 'captured';
 
-    /** Erfolgreich an den Broker übergeben. */
+    /** Erfolgreich an den Collector übergeben. */
     public const SENT = 'sent';
 
     /** In den Spool geschrieben statt direkt gesendet. */
@@ -99,7 +99,7 @@ final class Counters
     /** Verworfen, weil auch der Spool nichts mehr aufnehmen konnte. */
     public const DROPPED_SPOOL_FULL = 'dropped_spool_full';
 
-    /** Versand fehlgeschlagen (Broker nicht erreichbar, ACL, Timeout). */
+    /** Versand fehlgeschlagen (Collector nicht erreichbar, abgewiesen, Timeout). */
     public const SHIP_FAILED = 'ship_failed';
 
     /**
@@ -108,7 +108,7 @@ final class Counters
      * Grund: aus Sicht des Collectors ist ein ausbleibender Heartbeat nicht von einem
      * gescheiterten zu unterscheiden. Kommt später wieder einer durch, zeigt
      * `heartbeat_failed`, dass der Sensor die Lücke SELBST bemerkt hat — und trennt damit
-     * „Broker war weg" von „Sensor war stillgelegt". Ohne den Zähler bliebe nur eine
+     * „Collector war weg" von „Sensor war stillgelegt". Ohne den Zähler bliebe nur eine
      * Lücke ohne Erklärung.
      */
     public const HEARTBEAT_SENT = 'heartbeat_sent';
