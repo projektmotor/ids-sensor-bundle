@@ -38,6 +38,12 @@ enthält. Die Reihe 01–09 beschreibt, was das Sensor-Bundle *tut*; das Konzept
 was es *soll*. Wo beide dasselbe beschreiben, gewinnt das Konzept — es ist die
 gesicherte Fassung, auf die sich der Collector verlässt.
 
+> **Seit dem 29.08.2026 gehen beide beim Transport auseinander, und das ist Absicht.** Das
+> Konzept beschreibt den Versand per REST an den Collector (Abschnitt 3.6); die Reihe 01–09
+> beschreibt den Redis-Streams-Transport, den der Quellcode tatsächlich ausliefert. Bis die
+> Umsetzung folgt, ist beides an seiner Stelle richtig: Wer wissen will, was das Bundle
+> *heute tut*, liest 05 und 07. Wer wissen will, wohin es geht, liest das Konzept.
+
 Alle Abschnittsverweise in Klammern, etwa (*2.1*), beziehen sich auf `concept/concept-v1.md`.
 
 ## Zu den Diagrammen

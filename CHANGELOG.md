@@ -13,6 +13,60 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Changed — Konzeptentscheidung: Transport auf REST am Collector, Redis entfällt vollständig
+
+**Nur `doc/concept/concept-v1.md` und die zugehörige Grafik sind geändert. Am Quellcode
+wurde keine Zeile angefasst.** Das Bundle liefert weiterhin den Redis-Streams-Transport
+aus, und die Dokumentationsreihe `doc/01`–`doc/09` sowie die README beschreiben diesen
+ausgelieferten Stand korrekt. Konzept und Auslieferung laufen bis zur Umsetzung bewusst
+auseinander; `doc/README.md` sagt das jetzt an der Stelle, an der es geregelt ist.
+
+Der Sensor sendet künftig per HTTPS an `POST /api/v1/sensor/{sensor_id}`, angemeldet über
+vom Collector ausgegebene Zugangsdaten (`sensor_id`, Benutzername, Passwort) und ein daraus
+geholtes, prozessübergreifend gecachtes JWT. Neuer Abschnitt 3.6 im Konzept legt Endpunkt,
+Umschlag, Anmeldung, Antwortcodes und die beiden Versandmodelle fest.
+
+**Der Grund ist der Betriebsweg, nicht die Technik.** Ein Message Broker verlangt vom
+Betreiber der überwachten Anwendung einen Netzwerkpfad zu fremder Infrastruktur und eine
+Broker-ACL, die getrennt vom Anwendungsregister gepflegt wird — beides in fremden
+Rechenzentren jedes Mal neu zu verhandeln. Ein HTTPS-Endpunkt geht überall durch, und die
+Zugangsdaten entstehen dort, wo eine Application ohnehin angelegt wird.
+
+**Redis fällt in beiden Rollen weg.** Es war Transport *und* In-Memory-Zählerspeicher der
+Echtzeitregeln R2b/R3/R4 und der Cooldowns aus 4.4. Die Zähler liegen jetzt in einer
+`UNLOGGED`-Tabelle `realtime_counters` in der ohnehin vorhandenen PostgreSQL-Datenbank —
+kein WAL, dieselbe Haltbarkeit wie zuvor, ein `INSERT … ON CONFLICT … RETURNING` auf eine
+Zeile. Die Begründung der Zweiteilung in Echtzeit- und Batch-Schicht bleibt bestehen, aber
+sie lautet nicht mehr „Redis statt PostgreSQL", sondern „ein Indexzugriff statt einer
+Aggregation über Millionen Zeilen". **Ergebnis: Das System besteht aus zwei Bausteinen
+statt vier** — der überwachten Anwendung und dem Collector.
+
+Was sich am Sicherheitsargument verschiebt, steht im Konzept ausgeschrieben und ist hier
+nur benannt: Die Manipulationsgrenze verläuft am Ingest-Endpunkt statt am Broker und wird
+dabei **schärfer** (kein gemeinsamer Stream, nur `POST` auf den eigenen Pfad, `sub`-Claim
+gegen Pfad geprüft). Dagegen steht, dass der Endpunkt öffentlich erreichbar ist, ein Broker
+im eigenen Netz nicht war — Gegenmittel sind Ratengrenze je `sensor_id` und sperrbare
+Zugangsdaten. Zwei Argumente, die an der Redis-ACL hingen, sind neu begründet (4.2.3) oder
+als offener Punkt vermerkt (OB11).
+
+**Das Drahtformat ändert sich nicht.** Frame, Event und Heartbeat aus Abschnitt 3 bleiben
+Feld für Feld gleich, deshalb kein `schema_version`-Bump und keine Änderung an
+`projektmotor/ids-event-data`. Neu ist allein der Verlustzähler `dropped_rejected` für vom
+Collector abgelehnte Sendungen — additiv und nach den Bump-Regeln unkritisch.
+
+**Vormerkung für die Umsetzung: Sie wird ein Breaking Change.** Alle `ids_sensor`-Schlüssel
+gehören laut `doc/08-konfiguration.md` zur öffentlichen API unter Semver, und
+`transport.dsn`, `transport.name`, `transport.register_transport` sowie `transport.options`
+entfallen dann ersatzlos. An ihre Stelle treten Collector-URL, `sensor_id`, Zugangsdaten und
+der Token-Vorlauf. `symfony/messenger` verliert seinen einzigen Zweck im Sendepfad,
+`ext-redis` und `symfony/redis-messenger` entfallen aus `require-dev` und `suggest`, und
+`symfony/http-client` kommt neu hinzu.
+
+Bis dahin gilt: Wer den Transport anfasst, liest **erst** 3.6 im Konzept. Diese Entscheidung
+stand bisher nur in einem einzigen Satz des Konzepts und hatte keine Spur im Changelog.
+
+---
+
 Ergebnis eines zweiten Tiefenchecks, diesmal gegen `doc/concept/concept-v1.md`. Drei der
 Befunde sind stille Erkennungsausfälle, und zwei davon standen im Changelog zu 0.1.1
 bereits als erledigt — siehe „Berichtigt" am Ende dieses Abschnitts. Jede
