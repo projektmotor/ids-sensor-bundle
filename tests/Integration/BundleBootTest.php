@@ -7,7 +7,6 @@ namespace ProjektMotor\IdsSensor\Tests\Integration;
 use ProjektMotor\IdsEventData\Event\Actor;
 use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
-use ProjektMotor\IdsEventData\Vocabulary\Environment;
 use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
@@ -21,8 +20,9 @@ final class BundleBootTest extends IntegrationTestCase
 {
     /** @var array<string, mixed> */
     private const MINIMAL_CONFIG = [
-        'application_id' => 'shop-api',
-        'environment' => 'prod',
+        'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+        'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+        'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
         'session_hash' => ['key' => self::SESSION_KEY],
     ];
 
@@ -31,7 +31,7 @@ final class BundleBootTest extends IntegrationTestCase
         $kernel = $this->boot(self::MINIMAL_CONFIG, 'minimal');
 
         self::assertTrue($kernel->getContainer()->getParameter('ids_sensor.enabled'));
-        self::assertSame('shop-api', $kernel->getContainer()->getParameter('ids_sensor.application_id'));
+        self::assertSame('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', $kernel->getContainer()->getParameter('ids_sensor.application_id'));
         self::assertSame(
             EventSchema::SCHEMA_VERSION,
             $kernel->getContainer()->getParameter('ids_sensor.schema_version'),
@@ -59,64 +59,10 @@ final class BundleBootTest extends IntegrationTestCase
     {
         $identity = $this->identityFrom(self::MINIMAL_CONFIG, 'minimal');
 
-        self::assertSame('shop-api', $identity->applicationId);
-        self::assertSame(Environment::Prod, $identity->environment);
-        self::assertNotSame('', $identity->instanceId, 'instance_id fällt auf den Hostnamen zurück');
-        self::assertSame([], $identity->validate(), 'Die ermittelte Kennung muss dem erlaubten Muster entsprechen');
-    }
-
-    /**
-     * "test" ist eine gültige Symfony-Umgebung, aber kein gültiger Wert für das
-     * collectorseitige ENUM env_type. Ohne Abbildung würde der Insert scheitern
-     * und alle Events dieser Instanz still verlieren — von einem toten Sensor
-     * nicht unterscheidbar.
-     */
-    public function testAnySymfonyEnvironmentIsMappedOntoTheEnum(): void
-    {
-        $identity = $this->identityFrom(
-            array_merge(self::MINIMAL_CONFIG, ['environment' => 'test']),
-            'env-test',
-        );
-
-        self::assertSame(Environment::Dev, $identity->environment);
-    }
-
-    public function testAnUnknownEnvironmentFallsBackToProd(): void
-    {
-        $identity = $this->identityFrom(
-            array_merge(self::MINIMAL_CONFIG, ['environment' => 'prod_eu_west']),
-            'env-unknown',
-        );
-
-        // prod, nicht dev: fälschlich als prod markierter Verkehr wird weiterhin
-        // erkannt, nur seine Baseline ist leicht verunreinigt. Fälschlich als dev
-        // markierter Produktionsverkehr fällt dagegen aus JEDER Aggregation der
-        // Produktionsregeln heraus und erzeugt einen vollständigen blinden Fleck.
-        self::assertSame(Environment::Prod, $identity->environment);
-    }
-
-    public function testACustomEnvironmentMapIsMergedOverTheDefaults(): void
-    {
-        $identity = $this->identityFrom(
-            array_merge(self::MINIMAL_CONFIG, [
-                'environment' => 'abnahme',
-                'environment_map' => ['abnahme' => 'staging'],
-            ]),
-            'env-custom',
-        );
-
-        self::assertSame(Environment::Staging, $identity->environment);
-        // Die Vorgaben bleiben daneben bestehen, werden also nicht ersetzt.
-        self::assertSame(
-            Environment::Dev,
-            $this->identityFrom(
-                array_merge(self::MINIMAL_CONFIG, [
-                    'environment' => 'test',
-                    'environment_map' => ['abnahme' => 'staging'],
-                ]),
-                'env-custom-2',
-            )->environment,
-        );
+        self::assertSame('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', $identity->applicationId);
+        self::assertSame('3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', $identity->environmentId);
+        self::assertSame('c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4', $identity->sensorId);
+        self::assertSame([], $identity->validate(), 'Die konfigurierte Kennung muss aus UUIDs bestehen');
     }
 
     /**
@@ -146,8 +92,9 @@ final class BundleBootTest extends IntegrationTestCase
         foreach (EventSchema::MANDATORY_FIELDS as $field) {
             self::assertArrayHasKey($field, $data, \sprintf('Pflichtfeld "%s" fehlt', $field));
         }
-        self::assertSame('shop-api', $data[EventSchema::FIELD_APPLICATION_ID]);
-        self::assertSame('prod', $data[EventSchema::FIELD_ENVIRONMENT]);
+        self::assertSame('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', $data[EventSchema::FIELD_APPLICATION_ID]);
+        self::assertSame('3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', $data[EventSchema::FIELD_ENVIRONMENT_ID]);
+        self::assertSame('c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4', $data[EventSchema::FIELD_SENSOR_ID]);
         self::assertMatchesRegularExpression(
             '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
             $data[EventSchema::FIELD_EVENT_ID],
@@ -166,14 +113,15 @@ final class BundleBootTest extends IntegrationTestCase
         $this->expectException(InvalidConfigurationException::class);
         $this->expectExceptionMessageMatches('/session_hash\.key ist erforderlich/');
 
-        $this->boot(['application_id' => 'shop-api', 'environment' => 'prod'], 'no-key');
+        $this->boot(['application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', 'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', 'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'], 'no-key');
     }
 
     public function testSessionHashingCanBeDeliberatelyDisabled(): void
     {
         $kernel = $this->boot([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['enabled' => false],
         ], 'hash-off');
 
@@ -200,8 +148,9 @@ final class BundleBootTest extends IntegrationTestCase
         $this->expectExceptionMessageMatches('/mindestens 32 sind verlangt/');
 
         (new TestKernel([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => 'geheim'],
         ], 'kurzer-schluessel'))->boot();
     }
@@ -212,8 +161,9 @@ final class BundleBootTest extends IntegrationTestCase
         $this->expectExceptionMessageMatches('/identisch mit APP_SECRET/');
 
         $this->boot([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => 'test-app-secret'],
         ], 'secret-reuse');
     }
@@ -222,14 +172,14 @@ final class BundleBootTest extends IntegrationTestCase
     {
         $this->expectException(InvalidConfigurationException::class);
 
-        $this->boot(['environment' => 'prod'], 'no-app-id');
+        $this->boot(['environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', 'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'], 'no-app-id');
     }
 
     public function testMissingEnvironmentIsRejected(): void
     {
         $this->expectException(InvalidConfigurationException::class);
 
-        $this->boot(['application_id' => 'shop-api'], 'no-env');
+        $this->boot(['application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', 'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'], 'no-env');
     }
 
     public function testAnInvalidCaptureModeIsRejected(): void
@@ -339,44 +289,6 @@ final class BundleBootTest extends IntegrationTestCase
 
         self::assertStringContainsString('"channel": "eigener_kanal"', $abdruck);
         self::assertStringNotContainsString('%ids_sensor.logging.channel%', $abdruck);
-    }
-
-    /**
-     * Die drei Sicherheitsvorgaben des Transports sind nicht überschreibbar.
-     *
-     * Sie standen als Bitte in der Doku („auto_setup muss false bleiben") und als
-     * ausführliche Begründung in `TRANSPORT_DEFAULTS` — durchgesetzt hat sie niemand:
-     * `array_merge` ließ die Optionen der Anwendung gewinnen. `lazy: false` etwa öffnet
-     * die Verbindung beim BAUEN des Dienstes, also außerhalb jedes try/catch des Sensors,
-     * und bricht damit fail-open.
-     *
-     * Der wahrscheinlichste Erstinstallationsfehler `auto_setup: true` wird damit beim
-     * Kompilieren abgelehnt statt erst im Deploy-Check — die stärkere Antwort auf
-     * dieselbe Frage, weil sie früher kommt und sich nicht mit `|| true` abschalten lässt.
-     *
-     * @param array<string, mixed> $optionen
-     */
-    #[\PHPUnit\Framework\Attributes\DataProvider('geschuetzteTransportOptionen')]
-    public function testProtectedTransportOptionsAreRejected(array $optionen): void
-    {
-        $this->expectException(InvalidConfigurationException::class);
-
-        $this->boot(
-            array_merge(self::MINIMAL_CONFIG, [
-                'transport' => ['dsn' => 'redis://127.0.0.1:6379/ids:events/group/consumer', 'options' => $optionen],
-            ]),
-            'transport-'.md5(serialize($optionen)),
-        );
-    }
-
-    /**
-     * @return iterable<string, array{array<string, mixed>}>
-     */
-    public static function geschuetzteTransportOptionen(): iterable
-    {
-        yield 'auto_setup' => [['auto_setup' => true]];
-        yield 'lazy' => [['lazy' => false]];
-        yield 'serializer' => [['serializer' => 1]];
     }
 
     /**
@@ -518,7 +430,7 @@ final class BundleBootTest extends IntegrationTestCase
     public function testDisabledBundleRegistersNoServices(): void
     {
         $kernel = $this->boot(
-            ['enabled' => false, 'application_id' => 'shop-api', 'environment' => 'prod'],
+            ['enabled' => false, 'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', 'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', 'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'],
             'disabled',
         );
 

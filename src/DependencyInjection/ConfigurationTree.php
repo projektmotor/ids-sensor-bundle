@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\DependencyInjection;
 
-use ProjektMotor\IdsEventData\Vocabulary\Environment;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
-use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 
 /**
@@ -41,16 +39,6 @@ final class ConfigurationTree
     /** @var list<string> */
     public const CAPTURE_MODES = ['dispatcher', 'recorder', 'configured'];
 
-    /**
-     * Transport-Optionen, die die Anwendung nicht überschreiben darf.
-     *
-     * Jede von ihnen trägt eine Sicherheitsaussage — die Begründungen stehen bei
-     * {@see \ProjektMotor\IdsSensor\IdsSensorBundle::TRANSPORT_DEFAULTS}.
-     *
-     * @var list<string>
-     */
-    public const PROTECTED_TRANSPORT_OPTIONS = ['auto_setup', 'lazy', 'serializer'];
-
     /** @var list<string> */
     public const HEARTBEAT_MODES = ['auto', 'request', 'command', 'off'];
 
@@ -81,40 +69,37 @@ final class ConfigurationTree
                     ->info('false schaltet alle Sensoren ab, ohne das Bundle zu entfernen.')
                 ->end()
 
-                // Herkunftskennung. Alle drei sind Pflicht und collectorseitig NOT NULL
+                // Herkunftskennung: drei UUIDs, die der Collector beim Registrieren
+                // vergibt. Alle drei sind Pflicht und collectorseitig NOT NULL
                 // (Konzept 2.2.1 und 4.2.1 Tabellenschema).
+                //
+                // KEIN Prüfmuster hier, obwohl es UUIDs sind: Die Werte kommen
+                // typischerweise als %env()%-Platzhalter, und die sind zum Zeitpunkt
+                // der Validierung nicht aufgelöst. Geprüft wird zur Laufzeit in
+                // SensorIdentity — protokollierend, nicht werfend — und hart im
+                // Deploy über ids:sensor:setup-check.
                 ->scalarNode('application_id')
                     ->isRequired()
                     ->cannotBeEmpty()
-                    ->info('Kennung der überwachten Anwendung, z. B. "shop-api".')
+                    ->info('UUID der überwachten Anwendung, vom Collector vergeben.')
                 ->end()
-                ->scalarNode('instance_id')
-                    ->defaultNull()
-                    ->info('Kennung des Hosts/Containers. null ermittelt sie zur Laufzeit aus dem Hostnamen.')
-                ->end()
-                ->scalarNode('environment')
+                ->scalarNode('environment_id')
                     ->isRequired()
                     ->cannotBeEmpty()
-                    ->info('Rohwert der Umgebung. Wird über environment_map auf prod|staging|dev abgebildet.')
-                ->end()
-                ->arrayNode('environment_map')
-                    ->useAttributeAsKey('name')
-                    ->prototype('scalar')->end()
-                    ->defaultValue(EnvironmentResolver::DEFAULT_MAP)
                     ->info(
-                        'Abbildung beliebiger Umgebungsnamen auf prod|staging|dev. Eigene Einträge '
-                        .'werden über die hier gezeigten Vorgaben GEMISCHT, nicht dagegen ausgetauscht — '
-                        .'wer nur einen Namen ergänzt, behält alle Vorgaben. Einzelne Vorgaben lassen '
-                        .'sich überschreiben, indem derselbe Schlüssel neu belegt wird.'
+                        'UUID der Umgebung, vom Collector vergeben. Den Anzeigenamen führt das '
+                        .'Anwendungsregister; er darf sich ändern, ohne dass hier etwas nachzuziehen ist.'
                     )
                 ->end()
-                ->scalarNode('environment_fallback')
-                    ->defaultValue(Environment::Prod->value)
-                    ->validate()
-                        ->ifNotInArray(self::enumValues(Environment::class))
-                        ->thenInvalid('Ungültige Umgebung %s. Erlaubt: prod, staging, dev.')
-                    ->end()
-                    ->info('Wird verwendet, wenn environment nicht abbildbar ist.')
+                ->scalarNode('sensor_id')
+                    ->isRequired()
+                    ->cannotBeEmpty()
+                    ->info(
+                        'UUID dieser Installation, vom Collector vergeben. JE NODE VERSCHIEDEN — '
+                        .'teilen sich Replikate eine Kennung, etwa über eine gemeinsame ConfigMap, '
+                        .'sind sie ununterscheidbar, und ids.sensor_silent schweigt beim Ausfall '
+                        .'einzelner (Konzept 2.3).'
+                    )
                 ->end()
 
                 ->append(self::sessionHashNode())
@@ -126,7 +111,7 @@ final class ConfigurationTree
                 ->append(self::samplingNode())
                 ->append(self::budgetNode())
                 ->append(self::flushNode())
-                ->append(self::transportNode())
+                ->append(self::collectorNode())
                 ->append(self::spoolNode())
                 ->append(self::circuitBreakerNode())
                 ->append(self::heartbeatNode())
@@ -350,8 +335,7 @@ final class ConfigurationTree
                             // Ohne Prüfung schaltete ein Tippfehler `raw` LAUTLOS ab:
                             // `['warnings']` oder `['WARNING']` kompilierte anstandslos,
                             // und der Gate fand die Stufe nie in seiner Liste. Kein
-                            // Fehler, keine Meldung, kein Zähler. Dieselbe Technik wie bei
-                            // environment_fallback zwei Knoten weiter oben.
+                            // Fehler, keine Meldung, kein Zähler.
                             ->ifNotInArray(self::enumValues(Severity::class))
                             ->thenInvalid('Ungültige Stufe %s. Erlaubt: info, warning, critical.')
                         ->end()
@@ -490,60 +474,51 @@ final class ConfigurationTree
         return $node;
     }
 
-    private static function transportNode(): ArrayNodeDefinition
+    /**
+     * Die Verbindung zum Collector (Konzept 3.6).
+     *
+     * Hier stand bis schema_version 1 ein Messenger-Transport mit DSN und einer Liste
+     * gesperrter Optionen. Beides ist entfallen: Es gibt keinen Broker mehr, dessen
+     * Verbindungsaufbau man entschärfen müsste, und der HTTP-Client verbindet ohnehin
+     * erst beim Senden.
+     *
+     * Ohne base_uri bleibt der NullShipper stehen. Das Bundle ist damit installierbar,
+     * bevor ein Collector bereitsteht — nützlich, um das Erfassungsbudget aus Konzept
+     * 2.1 zu messen, ohne dass Netzlatenz und Sensorkosten sich vermischen.
+     */
+    private static function collectorNode(): ArrayNodeDefinition
     {
-        $node = new ArrayNodeDefinition('transport');
+        $node = new ArrayNodeDefinition('collector');
         $node
             ->addDefaultsIfNotSet()
             ->children()
-                ->scalarNode('name')->defaultValue('ids_events')->cannotBeEmpty()->end()
-                ->scalarNode('dsn')
+                ->scalarNode('base_uri')
                     ->defaultNull()
-                    ->info('null bedeutet: die Anwendung konfiguriert den Messenger-Transport selbst.')
+                    ->info('Basisadresse des Collectors, z. B. https://ids.example. null lässt den NullShipper stehen.')
                 ->end()
-                ->booleanNode('register_transport')
-                    ->defaultTrue()
+                ->scalarNode('username')
+                    ->defaultNull()
+                    ->info('Benutzername der Zugangsdaten, vom Collector vergeben.')
+                ->end()
+                ->scalarNode('password')
+                    ->defaultNull()
+                    ->info('Passwort der Zugangsdaten. Gehört in eine Umgebungsvariable, nicht in die Datei.')
+                ->end()
+                ->integerNode('token_leeway_s')
+                    ->defaultValue(60)
+                    ->min(0)
                     ->info(
-                        'false überlässt die Registrierung des Transports der Anwendung. Der Sensor '
-                        .'erwartet ihn dann unter transport.name. Ein Routing braucht er nicht — er '
-                        .'spricht den Transport unmittelbar an, nicht über einen Bus.'
+                        'Vorlauf, mit dem das Zugangstoken vorausschauend erneuert wird. Erst auf ein '
+                        .'401 zu erneuern wäre ein zweiter Roundtrip innerhalb des Versandbudgets aus '
+                        .'Konzept 4 — genau das, was das Budget verhindern soll.'
                     )
                 ->end()
-                ->arrayNode('options')
-                    ->useAttributeAsKey('name')
-                    ->prototype('variable')->end()
-                    ->defaultValue([])
-                    ->validate()
-                        // Drei Optionen dürfen NICHT überschrieben werden, und die
-                        // Begründung steht wörtlich in IdsSensorBundle::TRANSPORT_DEFAULTS:
-                        //
-                        //  - auto_setup: false — sonst XGROUP CREATE gegen XADD-only-Rechte
-                        //  - lazy: true — sonst öffnet Connection::__construct() die
-                        //    Verbindung beim BAUEN des Dienstes, „unvereinbar mit fail-open"
-                        //  - serializer: 0 — sonst landet PHP-serialisiertes statt reines
-                        //    JSON im Stream
-                        //
-                        // Bis hierher gewannen die Optionen der Anwendung, und die Doku bat
-                        // nur darum, auto_setup false zu lassen. Eine Bitte ist keine
-                        // Schranke; CLAUDE.md §2.2 verlangt Fail Fast.
-                        ->ifTrue(static fn (array $options): bool => [] !== array_intersect(
-                            array_keys($options),
-                            self::PROTECTED_TRANSPORT_OPTIONS,
-                        ))
-                        ->thenInvalid(
-                            'ids_sensor.transport.options darf auto_setup, lazy und serializer nicht '
-                            .'überschreiben (%s). auto_setup: true sendet XGROUP CREATE, was die '
-                            .'XADD-only-Rechte aus Konzept 2. ablehnen — in der Entwicklung unauffällig, '
-                            .'beim ersten Prod-Versand ein Fehler. lazy: false öffnet die Verbindung '
-                            .'beim Bauen des Dienstes, also außerhalb jedes try/catch des Sensors, und '
-                            .'bricht damit fail-open. serializer ungleich 0 legt PHP-serialisierte Daten '
-                            .'in den Beweisspeicher statt reines JSON.'
-                        )
-                    ->end()
+                ->booleanNode('verify_tls')
+                    ->defaultTrue()
                     ->info(
-                        'Wird über die sicheren Vorgaben gemischt. auto_setup MUSS false bleiben: der '
-                        .'Default sendet XGROUP CREATE, was die XADD-only-Rechte aus Konzept 2. ablehnen — '
-                        .'das funktioniert in Dev und scheitert beim ersten Prod-Versand.'
+                        'Zertifikatsprüfung. false verwandelt eine authentifizierte Verbindung in eine, '
+                        .'die jeder auf dem Weg übernehmen kann, und das fällt im Betrieb nicht auf — '
+                        .'Konzept 4.5.3 verlangt die Prüfung.'
                     )
                 ->end()
             ->end();
@@ -629,7 +604,7 @@ final class ConfigurationTree
                 ->integerNode('interval_s')->defaultValue(60)->min(0)->end()
                 ->scalarNode('stamp_file')
                     ->defaultNull()
-                    ->info('Der Drosselungsschlüssel enthält die instance_id — sonst unterdrückt eine Instanz die Heartbeats aller anderen.')
+                    ->info('Der Drosselungsschlüssel enthält die sensor_id — sonst unterdrückt ein Sensor die Heartbeats aller anderen.')
                 ->end()
             ->end();
 

@@ -22,8 +22,9 @@ final class ContainerVariants
 {
     /** @var array<string, mixed> */
     private const BASE = [
-        'application_id' => 'shop-api',
-        'environment' => 'prod',
+        'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+        'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+        'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
         'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
     ];
 
@@ -37,13 +38,13 @@ final class ContainerVariants
 
         // Der Regelfall in Produktion: Transport gesetzt, Security vorhanden.
         yield 'vollausbau' => self::variant(
-            ['transport' => ['dsn' => 'redis://127.0.0.1:6379/ids:events/group/consumer']],
+            ['collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim']],
             SecurityConfig::basic(),
         );
 
         // Ohne SecurityBundle: die Security-Ebene darf nicht im Container auftauchen.
         yield 'ohne-security-bundle' => self::variant(
-            ['transport' => ['dsn' => 'in-memory://']],
+            ['collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim']],
         );
 
         // Security vorhanden, Ebene aber abgeschaltet — ein anderer Zweig als „Bundle fehlt".
@@ -84,7 +85,7 @@ final class ContainerVariants
         // Ohne Debug fehlen die Debug-Decorators des Frameworks — der Objektgraph, in dem
         // unsere beiden Decorators sitzen, ist dort ein anderer.
         yield 'ohne-debug' => self::variant(
-            ['transport' => ['dsn' => 'in-memory://']],
+            ['collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim']],
             SecurityConfig::basic(),
             debug: false,
         );

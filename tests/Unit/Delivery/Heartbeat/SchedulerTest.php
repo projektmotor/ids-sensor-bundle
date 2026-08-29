@@ -6,8 +6,6 @@ namespace ProjektMotor\IdsSensor\Tests\Unit\Delivery\Heartbeat;
 
 use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
-use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
-use ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 
 /**
@@ -116,8 +114,8 @@ final class SchedulerTest extends TestCase
 
         return new SensorIdentityProvider(
             $application,
-            new InstanceIdProvider('web-03'),
-            new EnvironmentResolver('prod', EnvironmentResolver::DEFAULT_MAP, \ProjektMotor\IdsEventData\Vocabulary\Environment::Prod),
+            '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
         );
     }
 }

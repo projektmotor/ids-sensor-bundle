@@ -80,7 +80,7 @@ final class SpoolFlushCommand extends Command
 
         if (!$this->deliveryConfigured) {
             $io->error(
-                'Es ist kein Broker konfiguriert (ids_sensor.transport.dsn fehlt). Ein Drain-Lauf '
+                'Es ist kein Collector konfiguriert (ids_sensor.collector.base_uri fehlt). Ein Drain-Lauf '
                 .'würde den Spool leeren, ohne dass ein einziger Frame ankommt — deshalb passiert '
                 .'hier nichts. Unter mod_php ist dieser Command der einzige Transportweg; ohne DSN '
                 .'sammelt der Spool, bis er voll ist, und verwirft dann gezählt.'

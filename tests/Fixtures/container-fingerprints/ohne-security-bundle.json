@@ -1,46 +1,41 @@
 {
     "parameters": {
-        "ids_sensor.application_id": "shop-api",
+        "ids_sensor.application_id": "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31",
         "ids_sensor.budget.capture_us": 1500,
         "ids_sensor.budget.connect_timeout_ms": 20,
+        "ids_sensor.budget.connect_timeout_s": 0.02,
         "ids_sensor.budget.dispatch_ms": 50,
+        "ids_sensor.budget.dispatch_s": 0.05,
         "ids_sensor.budget.fatal_dispatch_ms": 15,
         "ids_sensor.budget.max_events_per_request": 64,
         "ids_sensor.budget.read_timeout_ms": 30,
+        "ids_sensor.budget.read_timeout_s": 0.03,
         "ids_sensor.circuit_breaker.enabled": true,
         "ids_sensor.circuit_breaker.failure_threshold": 3,
         "ids_sensor.circuit_breaker.open_for_s": 30,
+        "ids_sensor.collector.base_uri": "https://collector.test",
+        "ids_sensor.collector.password": "geheim",
+        "ids_sensor.collector.token_leeway_s": 60,
+        "ids_sensor.collector.username": "sensor",
+        "ids_sensor.collector.verify_tls": true,
         "ids_sensor.config": {
-            "application_id": "shop-api",
-            "environment": "prod",
+            "application_id": "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31",
+            "environment_id": "3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522",
+            "sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
             "session_hash": {
                 "key": "ein-dedizierter-ids-schluessel-mit-32-zeichen",
                 "enabled": true,
                 "min_key_length": 32,
                 "cookie_name": null
             },
-            "transport": {
-                "dsn": "in-memory://",
-                "name": "ids_events",
-                "register_transport": true,
-                "options": []
+            "collector": {
+                "base_uri": "https://collector.test",
+                "username": "sensor",
+                "password": "geheim",
+                "token_leeway_s": 60,
+                "verify_tls": true
             },
             "enabled": true,
-            "instance_id": null,
-            "environment_map": {
-                "prod": "prod",
-                "production": "prod",
-                "live": "prod",
-                "staging": "staging",
-                "stage": "staging",
-                "preprod": "staging",
-                "dev": "dev",
-                "develop": "dev",
-                "development": "dev",
-                "local": "dev",
-                "test": "dev"
-            },
-            "environment_fallback": "prod",
             "fingerprint": {
                 "enabled": true,
                 "headers": [
@@ -145,21 +140,7 @@
         "ids_sensor.correlation.require_trusted_proxy": true,
         "ids_sensor.correlation.trust_incoming_header": false,
         "ids_sensor.enabled": true,
-        "ids_sensor.environment": "prod",
-        "ids_sensor.environment_fallback": "prod",
-        "ids_sensor.environment_map": {
-            "prod": "prod",
-            "production": "prod",
-            "live": "prod",
-            "staging": "staging",
-            "stage": "staging",
-            "preprod": "staging",
-            "dev": "dev",
-            "develop": "dev",
-            "development": "dev",
-            "local": "dev",
-            "test": "dev"
-        },
+        "ids_sensor.environment_id": "3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522",
         "ids_sensor.fingerprint.enabled": true,
         "ids_sensor.fingerprint.headers": [
             "User-Agent",
@@ -172,7 +153,6 @@
         "ids_sensor.heartbeat.interval_s": 60,
         "ids_sensor.heartbeat.mode": "both",
         "ids_sensor.heartbeat.stamp_file": "/tmp/ids-sensor-tests/fingerprint-ohne-security-bundle-private/test/fingerprint-9f16f270/ids-sensor-heartbeat.stamp",
-        "ids_sensor.instance_id": null,
         "ids_sensor.layers.business.capture_mode": "dispatcher",
         "ids_sensor.layers.business.event_classes": [],
         "ids_sensor.layers.business.ip_from_request": true,
@@ -226,7 +206,8 @@
         "ids_sensor.raw.skip_multipart": true,
         "ids_sensor.sampling.info_rate": 1,
         "ids_sensor.sampling.keep_if_request_relevant": true,
-        "ids_sensor.schema_version": 1,
+        "ids_sensor.schema_version": 2,
+        "ids_sensor.sensor_id": "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
         "ids_sensor.session_hash.cookie_name": null,
         "ids_sensor.session_hash.enabled": true,
         "ids_sensor.session_hash.framework_cookie_name": null,
@@ -238,8 +219,7 @@
         "ids_sensor.spool.max_file_bytes": 4194304,
         "ids_sensor.spool.stale_after_s": 300,
         "ids_sensor.telemetry.latency_histogram": true,
-        "ids_sensor.transport.configured": true,
-        "ids_sensor.transport.name": "ids_events"
+        "ids_sensor.transport.configured": true
     },
     "resettable": {
         "ids_sensor.capture_budget": [
@@ -295,7 +275,7 @@
             "synthetic": false,
             "arguments": [
                 "<project_dir>/var/ids-spool",
-                "shop-api"
+                "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31"
             ],
             "tags": {
                 "container.hot_path": [
@@ -410,6 +390,44 @@
                 ]
             }
         },
+        "ids_sensor.collector.token_provider": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Http\\TokenProvider",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.http_client",
+                "@ids_sensor.collector.token_store",
+                "https://collector.test",
+                "sensor",
+                "geheim",
+                60
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
+        "ids_sensor.collector.token_store": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Http\\TokenStore",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "<project_dir>/var/ids-spool",
+                "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4"
+            ],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
         "ids_sensor.command.heartbeat": {
             "class": "ProjektMotor\\IdsSensor\\Command\\HeartbeatCommand",
             "public": false,
@@ -460,7 +478,6 @@
             "synthetic": false,
             "arguments": [
                 "@ids_sensor.identity_provider",
-                "@ids_sensor.environment_resolver",
                 "@ids_sensor.runtime_profile",
                 "%ids_sensor.config%",
                 "@ids_sensor.spool",
@@ -627,42 +644,6 @@
                 ]
             }
         },
-        "ids_sensor.environment_resolver": {
-            "class": "ProjektMotor\\IdsSensor\\Support\\Identity\\EnvironmentResolver",
-            "public": false,
-            "shared": true,
-            "lazy": false,
-            "abstract": false,
-            "synthetic": false,
-            "arguments": [
-                "prod",
-                "%ids_sensor.environment_map%",
-                {
-                    "!inline": {
-                        "class": "ProjektMotor\\IdsEventData\\Vocabulary\\Environment",
-                        "public": false,
-                        "shared": true,
-                        "lazy": false,
-                        "abstract": false,
-                        "synthetic": false,
-                        "arguments": [
-                            "prod"
-                        ],
-                        "tags": [],
-                        "factory": [
-                            "ProjektMotor\\IdsEventData\\Vocabulary\\Environment",
-                            "from"
-                        ]
-                    }
-                },
-                "@ids_sensor.logger"
-            ],
-            "tags": {
-                "container.hot_path": [
-                    []
-                ]
-            }
-        },
         "ids_sensor.event_buffer": {
             "class": "ProjektMotor\\IdsSensor\\Sensor\\EventBuffer",
             "public": false,
@@ -783,7 +764,7 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "@ids_sensor.shipper.messenger",
+                "@ids_sensor.shipper.http",
                 "@ids_sensor.counters",
                 "@ids_sensor.runtime_profile",
                 "@ids_sensor.spool",
@@ -807,7 +788,7 @@
             "arguments": [
                 "@ids_sensor.heartbeat.payload_factory",
                 "@ids_sensor.heartbeat.scheduler",
-                "@ids_sensor.shipper.messenger",
+                "@ids_sensor.shipper.http",
                 "@ids_sensor.counters",
                 "@ids_sensor.heartbeat.mode",
                 "@ids_sensor.runtime_profile",
@@ -867,6 +848,20 @@
             ],
             "tags": []
         },
+        "ids_sensor.http_client": {
+            "class": "ProjektMotor\\IdsSensor\\Tests\\Fixtures\\RecordingHttpClient",
+            "public": true,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": {
+                "container.hot_path": [
+                    []
+                ]
+            }
+        },
         "ids_sensor.http_status_resolver": {
             "class": "ProjektMotor\\IdsSensor\\Sensor\\Kernel\\HttpStatusResolver",
             "public": false,
@@ -885,26 +880,10 @@
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "shop-api",
-                "@ids_sensor.instance_id_provider",
-                "@ids_sensor.environment_resolver",
+                "9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31",
+                "3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522",
+                "c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4",
                 "@ids_sensor.logger"
-            ],
-            "tags": {
-                "container.hot_path": [
-                    []
-                ]
-            }
-        },
-        "ids_sensor.instance_id_provider": {
-            "class": "ProjektMotor\\IdsSensor\\Support\\Identity\\InstanceIdProvider",
-            "public": false,
-            "shared": true,
-            "lazy": false,
-            "abstract": false,
-            "synthetic": false,
-            "arguments": [
-                null
             ],
             "tags": {
                 "container.hot_path": [
@@ -1299,15 +1278,18 @@
             ],
             "tags": []
         },
-        "ids_sensor.shipper.messenger": {
-            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Shipper\\MessengerShipper",
+        "ids_sensor.shipper.http": {
+            "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\Http\\HttpShipper",
             "public": false,
             "shared": true,
             "lazy": false,
             "abstract": false,
             "synthetic": false,
             "arguments": [
-                "@messenger.transport.ids_events"
+                "@ids_sensor.http_client",
+                "@ids_sensor.identity_provider",
+                "@ids_sensor.collector.token_provider",
+                "https://collector.test"
             ],
             "tags": {
                 "container.hot_path": [
@@ -1344,7 +1326,7 @@
             "synthetic": false,
             "arguments": [
                 "@ids_sensor.spool",
-                "@ids_sensor.shipper.messenger",
+                "@ids_sensor.shipper.http",
                 "@ids_sensor.logger",
                 300,
                 30,
@@ -1361,7 +1343,7 @@
         "Symfony\\Component\\Messenger\\MessageBusInterface": "fehlt",
         "Symfony\\Component\\Security\\Core\\Authentication\\Token\\Storage\\TokenStorageInterface": "fehlt",
         "event_dispatcher": "definition Symfony\\Component\\HttpKernel\\Debug\\TraceableEventDispatcher",
-        "messenger.default_bus": "definition Symfony\\Component\\Messenger\\MessageBus",
+        "messenger.default_bus": "fehlt",
         "security.access.decision_manager": "fehlt",
         "security.token_storage": "fehlt",
         "security.untracked_token_storage": "fehlt"

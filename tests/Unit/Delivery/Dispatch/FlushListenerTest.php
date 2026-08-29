@@ -20,8 +20,6 @@ use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Sensor\EventBuffer;
-use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
-use ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Support\Telemetry\DeferredCounters;
@@ -194,8 +192,8 @@ final class FlushListenerTest extends TestCase
             $buffer,
             new SensorIdentityProvider(
                 'shop-api',
-                new InstanceIdProvider('web-03'),
-                new EnvironmentResolver('prod'),
+                '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+                'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             ),
             [new KernelEventNormalizer(
                 new EventFactory(new SequentialEventIdGenerator()),
@@ -244,8 +242,8 @@ final class FlushListenerTest extends TestCase
             $buffer,
             new SensorIdentityProvider(
                 'shop-api',
-                new InstanceIdProvider('web-03'),
-                new EnvironmentResolver('prod'),
+                '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+                'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             ),
             [new KernelEventNormalizer(
                 new EventFactory(new SequentialEventIdGenerator()),
@@ -273,8 +271,8 @@ final class FlushListenerTest extends TestCase
             $buffer,
             new SensorIdentityProvider(
                 'shop-api',
-                new InstanceIdProvider('web-03'),
-                new EnvironmentResolver('prod'),
+                '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+                'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             ),
             [new KernelEventNormalizer(
                 new EventFactory(new SequentialEventIdGenerator()),

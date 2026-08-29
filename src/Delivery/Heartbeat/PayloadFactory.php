@@ -69,10 +69,10 @@ final class PayloadFactory
             'schema_version' => EventSchema::SCHEMA_VERSION,
             'sent_at' => $now->format(EventSchema::TIMESTAMP_FORMAT),
 
-            // Die drei Felder, an denen der Collector die Instanz erkennt (Konzept 2.).
+            // Die drei Kennungen, an denen der Collector den Sensor erkennt (Konzept 1).
             'application_id' => $identity->applicationId,
-            'instance_id' => $identity->instanceId,
-            'environment' => $identity->environment->value,
+            'environment_id' => $identity->environmentId,
+            'sensor_id' => $identity->sensorId,
 
             'process_epoch' => $this->counters->processEpoch(),
             'pid' => $this->counters->pid(),

@@ -9,7 +9,7 @@ use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 /**
  * Drosselt den Heartbeat auf das konfigurierte Intervall.
  *
- * WARUM DER SCHLÜSSEL DIE instance_id ENTHALTEN MUSS
+ * WARUM DER SCHLÜSSEL DIE sensor_id ENTHALTEN MUSS
  *
  * Die Drosselung ist prozessübergreifend — anders wäre sie im request-getriebenen Modus
  * wirkungslos, weil unter PHP-FPM jeder Request in einem anderen Prozess laufen kann und
@@ -17,10 +17,10 @@ use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
  *
  * Prozessübergreifend heißt bei APCu aber auch: geteilt zwischen ALLEN Anwendungen, die
  * dieses PHP-Pool benutzen, und bei einem gemeinsamen Dateisystem sogar zwischen Hosts.
- * Ohne `instance_id` im Schlüssel würde die erste Instanz, die einen Heartbeat sendet, die
- * Heartbeats aller anderen für ein Intervall unterdrücken. Der Collector sähe eine einzige
- * lebende Instanz und würde für alle übrigen `ids.sensor_silent` melden — also einen
- * Dauerfalschalarm genau für die Instanzen, die in Ordnung sind.
+ * Ohne `sensor_id` im Schlüssel würde der erste Sensor, der einen Heartbeat sendet, die
+ * Heartbeats aller anderen für ein Intervall unterdrücken. Der Collector sähe einen einzigen
+ * lebenden Sensor und würde für alle übrigen `ids.sensor_silent` melden — also einen
+ * Dauerfalschalarm genau für die Sensoren, die in Ordnung sind.
  *
  * ZWEISTUFIGE ABLAGE, WIE BEIM CIRCUIT BREAKER
  *
@@ -38,10 +38,11 @@ final class Scheduler
     /**
      * Die Kennungen kommen über den Provider und NICHT als Zeichenketten aus dem Container.
      *
-     * Konzept 2.2.1 verlangt, dass die `instance_id` zur Laufzeit aufgelöst wird. Ein zur
-     * Compile-Zeit eingebackener Wert wäre in einem gewärmten Container-Image der Hostname
-     * EINER Instanz — und würde damit in allen Replicas denselben Drosselungsschlüssel
-     * ergeben. Also genau der Fehler, den der Schlüssel verhindern soll.
+     * Konzept 2.3 verlangt, dass die `sensor_id` je Node verschieden ist und nicht aus
+     * einer geteilten Konfiguration stammt. Ein zur Compile-Zeit eingebackener Wert wäre
+     * in einem gewärmten Container-Image in allen Replicas derselbe — und ergäbe damit
+     * denselben Drosselungsschlüssel. Also genau der Fehler, den der Schlüssel verhindern
+     * soll.
      */
     public function __construct(
         private readonly SensorIdentityProvider $identityProvider,
@@ -158,6 +159,6 @@ final class Scheduler
     {
         $identity = $this->identityProvider->get();
 
-        return self::APCU_PREFIX.$identity->applicationId.'.'.$identity->instanceId;
+        return self::APCU_PREFIX.$identity->applicationId.'.'.$identity->sensorId;
     }
 }

@@ -10,10 +10,15 @@ use Psr\Log\LoggerInterface;
 /**
  * Setzt die Herkunftskennung zur Laufzeit zusammen.
  *
- * Bewusst ein Service und kein Container-Parameter: sowohl instance_id
- * (Hostname) als auch environment (Auflösung über die Map) dürfen nicht in einen
- * gewärmten Container-Cache gebacken werden. Siehe {@see InstanceIdProvider} für
- * die Folgen.
+ * Alle drei Werte kommen aus der Konfiguration; abgeleitet wird nichts mehr. Bis
+ * schema_version 1 entstand die instance_id aus dem Hostnamen und die environment
+ * aus einer Zuordnungstabelle — beides ist entfallen, weil der Collector die
+ * Kennungen beim Registrieren vergibt (Konzept 1, Begriffstafel).
+ *
+ * Trotzdem ein Service und kein Container-Parameter: Die Werte kommen aus
+ * Umgebungsvariablen und dürfen nicht in einen gewärmten Container-Cache gebacken
+ * werden. Ein beim Image-Bau aufgelöster Wert wäre in jedem Replikat derselbe —
+ * und die sensor_id ist je Node verschieden (Konzept 2.3).
  *
  * @internal
  */
@@ -25,8 +30,8 @@ final class SensorIdentityProvider
 
     public function __construct(
         private readonly string $applicationId,
-        private readonly InstanceIdProvider $instanceIdProvider,
-        private readonly EnvironmentResolver $environmentResolver,
+        private readonly string $environmentId,
+        private readonly string $sensorId,
         private readonly ?LoggerInterface $logger = null,
     ) {
     }
@@ -39,8 +44,8 @@ final class SensorIdentityProvider
 
         $identity = new SensorIdentity(
             $this->applicationId,
-            $this->instanceIdProvider->get(),
-            $this->environmentResolver->resolve(),
+            $this->environmentId,
+            $this->sensorId,
         );
 
         $this->warnOnceIfInvalid($identity);

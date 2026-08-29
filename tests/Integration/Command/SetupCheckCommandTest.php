@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Integration\Command;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -46,22 +45,9 @@ final class SetupCheckCommandTest extends TestCase
         self::assertStringContainsString('einsatzfähig', $tester->getDisplay());
     }
 
-    /**
-     * DER teuerste Fehler: ein nicht abbildbares environment führt collectorseitig zu
-     * env_type NOT NULL (Konzept 4.2.1) — stiller Totalverlust dieser Instanz, von einem
-     * toten Sensor nicht unterscheidbar. Deshalb Rückgabewert 1.
-     */
-    public function testAnUnmappableEnvironmentAborts(): void
-    {
-        $tester = $this->setupCheck('env', ['environment' => 'prod_eu_west_2']);
-
-        self::assertSame(Command::FAILURE, $tester->getStatusCode());
-        self::assertStringContainsString('nicht auf prod|staging|dev abbildbar', $tester->getDisplay());
-    }
-
     public function testAMissingTransportDsnIsAFinding(): void
     {
-        $tester = $this->setupCheck('kein-transport', ['transport' => ['dsn' => null]]);
+        $tester = $this->setupCheck('kein-transport', ['collector' => ['base_uri' => null]]);
 
         self::assertSame(Command::FAILURE, $tester->getStatusCode());
         self::assertStringContainsString('enden im Nichts', $tester->getDisplay());
@@ -133,31 +119,6 @@ final class SetupCheckCommandTest extends TestCase
     }
 
     /**
-     * Der Hostname-Hinweis erscheint nicht für die bereinigte Form des eigenen Namens.
-     *
-     * Die Regel selbst — dass ein gekürzter oder umgeschriebener Hostname derselbe Host
-     * bleibt — steht in `InstanceIdProviderTest`; sie lässt sich nur dort scharf prüfen,
-     * weil `gethostname()` in diesem Prozess nicht austauschbar ist. Hier wird belegt,
-     * dass der Command diese Regel benutzt.
-     */
-    public function testTheOwnHostnameIsNotReportedAsMismatch(): void
-    {
-        $bereinigt = InstanceIdProvider::sanitize((string) gethostname());
-
-        $tester = $this->setupCheck('hostname', ['instance_id' => $bereinigt], ['--strict' => true]);
-
-        self::assertStringNotContainsString('entspricht nicht dem Hostnamen', $tester->getDisplay());
-    }
-
-    public function testADisabledKernelLayerIsAFinding(): void
-    {
-        $tester = $this->setupCheck('kernel-aus', ['layers' => ['kernel' => ['enabled' => false]]]);
-
-        self::assertSame(Command::FAILURE, $tester->getStatusCode());
-        self::assertStringContainsString('Kernel-Ebene ist abgeschaltet', $tester->getDisplay());
-    }
-
-    /**
      * Konzept 2. verlangt, die Asymmetrie der drei Ebenen nicht zu verschleiern. Dass die
      * Business-Ebene ohne Anwendungscode wirkungslos ist, MUSS also gesagt werden — darf
      * aber kein Befund sein, denn es ist kein Fehler.
@@ -215,10 +176,11 @@ final class SetupCheckCommandTest extends TestCase
     public function testItRunsOnTheDocumentedMinimalConfiguration(): void
     {
         $kernel = new TestKernel([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
-            'transport' => ['dsn' => 'in-memory://'],
+            'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
         ], 'setup-check-ohne-spool-dir');
         $kernel->boot();
 
@@ -353,10 +315,11 @@ final class SetupCheckCommandTest extends TestCase
     private function setupCheck(string $variant, array $overrides = [], array $input = []): CommandTester
     {
         $kernel = new TestKernel(array_replace_recursive([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
-            'transport' => ['dsn' => 'in-memory://'],
+            'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir, 'drain_interval_s' => 30],
         ], $overrides), 'setup-check-'.$variant);
         $kernel->boot();

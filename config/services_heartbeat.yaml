@@ -27,7 +27,7 @@ services:
         factory: ['ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode', 'from']
         arguments: ['%ids_sensor.heartbeat.mode%']
 
-    # Der Provider, nicht die Zeichenkette: der Drosselungsschlüssel muss die instance_id
+    # Der Provider, nicht die Zeichenkette: der Drosselungsschlüssel muss die sensor_id
     # enthalten, und die wird zur Laufzeit aufgelöst.
     ids_sensor.heartbeat.scheduler:
         class: ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler

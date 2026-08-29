@@ -16,7 +16,7 @@ flowchart LR
         code -.->|"Kernel-, Security-,<br/>Business-Ereignisse"| sensor
     end
 
-    broker[("Redis Stream<br/><small>ids:events:*</small>")]
+    broker[("Collector<br/><small>/api/v1/sensor-data</small>")]
 
     subgraph collector["Getrennt betriebener Collector"]
         direction TB
@@ -25,7 +25,7 @@ flowchart LR
         consumer --> db
     end
 
-    sensor -->|"nur XADD"| broker
+    sensor -->|"nur POST"| broker
     broker -->|"lesen"| consumer
 
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
@@ -38,10 +38,10 @@ flowchart LR
     style collector fill:#FBFBF9,stroke:#C8C6BE,color:#5F5E5A
 ```
 
-Der Sensor darf am Broker **ausschließlich schreiben**. Ist die überwachte Anwendung
+Der Sensor darf am Collector **ausschließlich schreiben**. Ist die überwachte Anwendung
 kompromittiert, ist der Sensor es auch — deshalb kann ein Angreifer über ihn weder
 abgesendete Events löschen noch die Events anderer Requests mitlesen. Details in
-[07 — Betrieb](07-betrieb.md#broker-rechte-nur-schreiben).
+[07 — Betrieb](07-betrieb.md#endpunkt-rechte-nur-schreiben).
 
 Die Paketgrenze zwischen den beiden Bundles ist **nicht** eine Bibliothek, sondern das
 Ereignisformat aus (*3.*). Beide Seiten kennen nur JSON voneinander. Siehe
@@ -110,11 +110,11 @@ Anwendung, nicht für Deployment-Fehler.
 **Kein Datenbankzugriff.** Das Bundle bekommt bewusst keine Verbindung zum Beweisspeicher.
 Trüge es die Zugangsdaten, hätte die überwachte Anwendung Zugriff auf ihre eigenen
 Beweise, und ein Angreifer mit Codeausführung könnte seine Spuren löschen. Die
-Manipulationsgrenze verläuft am Broker (*2.*).
+Manipulationsgrenze verläuft am Ingest-Endpunkt des Collectors (*2.*).
 
 **Redaktion im Sensor, nicht im Collector.** Zugangsdaten werden unkenntlich gemacht,
-bevor etwas den Prozess verlässt — andernfalls liefen Klartext-Passwörter über den Broker
-und landeten dort in Queues, Logs und Spool-Dateien (*4.5.1*). Siehe
+bevor etwas den Prozess verlässt — andernfalls gingen Klartext-Passwörter über die Leitung
+und landeten in Zugriffsprotokollen und Spool-Dateien (*4.5.1*). Siehe
 [06 — Vertraulichkeit](06-vertraulichkeit.md).
 
 ## Was als Nächstes zu lesen ist

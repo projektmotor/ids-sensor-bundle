@@ -16,7 +16,7 @@ services:
     # Zustand prozessübergreifend (APCu, sonst Datei): ein Zähler im Prozessspeicher finge
     # bei PHP-FPM in jedem Kindprozess bei Null an — genau dann soll der Breaker greifen.
     #
-    # $scopeKey ist die application_id und nicht die instance_id: der Breaker-Zustand gilt je
+    # $scopeKey ist die application_id und nicht die sensor_id: der Breaker-Zustand gilt je
     # Anwendung, nicht je Instanz. Zwei Instanzen derselben Anwendung sehen denselben Broker,
     # also ist auch sein Ausfall gemeinsam.
     ids_sensor.breaker.state_store:

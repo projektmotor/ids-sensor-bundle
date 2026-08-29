@@ -110,10 +110,11 @@ final class FlushListener implements EventSubscriberInterface
      * und landet unmittelbar in kernel.terminate der überwachten Anwendung. Genau der
      * Fall, den Konzept 4. ausschließt.
      *
-     * NICHT abgedeckt ist der Wurf beim ERZEUGEN des Flushers: sein Dienstgraph reicht
-     * bis zum Messenger-Transport, und dessen Factory wirft bei unbrauchbarer DSN. Das
-     * passiert, bevor diese Methode läuft. Dagegen hilft nur, den Transport lazy zu
-     * bauen — {@see \ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass}.
+     * NICHT abgedeckt wäre ein Wurf beim ERZEUGEN des Flushers — er geschähe, bevor
+     * diese Methode läuft, und damit außerhalb jedes try/catch des Sensors. Solange der
+     * Versand über einen Messenger-Transport lief, war das ein reales Risiko: dessen
+     * Factory warf bei unbrauchbarer DSN schon beim Bauen des Dienstes. Der HTTP-Client
+     * baut nichts auf, bevor gesendet wird, und der Fall ist damit entfallen.
      */
     private function flushAndBeat(): void
     {
@@ -157,7 +158,7 @@ final class FlushListener implements EventSubscriberInterface
      *
      * Dass die Grenze damit nicht scharf ist, steht schon im Konzept. Sie begrenzt, was
      * der Sensor OBENDRAUF legt, nicht die Dauer eines einzelnen Syscalls; dafür sind die
-     * Broker-Timeouts in `TRANSPORT_DEFAULTS` zuständig.
+     * Verbindungs- und Antwort-Timeouts des HTTP-Clients zuständig.
      */
     private function budgetSpent(float|int $begonnen): bool
     {

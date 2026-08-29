@@ -20,7 +20,7 @@
         <testsuite name="integration">
             <directory>tests/Integration</directory>
         </testsuite>
-        <!-- Braucht echte Infrastruktur (Redis). Über die Gruppe "redis" gesteuert. -->
+        <!-- Braucht echte Infrastruktur. Derzeit leer. -->
         <testsuite name="functional">
             <directory>tests/Functional</directory>
         </testsuite>

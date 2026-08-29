@@ -153,29 +153,29 @@ final class ResilienceTest extends IntegrationTestCase
     }
 
     /**
-     * Eine DSN, die kein Transport-Factory unterstützt, darf die Anwendung nicht treffen.
+     * Eine unbrauchbare Collector-Adresse darf die Anwendung nicht treffen.
      *
-     * Der häufigste Auslöser steht in doc/07-betrieb.md als Symptom: `symfony/redis-messenger`
-     * fehlt. Dieses Bundle führt es nur als Entwicklungsabhängigkeit, die Anwendung muss es
-     * also selbst verlangen — tut sie es nicht, wirft
-     * `messenger.transport_factory::createTransport()` beim ERZEUGEN des Dienstes.
+     * Abzugrenzen vom nicht erreichbaren Collector weiter oben: Dort steht die Adresse
+     * richtig da und der Host antwortet nicht. Hier ist sie selbst kaputt — ein
+     * Konfigurationsfehler, der beim ersten Versand als InvalidArgumentException aus dem
+     * HTTP-Client kommt statt als Netzfehler.
      *
-     * Ohne {@see \ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass}
-     * geschieht das, während der Container den FlushListener baut — also außerhalb jedes
-     * try/catch des Sensors und damit unmittelbar in kernel.terminate der überwachten
-     * Anwendung. Mit dem Pass fällt der Factory-Aufruf auf den ersten `send()` und landet
-     * im abgesicherten Pfad: gezählt als ship_failed, gespoolt statt verloren.
+     * Beide Wege müssen im abgesicherten Pfad landen: gezählt als ship_failed, gespoolt
+     * statt verloren, und kein Wurf nach außen. Der Fall ist die Umsetzung von
+     * Konzept 4 — eine Störung des IDS beeinträchtigt die Anwendung nicht, auch wenn
+     * der Betreiber sie selbst verursacht hat.
      */
-    public function testAnUnusableTransportDsnDoesNotReachTheApplication(): void
+    public function testAnUnusableCollectorUriDoesNotReachTheApplication(): void
     {
         $kernel = new TestKernel([
             'application_id' => $this->applicationId,
-            'environment' => 'prod',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => self::SESSION_KEY],
-            // Kein Factory unterstützt dieses Schema.
-            'transport' => ['dsn' => 'kein-solches-schema://host'],
+            // Keine gültige Adresse: weder Schema noch Host.
+            'collector' => ['base_uri' => 'weder-schema-noch-host', 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir],
-        ], 'resilience-dsn-kaputt');
+        ], 'resilience-uri-kaputt');
         $kernel->boot();
 
         $services = $this->services($kernel);
@@ -222,12 +222,14 @@ final class ResilienceTest extends IntegrationTestCase
     {
         $kernel = new TestKernel([
             'application_id' => $this->applicationId,
-            'environment' => 'prod',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => self::SESSION_KEY],
-            // Ein Port, auf dem nichts lauscht: der Verbindungsversuch scheitert.
-            'transport' => [
-                'dsn' => 'redis://127.0.0.1:6390/ids:events:test/group/consumer',
-                'options' => ['timeout' => 0.05, 'read_timeout' => 0.05],
+            // Ein Host, den es nicht gibt: der Verbindungsversuch scheitert.
+            'collector' => [
+                'base_uri' => 'https://nicht-erreichbar.invalid',
+                'username' => 'sensor',
+                'password' => 'geheim',
             ],
             'spool' => ['dir' => $this->spoolDir, 'max_bytes' => $spoolMaxBytes],
             'circuit_breaker' => $breaker,

@@ -28,11 +28,6 @@ test: ## Unit- + Integrationstests
 test-unit: ## Nur Unit-Tests (kein Kernel)
 	$(RUN) vendor/bin/phpunit --testsuite unit
 
-.PHONY: test-redis
-test-redis: ## Tests gegen echten Broker
-	$(DC) up -d redis
-	$(RUN) vendor/bin/phpunit --group redis
-
 .PHONY: stan
 stan: ## Statische Analyse
 	$(RUN) vendor/bin/phpstan analyse

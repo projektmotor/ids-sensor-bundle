@@ -6,9 +6,6 @@ namespace ProjektMotor\IdsSensor\Tests\Unit\Support\Identity;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsEventData\Vocabulary\Environment;
-use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
-use ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use ProjektMotor\IdsSensor\Support\Telemetry\FailSafeLogger;
 use ProjektMotor\IdsSensor\Tests\Fixtures\ThrowingLogger;
@@ -26,11 +23,11 @@ final class SensorIdentityProviderTest extends TestCase
 {
     public function testTheIdentityCarriesAllThreeFields(): void
     {
-        $identity = $this->provider('shop-api')->get();
+        $identity = $this->provider('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31')->get();
 
-        self::assertSame('shop-api', $identity->applicationId);
-        self::assertNotSame('', $identity->instanceId);
-        self::assertSame(Environment::Prod, $identity->environment);
+        self::assertSame('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', $identity->applicationId);
+        self::assertSame('3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', $identity->environmentId);
+        self::assertSame('7d2e9a44-1b30-4c67-b8e1-05af3c69d271', $identity->sensorId);
     }
 
     /**
@@ -39,7 +36,7 @@ final class SensorIdentityProviderTest extends TestCase
      */
     public function testTheIdentityIsResolvedOnlyOnce(): void
     {
-        $provider = $this->provider('shop-api');
+        $provider = $this->provider('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31');
 
         self::assertSame($provider->get(), $provider->get());
     }
@@ -51,10 +48,10 @@ final class SensorIdentityProviderTest extends TestCase
     {
         $logger = new SammelnderLogger();
 
-        $identity = $this->provider('shop api/mit leerzeichen', $logger)->get();
+        $identity = $this->provider('kein-uuid', $logger)->get();
 
         self::assertNotSame([], $logger->meldungen, 'Ein Betreiber muss davon erfahren');
-        self::assertSame('shop api/mit leerzeichen', $identity->applicationId, 'Aber der Sensor arbeitet weiter');
+        self::assertSame('kein-uuid', $identity->applicationId, 'Aber der Sensor arbeitet weiter');
     }
 
     /**
@@ -86,8 +83,8 @@ final class SensorIdentityProviderTest extends TestCase
     {
         return new SensorIdentityProvider(
             $applicationId,
-            new InstanceIdProvider('web-01'),
-            new EnvironmentResolver('prod'),
+            '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            '7d2e9a44-1b30-4c67-b8e1-05af3c69d271',
             $logger,
         );
     }

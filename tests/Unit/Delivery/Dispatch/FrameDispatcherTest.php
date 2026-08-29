@@ -9,7 +9,6 @@ use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsEventData\Event\NormalizedEvent;
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
 use ProjektMotor\IdsEventData\Frame\DispatchPath;
-use ProjektMotor\IdsEventData\Vocabulary\Environment;
 use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\FrameDispatcher;
@@ -298,7 +297,7 @@ final class FrameDispatcherTest extends TestCase
 
     private function identity(): SensorIdentity
     {
-        return new SensorIdentity('shop-api', 'web-01', Environment::Prod);
+        return new SensorIdentity('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', '7d2e9a44-1b30-4c67-b8e1-05af3c69d271');
     }
 
     private function event(): NormalizedEvent

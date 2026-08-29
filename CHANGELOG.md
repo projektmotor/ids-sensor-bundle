@@ -13,6 +13,64 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Breaking — Umsetzung: REST-Transport, drei UUID-Kennungen, schema_version 2
+
+Der Quellcode zieht das Konzept nach. Die beiden vorherigen Einträge beschreiben die
+Entscheidungen; hier steht, was sich am Bundle ändert.
+
+**Die Konfigurationsfläche ändert sich, und alle `ids_sensor`-Schlüssel gehören zur
+öffentlichen API.** Ein Update ist ohne Anpassung nicht möglich:
+
+| entfällt | ersetzt durch |
+|---|---|
+| `instance_id` | `sensor_id` — UUID, **je Node verschieden** |
+| `environment`, `environment_map`, `environment_fallback` | `environment_id` — UUID |
+| `application_id` als freier Name | `application_id` als UUID |
+| `transport.dsn`, `.name`, `.register_transport`, `.options` | `collector.base_uri`, `.username`, `.password`, `.token_leeway_s`, `.verify_tls` |
+
+Alle drei Kennungen vergibt der Collector beim Registrieren. Der Sensor leitet nichts mehr
+ab — weder die Instanz aus dem Hostnamen noch die Umgebung über eine Zuordnungstabelle.
+Damit entfallen zwei Fehlerquellen, die beide lautlos waren: ein beim Image-Bau
+eingebackener Hostname, der in jedem Replikat derselbe ist, und eine nicht abbildbare
+Umgebung, die über den Vorgabewert `prod` in der falschen Auswertung landete.
+
+**`sensor_id` darf nicht aus einer geteilten Konfiguration kommen.** In Kubernetes teilen
+sich alle Replikate eines Deployments eine ConfigMap; läge die Kennung dort, wären die
+Replikate ununterscheidbar, und `ids.sensor_silent` schwiege beim Ausfall einzelner.
+
+**Neu im Transport:** `Delivery\Transport\Http\HttpShipper`, `TokenProvider` und
+`TokenStore`. Der Token-Cache liegt prozessübergreifend (APCu, sonst Datei) — ohne ihn
+holte sich jedes PHP-FPM-Kind sein eigenes Token. Erneuert wird vorausschauend mit Vorlauf,
+nicht erst auf ein `401`: Das wäre ein zweiter Roundtrip innerhalb des Versandbudgets.
+
+**Entfallen:** `MessengerShipper`, `MessageSerializer`, `Transport\Message\*`,
+`LazyTransportPass`, `Support\Identity\InstanceIdProvider` und `EnvironmentResolver`.
+
+**Antwortcodes statt Broker-Fehler.** `UnshippableFrameException` kannte bisher nur
+Kodierfehler, weil `XADD` keine Ablehnung kennt. Jetzt trennt sie „geht nie" von „später
+erneut": `400`, `403`, `413` und `422` verwerfen und zählen; `429`, `5xx`, Timeout und
+Verbindungsfehler spoolen und zählen einen Breaker-Fehler.
+
+**Abhängigkeiten:** `symfony/http-client` kommt hinzu. `symfony/messenger` wird von einer
+harten zu einer **optionalen** Abhängigkeit — vorhanden hängt sich der Sensor weiter an
+`WorkerMessageHandledEvent` und `WorkerMessageFailedEvent`, fehlt es, entfallen diese
+beiden Flush-Punkte und sonst nichts. `ext-redis` und `symfony/redis-messenger` entfallen,
+ebenso der Redis-Dienst aus `docker-compose.yml`, die ACL unter `docker/redis/` und das
+Make-Ziel `test-redis`.
+
+**`ids:sensor:setup-check` prüft neu:** fehlende Zugangsdaten, eine `base_uri` ohne HTTPS
+und ein abgeschaltetes `verify_tls` (Konzept 4.5.3). Die Prüfung auf den eigenen Hostnamen
+ist entfallen; an ihre Stelle tritt ein Hinweis zur `sensor_id` je Node — dass Replikate
+sie teilen, ist von einem einzelnen Prozess aus nicht feststellbar, und ein Hinweis ist
+ehrlicher als eine Prüfung, die es nicht gibt.
+
+**Noch nicht umgesetzt: der gebündelte Versandmodus.** `flush.policy: spool` funktioniert,
+aber der Drain-Lauf sendet weiterhin einen POST je Frame. Die Bündelung mehrerer Frames in
+eine Sendung hängt an einer Festlegung, die das Konzept ausdrücklich offenlässt (OB13): Was
+gilt, wenn eine Sammelsendung teilweise scheitert? Solange das offen ist, wären
+`spool.max_post_frames` und `max_post_bytes` Optionen, die etwas versprechen und nichts
+bewirken.
+
 ### Changed — Konzept: Ergebnisse der Tiefenprüfung
 
 **Wieder nur `doc/concept/`. Am Quellcode wurde keine Zeile angefasst**, und `doc/01`–`doc/09`

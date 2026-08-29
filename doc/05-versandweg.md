@@ -1,6 +1,6 @@
 # 05 — Der Versandweg
 
-Am Ende von Phase B steht ein fertiger Frame. Ob er zum Broker geht oder auf die Platte,
+Am Ende von Phase B steht ein fertiger Frame. Ob er zum Collector geht oder auf die Platte,
 entscheidet `Delivery\Dispatch\FrameDispatcher` — an genau drei Schranken, in dieser
 Reihenfolge.
 
@@ -16,7 +16,7 @@ flowchart TB
 
     q2{"Circuit Breaker<br/>offen?"}
     q2 -->|"ja"| spool
-    q2 -->|"nein"| ship["XADD an Redis"]
+    q2 -->|"nein"| ship["POST an den Collector"]
 
     ship --> q3{"erfolgreich?"}
     q3 -->|"ja"| done(["`**sent**<br/><small>Breaker schließt</small>`"])
@@ -52,11 +52,11 @@ Unter mod_php gibt es diese Funktion **nicht**, und es existiert kein zuverläss
 
 | Laufzeit | Antwort abkoppelbar | Versandweg |
 |---|---|---|
-| PHP-FPM (nginx, Apache-Proxy) | ja, `fastcgi_finish_request()` | direkt an Redis |
-| LiteSpeed | ja | direkt an Redis |
-| FrankenPHP, RoadRunner | ja | direkt an Redis |
+| PHP-FPM (nginx, Apache-Proxy) | ja, `fastcgi_finish_request()` | direkt an den Collector |
+| LiteSpeed | ja | direkt an den Collector |
+| FrankenPHP, RoadRunner | ja | direkt an den Collector |
 | **mod_php** (prefork/worker/event) | **nein** | **lokaler Spool** |
-| CLI, Messenger-Worker | entfällt | direkt an Redis |
+| CLI, Messenger-Worker | entfällt | direkt an den Collector |
 
 **Warum das nicht „praktisch doch geht":** Man könnte argumentieren, die Antwort sei auch
 ohne `fastcgi_finish_request()` beim Client — sobald `Content-Length` gesetzt und der
@@ -101,7 +101,7 @@ erneut, weil der Fehlerzähler noch über der Schwelle steht. Einen eigenen
 Halb-offen-Zustand gibt es deshalb nicht — er ergibt sich.
 
 **Dieser Baustein ist nicht optional, und der Grund ist nicht Eleganz.** Ohne Breaker
-sieht ein Broker-Ausfall so aus: jeder Request läuft in den Verbindungs- oder
+sieht ein Collector-Ausfall so aus: jeder Request läuft in den Verbindungs- oder
 Lese-Timeout. Bei 20 ms Connect- und 30 ms Read-Timeout sind das bis zu **50 ms
 zusätzliche Belegung pro Request**, für die Dauer des Ausfalls. Ein FPM-Pool mit 32
 Kindprozessen bei 200 Requests pro Sekunde ist damit erschöpft, und die Anwendung ist
@@ -117,7 +117,7 @@ sieht, ob und wie oft er gegriffen hat.
 
 ## `dispatch_path`: drei Zustände statt eines Flags
 
-Jeder Frame trägt, auf welchem Weg er den Broker erreicht hat (*3.3.1*). Ein binäres
+Jeder Frame trägt, auf welchem Weg er den Collector erreicht hat (*3.3.1*). Ein binäres
 „late"-Flag wäre hier falsch — es würde planmäßig verzögerten Versand und Nachlauf nach
 einem Ausfall in einen Topf werfen.
 
@@ -138,9 +138,9 @@ Wert für einen ganzen Lauf wäre für mindestens einen der beiden Fälle falsch
 
 ## Der Spool
 
-Der Spool ist **kein Übertragungsweg zum Collector**. Der Collector liest ausschließlich
-aus Redis; `ids:sensor:spool:flush` läuft neben der überwachten Anwendung und benutzt
-dieselben XADD-only-Rechte. Die Rechtetrennung bleibt vollständig intakt.
+Der Spool ist **kein zweiter Übertragungsweg**. `ids:sensor:spool:flush` sendet an
+dieselben Endpunkte und mit denselben Zugangsdaten wie der Request-Pfad; der Collector
+sieht keinen Unterschied. Die Rechtetrennung bleibt vollständig intakt.
 
 ### Drei Folgen unter mod_php
 

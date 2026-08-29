@@ -7,8 +7,6 @@ namespace ProjektMotor\IdsSensor\Command;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
 use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
-use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
-use ProjektMotor\IdsSensor\Support\Identity\InstanceIdProvider;
 use ProjektMotor\IdsSensor\Support\Identity\SensorIdentityProvider;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -64,7 +62,6 @@ final class SetupCheckCommand extends Command
      */
     public function __construct(
         private readonly SensorIdentityProvider $identityProvider,
-        private readonly EnvironmentResolver $environmentResolver,
         private readonly RuntimeProfile $runtime,
         private readonly array $config,
         // Konkret und nicht nullbar, aus zwei Gründen. Erstens ist er nie null: der
@@ -109,7 +106,6 @@ final class SetupCheckCommand extends Command
         $io->title('IDS-Sensor — Betriebsprüfung');
 
         $this->checkIdentity($io);
-        $this->checkEnvironment($io);
         $this->checkSessionHash($io);
         $this->checkRawLimits();
         $this->checkTransport($io);
@@ -153,52 +149,28 @@ final class SetupCheckCommand extends Command
 
         $io->definitionList(
             ['application_id' => $identity->applicationId],
-            ['instance_id' => $identity->instanceId],
-            ['environment' => $identity->environment->value],
+            ['environment_id' => $identity->environmentId],
+            ['sensor_id' => $identity->sensorId],
         );
 
         foreach ($problems as $problem) {
             $this->findings[] = 'Kennung: '.$problem;
         }
 
-        // Ein zur Compile-Zeit eingebackener Hostname wäre in allen Replicas derselbe und
-        // bräche die Aggregationsregel aus Konzept 2.2.1 — jede Instanz sähe aus wie eine.
+        // Die sensor_id MUSS je Node verschieden sein (Konzept 2.3). Teilen sich
+        // Replikate eine — etwa über eine gemeinsame ConfigMap —, sind sie
+        // ununterscheidbar, und ids.sensor_silent schweigt beim Ausfall einzelner.
         //
-        // Der Vergleich liegt in InstanceIdProvider, weil dort die Bereinigung liegt.
-        // Hier stand `=== gethostname()` gegen die bereits bereinigte Kennung — auf
-        // jedem Host, dessen Name gekürzt werden muss (FQDN über 64 Zeichen), ein
-        // Falsch-Positiv, mit `--strict` ein Exit 1 für eine richtige Konfiguration.
-        $hostname = (string) gethostname();
-
-        if (InstanceIdProvider::matchesHostname($identity->instanceId, $hostname)) {
-            return;
-        }
-
+        // Prüfbar ist das von hier aus nicht: Ein einzelner Prozess sieht die anderen
+        // Replikate nicht. Also ein Hinweis, kein Befund — er erinnert daran, wo der
+        // Wert herkommen muss, ohne eine Prüfung vorzutäuschen, die es nicht gibt.
         $this->hints[] = \sprintf(
-            'instance_id ("%s") entspricht nicht dem Hostnamen ("%s"). Das ist in Ordnung, wenn sie '
-            .'bewusst gesetzt wurde — bei mehreren Replicas MUSS sie aber je Instanz unterschiedlich '
-            .'sein, sonst sind alle Instanzen in den Auswertungen eine (Konzept 2.2.1).',
-            $identity->instanceId,
-            $hostname,
-        );
-    }
-
-    /**
-     * Der teuerste Fehler überhaupt — und der unauffälligste.
-     */
-    private function checkEnvironment(SymfonyStyle $io): void
-    {
-        if ($this->environmentResolver->isResolvable()) {
-            return;
-        }
-
-        $this->findings[] = \sprintf(
-            'environment "%s" ist nicht auf prod|staging|dev abbildbar. Der Sensor benutzt den '
-            .'Rückfallwert, aber die Zuordnung ist geraten. Bitte ids_sensor.environment_map ergänzen. '
-            .'Grund für den harten Abbruch: der Collector verlangt env_type NOT NULL (Konzept 4.2.1) — '
-            .'ein falscher Wert führt zu stillem Totalverlust dieser Instanz, und der ist von einem '
-            .'toten Sensor nicht zu unterscheiden.',
-            $this->environmentResolver->configuredValue(),
+            'sensor_id ist "%s". Sie MUSS je Node verschieden sein und darf nicht aus einer '
+            .'geteilten Konfiguration stammen (eigenes Secret, Downward API oder '
+            .'knotenspezifische Datei). Teilen sich Replikate eine Kennung, sind sie in den '
+            .'Auswertungen einer, und ids.sensor_silent schweigt beim Ausfall einzelner '
+            .'(Konzept 2.3).',
+            $identity->sensorId,
         );
     }
 
@@ -321,24 +293,50 @@ final class SetupCheckCommand extends Command
 
     private function checkTransport(SymfonyStyle $io): void
     {
-        /** @var array{dsn: string|null, options: array<string, mixed>} $transport */
-        $transport = $this->config['transport'];
-        $dsn = $transport['dsn'];
+        /** @var array{base_uri: string|null, username: string|null, password: string|null, verify_tls: bool} $collector */
+        $collector = $this->config['collector'];
+        $baseUri = $collector['base_uri'];
 
-        if (null === $dsn || '' === $dsn) {
+        if (null === $baseUri || '' === $baseUri) {
             $this->findings[] =
-                'Keine transport.dsn konfiguriert. Der Sensor erfasst, versendet aber nichts — '
+                'Keine collector.base_uri konfiguriert. Der Sensor erfasst, versendet aber nichts — '
                 .'die Events enden im Nichts.';
 
             return;
         }
 
-        $io->definitionList(['transport' => preg_replace('#://[^@/]*@#', '://***@', $dsn) ?? $dsn]);
+        $io->definitionList(
+            ['collector.base_uri' => $baseUri],
+            ['collector.verify_tls' => $collector['verify_tls'] ? 'true' : 'false'],
+        );
 
-        // KEINE auto_setup-Prüfung mehr. Sie stand hier, weil `transport.options` den
-        // Wert überschreiben konnte — das lehnt der Konfigurationsbaum jetzt ab, und zwar
-        // beim Kompilieren. Ein Befund im Deploy-Check wäre die schwächere Antwort auf
-        // dieselbe Frage: Er käme später und ließe sich mit `|| true` abschalten.
+        // Ohne Zugangsdaten scheitert die Anmeldung, und der Sensor spoolt bis der
+        // Puffer voll ist. Das sieht von außen aus wie ein nicht erreichbarer
+        // Collector — deshalb hier und nicht erst im Betrieb.
+        foreach (['username', 'password'] as $feld) {
+            if (null === ($collector[$feld] ?? null) || '' === $collector[$feld]) {
+                $this->findings[] = \sprintf(
+                    'collector.%s fehlt. Ohne Zugangsdaten scheitert die Anmeldung am Collector, '
+                    .'und der Sensor spoolt, bis der Puffer voll ist.',
+                    $feld,
+                );
+            }
+        }
+
+        if (!str_starts_with($baseUri, 'https://')) {
+            $this->findings[] = \sprintf(
+                'collector.base_uri ist "%s" — kein HTTPS. Zugangsdaten und Ereignisse gingen im '
+                .'Klartext über die Leitung; Konzept 4.5.3 verlangt TLS.',
+                $baseUri,
+            );
+        }
+
+        if (false === $collector['verify_tls']) {
+            $this->findings[] =
+                'collector.verify_tls ist abgeschaltet. Das verwandelt eine authentifizierte '
+                .'Verbindung in eine, die jeder auf dem Weg übernehmen kann, und es fällt im '
+                .'Betrieb nicht auf (Konzept 4.5.3).';
+        }
     }
 
     /**
@@ -704,27 +702,14 @@ final class SetupCheckCommand extends Command
                 .'träger.';
         }
 
-        /** @var array{dsn: string|null} $transport */
-        $transport = $this->config['transport'];
-        $dsn = (string) ($transport['dsn'] ?? '');
-
-        if (!str_starts_with($dsn, 'redis')) {
-            return;
-        }
-
-        if (!\extension_loaded('redis') && !\extension_loaded('relay')) {
-            $this->findings[] = 'Die DSN nutzt Redis, aber weder ext-redis noch ext-relay ist geladen.';
-        }
-
-        // Der Stolperstein aus der Installation: symfony/redis-messenger ist eine
-        // Entwicklungsabhängigkeit DIESES Bundles. Die Anwendung muss es selbst in `require`
-        // aufnehmen, sonst registriert Symfony die Transport-Factory nicht — der Befund
-        // lautet dann „No transport supports Messenger DSN".
-        if (!class_exists('Symfony\Component\Messenger\Bridge\Redis\Transport\RedisTransportFactory')) {
+        // Der Stolperstein aus der Installation: symfony/http-client ist zwar eine
+        // Abhängigkeit dieses Bundles, aber die Anwendung kann sie über einen
+        // Replace-Eintrag oder ein eigenes Autoload verlieren. Ohne sie gibt es keinen
+        // Transport, und der Sensor spoolt in ein Nichts.
+        if (!interface_exists('Symfony\Contracts\HttpClient\HttpClientInterface')) {
             $this->findings[] =
-                'Die Redis-Transport-Factory fehlt. Die Anwendung muss "symfony/redis-messenger" '
-                .'selbst in require aufnehmen — als Entwicklungsabhängigkeit dieses Bundles wird die '
-                .'Factory dort nicht registriert.';
+                'symfony/http-client fehlt. Ohne HTTP-Client gibt es keinen Transport zum '
+                .'Collector — der Sensor erfasst, spoolt und verwirft.';
         }
     }
 }

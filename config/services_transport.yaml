@@ -1,8 +1,8 @@
-# Der Transport — nur geladen, wenn eine DSN konfiguriert ist; sonst bleibt der NullShipper.
+# Der Transport — nur geladen, wenn eine Collector-Adresse konfiguriert ist; sonst
+# bleibt der NullShipper aus services.yaml stehen.
 #
-# DOPPELUNG: die Serializer-ID steht als Zeichenkette hier UND als Konstante
-# IdsSensorBundle::SERIALIZER_ID — YAML erlaubt in Schlüsseln keine Konstanten. Ein Test
-# prüft beide gegeneinander.
+# Bis schema_version 1 stand hier ein Messenger-Transport mit eigenem Serializer.
+# Beides ist mit dem Wechsel auf die REST-Schnittstelle entfallen (Konzept 3.6).
 
 services:
     _defaults:
@@ -10,23 +10,50 @@ services:
         autowire: false
         autoconfigure: true
 
-    # JSON, niemals PhpSerializer: dessen Ausgabe auf dem Stream wäre ein
-    # Deserialisierungs-Pfad aus der überwachten Anwendung in den Beweisspeicher. Der Sensor
-    # hat zwingend Schreibrecht — ein Angreifer mit Codeausführung könnte damit eine Gadget
-    # Chain in genau der Komponente zünden, die die Kompromittierung überleben soll.
-    #
-    # = IdsSensorBundle::SERIALIZER_ID
-    ids_sensor.transport.serializer:
-        class: ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer
-
-    # Das Argument ist der TRANSPORT, nicht ein Message-Bus: ein eigener Bus hat die
-    # Messenger-Einrichtung der überwachten Anwendung beschädigt (ausführlich in
-    # MessengerShipper). `@ids_sensor.transport` ist ein Alias, den das Bundle zur Ladezeit
-    # auf `messenger.transport.<name>` setzt — der Name ist konfigurierbar.
-    ids_sensor.shipper.messenger:
-        class: ProjektMotor\IdsSensor\Delivery\Transport\Shipper\MessengerShipper
+    # Ein eigener Client statt des geteilten `http_client`: Die Zeitgrenzen sind hier
+    # Sicherheitsaussagen und nicht Bequemlichkeit. Konzept 4 nennt Verbindungs- und
+    # Antwort-Timeout als die einzigen Grenzen, die PHP beim Netzzugriff wirklich
+    # durchsetzt — der Client der Anwendung hat andere und darf sie behalten.
+    ids_sensor.http_client:
+        class: Symfony\Contracts\HttpClient\HttpClientInterface
+        factory: ['Symfony\Component\HttpClient\HttpClient', 'create']
         arguments:
-            - '@ids_sensor.transport'
+            - timeout: '%ids_sensor.budget.read_timeout_s%'
+              max_duration: '%ids_sensor.budget.dispatch_s%'
+              # Der Verbindungsaufbau getrennt von der Antwort — Konzept 4 nennt beide
+              # einzeln, weil ein nicht erreichbarer Collector anders aussieht als ein
+              # langsamer.
+              connect_timeout: '%ids_sensor.budget.connect_timeout_s%'
+              verify_peer: '%ids_sensor.collector.verify_tls%'
+              verify_host: '%ids_sensor.collector.verify_tls%'
+
+    # Prozessuebergreifend, wie der Breaker-Zustand: ohne geteilte Ablage holte sich
+    # jedes PHP-FPM-Kind sein eigenes Token, und aus einer Anmeldung je Stunde wuerden
+    # Tausende. Der Geltungsbereich ist die sensor_id — anders als beim Breaker, dessen
+    # Ausfall alle Sensoren eines Hosts gemeinsam trifft, gehoert ein Token genau einem.
+    ids_sensor.collector.token_store:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Http\TokenStore
+        arguments:
+            $directory: '%ids_sensor.spool.dir%'
+            $scopeKey: '%ids_sensor.sensor_id%'
+
+    ids_sensor.collector.token_provider:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Http\TokenProvider
+        arguments:
+            $client: '@ids_sensor.http_client'
+            $store: '@ids_sensor.collector.token_store'
+            $baseUri: '%ids_sensor.collector.base_uri%'
+            $username: '%ids_sensor.collector.username%'
+            $password: '%ids_sensor.collector.password%'
+            $leewaySeconds: '%ids_sensor.collector.token_leeway_s%'
+
+    ids_sensor.shipper.http:
+        class: ProjektMotor\IdsSensor\Delivery\Transport\Http\HttpShipper
+        arguments:
+            $client: '@ids_sensor.http_client'
+            $identityProvider: '@ids_sensor.identity_provider'
+            $tokens: '@ids_sensor.collector.token_provider'
+            $baseUri: '%ids_sensor.collector.base_uri%'
 
     ids_sensor.shipper:
-        alias: ids_sensor.shipper.messenger
+        alias: ids_sensor.shipper.http

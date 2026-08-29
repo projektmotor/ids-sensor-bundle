@@ -45,7 +45,7 @@ final class SharedStateStore implements BreakerStateStoreInterface
     {
         // Der Schlüssel grenzt den Zustand ab, damit in einem geteilten APCu-Segment
         // nicht zwei Anwendungen denselben Breaker benutzen. Verdrahtet wird die
-        // application_id, nicht die instance_id: der Broker ist für alle Instanzen
+        // application_id, nicht die sensor_id: der Collector ist für alle Sensoren
         // derselbe, also ist auch sein Ausfall gemeinsam.
         $this->apcuKey = self::APCU_KEY_PREFIX.$scopeKey;
         $this->file = rtrim($directory, '/').'/breaker.state';

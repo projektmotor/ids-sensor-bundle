@@ -7,9 +7,7 @@ namespace ProjektMotor\IdsSensor;
 use ProjektMotor\IdsEventData\Event\EventSchema;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use ProjektMotor\IdsSensor\DependencyInjection\Compiler\BusinessCaptureModePass;
-use ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass;
 use ProjektMotor\IdsSensor\DependencyInjection\ConfigurationTree;
-use ProjektMotor\IdsSensor\Support\Identity\EnvironmentResolver;
 use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\RulesLoader;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
@@ -40,78 +38,11 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  */
 final class IdsSensorBundle extends AbstractBundle
 {
-    public const SERIALIZER_ID = 'ids_sensor.transport.serializer';
-
-    /**
-     * Alias auf den Messenger-Transport, über den der Shipper versendet.
-     *
-     * Nötig, weil die eigentliche Service-ID den konfigurierbaren Transportnamen enthält
-     * (`messenger.transport.<name>`) und eine statische YAML-Datei den nicht kennen kann.
-     * Denselben Weg geht Symfony selbst für `messenger.failure_transports.default`.
-     */
-    public const TRANSPORT_ID = 'ids_sensor.transport';
-
-    /**
-     * Sichere Vorgaben für den Redis-Transport. Anwendungsseitige Optionen werden
-     * darüber gemischt.
-     *
-     * `auto_setup: false` ist PFLICHT und der wahrscheinlichste
-     * Erstinstallationsfehler: der Messenger-Standard sendet beim ersten Zugriff
-     * `XGROUP CREATE ... MKSTREAM`. Die XADD-only-Rechte aus Konzept 2. lehnen das ab.
-     * Das Tückische daran ist, dass es in der Entwicklung mit unbeschränktem
-     * Redis-Nutzer funktioniert und erst beim ersten Versand in Produktion scheitert.
-     * Die Consumer-Gruppe erzeugt der Collector.
-     *
-     * Die Timeouts sind die einzige Zeitgrenze, die PHP beim Broker-Zugriff wirklich
-     * durchsetzen kann (siehe {@see Dispatch\EventFlusher}).
-     * Ohne ausdrückliche Angabe wartet phpredis unbegrenzt.
-     *
-     * @var array<string, scalar>
-     */
-    private const TRANSPORT_DEFAULTS = [
-        'auto_setup' => false,
-        'timeout' => 0.02,
-        'read_timeout' => 0.03,
-
-        // MUSS true sein: Symfonys Vorgabe ist false, und dann öffnet
-        // Connection::__construct() die Verbindung sofort — beim ERZEUGEN des Services, nicht
-        // beim Senden.
-        //
-        // Das ist unvereinbar mit fail-open. Der Shipper ist ein Konstruktorargument des
-        // FrameDispatcher, der wiederum eines des EventFlusher ist, und dieser wird vom
-        // FlushListener in kernel.terminate angefordert. Eine
-        // Verbindungs-Exception entstünde dort also, WÄHREND der Container den Listener baut
-        // — also außerhalb des try/catch im Flusher und damit unmittelbar in der überwachten
-        // Anwendung. Genau der Fall, den Konzept 4. ausschließt.
-        //
-        // Mit lazy: true fällt der Verbindungsversuch auf den ersten send()-Aufruf, und der
-        // liegt im abgesicherten Pfad. Solange der Versand über einen Message-Bus lief, war
-        // das zufällig richtig — der Bus erzeugte den Transport erst beim Dispatch. Diese
-        // Absicherung war also nie beabsichtigt, sondern ein Nebeneffekt.
-        'lazy' => true,
-
-        // \Redis::SERIALIZER_NONE. Als Zahl, weil das Bundle ohne ext-redis
-        // installierbar bleiben muss und eine Klassenkonstante die Erweiterung schon
-        // beim Bauen des Containers verlangen würde.
-        //
-        // MUSS auf 0 stehen. Symfonys Redis-Transport verwendet als Vorgabe
-        // \Redis::SERIALIZER_PHP; phpredis serialisiert den Wert dann auf
-        // Verbindungsebene, und im Stream landet `s:956:"{"body":…"` statt reinem
-        // JSON. Zwei Folgen, beide unerwünscht:
-        //
-        //  - Der Collector müsste unserialize() aufrufen — also genau der Pfad, den
-        //    der eigene JSON-Serializer vermeidet (siehe MessageSerializer).
-        //  - Die Paketgrenze wäre nicht mehr das Format aus Konzept Abschnitt 3: ein
-        //    Leser ohne PHP könnte den Stream nicht auswerten.
-        'serializer' => 0,
-    ];
-
     public function build(ContainerBuilder $container): void
     {
         parent::build($container);
 
         $container->addCompilerPass(new BusinessCaptureModePass());
-        $container->addCompilerPass(new LazyTransportPass());
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -150,101 +81,6 @@ final class IdsSensorBundle extends AbstractBundle
             'ids_sensor.session_hash.framework_cookie_name',
             self::rawSessionCookieName($builder),
         );
-
-        $transport = self::rawTransportConfig($builder);
-
-        if (null === $transport['dsn'] || '' === $transport['dsn']) {
-            // Ohne DSN bleibt es beim NullShipper. Das Bundle ist damit
-            // installierbar, ohne dass ein Broker existiert — nützlich, um das
-            // Erfassungsbudget zu messen, bevor Infrastruktur bereitsteht.
-            return;
-        }
-
-        $messenger = [];
-
-        // NUR `transports`. Ausdrücklich KEIN `buses` und KEIN `routing`.
-        //
-        // Ein eigener Bus wäre die naheliegende Lösung und war es auch — bis auffiel, dass
-        // sie die überwachte Anwendung beschädigt: sobald das Bundle einen Wert für `buses`
-        // beisteuert, greift Symfonys Vorgabe `messenger.bus.default` nicht mehr. Bei einer
-        // Anwendung ohne ausdrückliche Buses blieb dann nur noch der sendende Bus des
-        // Sensors übrig und wurde ihr Standard-Bus; bei einer Anwendung MIT eigenem Bus
-        // brach die Kompilierung ab („You must specify the default_bus").
-        //
-        // Der Shipper spricht deshalb den Transport direkt an. Routing wird damit ebenfalls
-        // überflüssig — es ordnet Nachrichtenklassen einem Transport zu, und den kennt der
-        // Shipper bereits.
-        if ($transport['register_transport']) {
-            $messenger['transports'] = [
-                $transport['name'] => [
-                    'dsn' => $transport['dsn'],
-                    'serializer' => self::SERIALIZER_ID,
-                    'options' => array_merge(
-                        self::TRANSPORT_DEFAULTS,
-                        // Die beiden Zeitgrenzen kommen aus der Konfiguration und nicht
-                        // aus TRANSPORT_DEFAULTS. Dort standen sie hartkodiert als 0.02
-                        // und 0.03 — numerisch identisch mit den Vorgaben von
-                        // budget.connect_timeout_ms und read_timeout_ms, die niemand las.
-                        // Wer sie änderte, bekam eine plausible Bestätigung durch
-                        // debug:config und keine Wirkung.
-                        self::rawBrokerTimeouts($builder),
-                        $transport['options'],
-                    ),
-                    // Wirkt nur auf Consumer-Seite. Ausdrücklich gesetzt, damit nicht
-                    // der Eindruck entsteht, der Sensor würde erneut versuchen — er
-                    // spoolt stattdessen.
-                    'retry_strategy' => ['max_retries' => 0],
-                ],
-            ];
-        }
-
-        if ([] !== $messenger) {
-            // Über den ContainerBuilder statt über ContainerConfigurator::extension().
-            // Deren dritter Parameter $prepend gibt es erst ab Symfony 7.0; unter 6.4
-            // verschluckt PHP das Argument stillschweigend, und die Konfiguration
-            // würde angehängt — genau die Rangfolge, die oben ausgeschlossen wird.
-            $builder->prependExtensionConfig('framework', ['messenger' => $messenger]);
-        }
-    }
-
-    /**
-     * Die Broker-Zeitgrenzen aus der noch unverarbeiteten Konfiguration, in Sekunden.
-     *
-     * Muss hier gelesen werden und nicht in loadExtension(): Die Transport-Optionen
-     * entstehen beim Vorbereiten der framework-Konfiguration, also bevor irgendeine
-     * Extension geladen ist. Derselbe Grund wie bei {@see rawTransportConfig()}.
-     *
-     * Die Werte standen bis hierher hartkodiert in {@see TRANSPORT_DEFAULTS} — numerisch
-     * identisch mit den Vorgaben von `budget.connect_timeout_ms` und
-     * `budget.read_timeout_ms`, die niemand las. Wer sie änderte, bekam eine plausible
-     * Bestätigung durch `debug:config` und keine Wirkung.
-     *
-     * @return array{timeout: float, read_timeout: float}
-     */
-    private static function rawBrokerTimeouts(ContainerBuilder $builder): array
-    {
-        $verbindung = 20;
-        $antwort = 30;
-
-        foreach ($builder->getExtensionConfig('ids_sensor') as $config) {
-            if (!\is_array($config) || !isset($config['budget']) || !\is_array($config['budget'])) {
-                continue;
-            }
-
-            $verbindung = self::alsMillisekunden($config['budget']['connect_timeout_ms'] ?? null, $verbindung);
-            $antwort = self::alsMillisekunden($config['budget']['read_timeout_ms'] ?? null, $antwort);
-        }
-
-        return ['timeout' => $verbindung / 1000, 'read_timeout' => $antwort / 1000];
-    }
-
-    /**
-     * %env()%-Platzhalter sind hier noch nicht aufgelöst; was nicht numerisch ist,
-     * bleibt beim bisherigen Wert.
-     */
-    private static function alsMillisekunden(mixed $wert, int $rueckfall): int
-    {
-        return is_numeric($wert) ? (int) $wert : $rueckfall;
     }
 
     /**
@@ -311,42 +147,6 @@ final class IdsSensorBundle extends AbstractBundle
     }
 
     /**
-     * Liest die Transportangaben aus der noch unverarbeiteten Konfiguration.
-     *
-     * @return array{name: string, dsn: string|null, options: array<string, mixed>, register_transport: bool}
-     */
-    private static function rawTransportConfig(ContainerBuilder $builder): array
-    {
-        $resolved = [
-            'name' => 'ids_events',
-            'dsn' => null,
-            'options' => [],
-            'register_transport' => true,
-        ];
-
-        foreach ($builder->getExtensionConfig('ids_sensor') as $config) {
-            if (!\is_array($config) || !isset($config['transport']) || !\is_array($config['transport'])) {
-                continue;
-            }
-
-            foreach (array_keys($resolved) as $key) {
-                if (\array_key_exists($key, $config['transport'])) {
-                    $resolved[$key] = $config['transport'][$key];
-                }
-            }
-        }
-
-        // %env()%-Platzhalter werden erst später aufgelöst; als Zeichenkette
-        // durchreichen genügt hier.
-        return [
-            'name' => \is_string($resolved['name']) && '' !== $resolved['name'] ? $resolved['name'] : 'ids_events',
-            'dsn' => \is_string($resolved['dsn']) ? $resolved['dsn'] : null,
-            'options' => \is_array($resolved['options']) ? $resolved['options'] : [],
-            'register_transport' => false !== $resolved['register_transport'],
-        ];
-    }
-
-    /**
      * @param array<string, mixed> $config
      */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
@@ -363,21 +163,8 @@ final class IdsSensorBundle extends AbstractBundle
 
         $builder->setParameter('ids_sensor.enabled', true);
         $builder->setParameter('ids_sensor.application_id', $config['application_id']);
-        $builder->setParameter('ids_sensor.instance_id', $config['instance_id']);
-        $builder->setParameter('ids_sensor.environment', $config['environment']);
-
-        // Die Anwendungskonfiguration wird über die Vorgaben GEMISCHT, nicht
-        // dagegen ausgetauscht. Ein prototypisierter Array-Knoten ersetzt seinen
-        // defaultValue vollständig, sobald irgendein Eintrag gesetzt ist — wer also
-        // nur "abnahme" ergänzen will, verlöre sonst stillschweigend die Abbildung
-        // von "test", "production" und allen anderen Vorgaben. Einzelne Vorgaben
-        // lassen sich weiterhin überschreiben, indem derselbe Schlüssel neu belegt
-        // wird.
-        $builder->setParameter('ids_sensor.environment_map', array_merge(
-            EnvironmentResolver::DEFAULT_MAP,
-            $config['environment_map'],
-        ));
-        $builder->setParameter('ids_sensor.environment_fallback', $config['environment_fallback']);
+        $builder->setParameter('ids_sensor.environment_id', $config['environment_id']);
+        $builder->setParameter('ids_sensor.sensor_id', $config['sensor_id']);
         $builder->setParameter('ids_sensor.schema_version', EventSchema::SCHEMA_VERSION);
 
         // Flache Parameter für die Werte, die die Verdrahtung braucht. Ein
@@ -396,10 +183,27 @@ final class IdsSensorBundle extends AbstractBundle
             'ids_sensor.layers.kernel.capture_fatal_errors',
             $config['layers']['kernel']['enabled'] && $config['layers']['kernel']['capture_fatal_errors'],
         );
-        // Erscheinen als Messenger-Optionen am Transport, nicht als eigener Dienst —
-        // deshalb stehen sie in der Ausnahmeliste von ConfigurationReachTest.
+        // In Millisekunden für die Konfiguration, in Sekunden für den HTTP-Client —
+        // beide Fassungen unten, damit die Umrechnung nicht in der YAML als Zeichenkette
+        // stehen bleibt.
         $builder->setParameter('ids_sensor.budget.connect_timeout_ms', $config['budget']['connect_timeout_ms']);
         $builder->setParameter('ids_sensor.budget.read_timeout_ms', $config['budget']['read_timeout_ms']);
+
+        // Dieselben Grenzen in Sekunden. Symfonys HTTP-Client rechnet in Sekunden,
+        // die Konfiguration steht in Millisekunden — die Umrechnung gehört hierher
+        // und nicht in die YAML, wo sie als Zeichenkette stehen bliebe.
+        $builder->setParameter(
+            'ids_sensor.budget.connect_timeout_s',
+            $config['budget']['connect_timeout_ms'] / 1000,
+        );
+        $builder->setParameter(
+            'ids_sensor.budget.read_timeout_s',
+            $config['budget']['read_timeout_ms'] / 1000,
+        );
+        $builder->setParameter(
+            'ids_sensor.budget.dispatch_s',
+            $config['budget']['dispatch_ms'] / 1000,
+        );
         $builder->setParameter('ids_sensor.telemetry.latency_histogram', $config['telemetry']['latency_histogram']);
 
         $builder->setParameter('ids_sensor.session_hash.enabled', $config['session_hash']['enabled']);
@@ -502,13 +306,19 @@ final class IdsSensorBundle extends AbstractBundle
             $container->import('../config/services_business.yaml');
         }
 
-        // Ohne DSN bleibt der NullShipper aus services.yaml stehen.
-        $builder->setParameter('ids_sensor.transport.name', $config['transport']['name']);
-        // Ob überhaupt ein Broker erreichbar wäre. Der SpoolFlushCommand verweigert ohne
-        // ihn den Dienst, statt den Spool mit dem NullShipper stillschweigend zu leeren.
+        // Ohne Basisadresse bleibt der NullShipper aus services.yaml stehen.
+        $collector = $config['collector'];
+        $builder->setParameter('ids_sensor.collector.base_uri', $collector['base_uri'] ?? '');
+        $builder->setParameter('ids_sensor.collector.username', $collector['username'] ?? '');
+        $builder->setParameter('ids_sensor.collector.password', $collector['password'] ?? '');
+        $builder->setParameter('ids_sensor.collector.token_leeway_s', $collector['token_leeway_s']);
+        $builder->setParameter('ids_sensor.collector.verify_tls', $collector['verify_tls']);
+        // Ob überhaupt ein Collector erreichbar wäre. Der SpoolFlushCommand verweigert
+        // ohne ihn den Dienst, statt den Spool mit dem NullShipper stillschweigend zu
+        // leeren.
         $builder->setParameter(
             'ids_sensor.transport.configured',
-            null !== $config['transport']['dsn'] && '' !== $config['transport']['dsn'],
+            null !== ($collector['base_uri'] ?? null) && '' !== $collector['base_uri'],
         );
 
         $spool = $config['spool'];
@@ -545,11 +355,7 @@ final class IdsSensorBundle extends AbstractBundle
 
         $container->import('../config/services_resilience.yaml');
 
-        if (null !== $config['transport']['dsn'] && '' !== $config['transport']['dsn']) {
-            // Der Alias auf den tatsächlichen Transport-Service. Sein Name ist
-            // konfigurierbar, eine statische YAML-Datei kann ihn deshalb nicht nennen.
-            $builder->setAlias(self::TRANSPORT_ID, 'messenger.transport.'.$config['transport']['name']);
-
+        if (null !== ($collector['base_uri'] ?? null) && '' !== $collector['base_uri']) {
             $container->import('../config/services_transport.yaml');
         }
 

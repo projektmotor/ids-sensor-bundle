@@ -99,6 +99,15 @@ final class TestKernel extends Kernel
             $container->extension('ids_sensor', $this->sensorConfig);
         }
 
+        // Der aufzeichnende Client ersetzt den echten. Er wird nur registriert, wenn
+        // der Sensor ueberhaupt einen Transport hat — ohne collector.base_uri gibt es
+        // den Dienst nicht, und eine Definition ins Leere braeche den Container.
+        if (isset($this->sensorConfig['collector']['base_uri'])) {
+            $container->services()
+                ->set('ids_sensor.http_client', RecordingHttpClient::class)
+                ->public();
+        }
+
         $controller = $container->services()->set(TestController::class)->public();
         $controller->arg('$fragmentHandler', service('fragment.handler'));
 
@@ -127,8 +136,6 @@ final class TestKernel extends Kernel
 
     protected function build(ContainerBuilder $container): void
     {
-        $this->registerRedisTransportFactory($container);
-
         if (null !== $this->fingerprintFile) {
             // AFTER_REMOVING: erst dort sind autowired Argumente und autokonfigurierte Tags
             // aufgelöst. Früher gelesen verglich der Abdruck eine ausgeschriebene Definition
@@ -146,34 +153,6 @@ final class TestKernel extends Kernel
         // BEFORE_REMOVING, damit die Services öffentlich sind, bevor
         // RemoveUnusedDefinitionsPass sie wegräumt.
         $container->addCompilerPass(new ExposeSensorServicesPass(), PassConfig::TYPE_BEFORE_REMOVING);
-    }
-
-    /**
-     * Registriert die Redis-Transport-Factory von Hand.
-     *
-     * Nötig, weil Symfonys FrameworkExtension Bridge-Factories über
-     * ContainerBuilder::willBeAvailable() registriert, und das gibt für ein Paket, das
-     * nur in `require-dev` des Root-Pakets steht, bewusst `false` zurück. Für dieses
-     * Bundle ist symfony/redis-messenger genau das — eine Entwicklungsabhängigkeit,
-     * weil der Transport die Wahl der Anwendung ist und ext-redis nicht erzwungen
-     * werden soll.
-     *
-     * WICHTIGE FOLGE FÜR DIE AUSLIEFERUNG: eine konsumierende Anwendung muss
-     * `symfony/redis-messenger` selbst in `require` aufnehmen. Eine
-     * Entwicklungsabhängigkeit dieses Bundles registriert die Factory dort nicht. Das
-     * gehört in die Installationsanleitung, sonst ist der erste Befund
-     * „No transport supports Messenger DSN redis://…".
-     */
-    private function registerRedisTransportFactory(ContainerBuilder $container): void
-    {
-        $factory = 'Symfony\Component\Messenger\Bridge\Redis\Transport\RedisTransportFactory';
-
-        if (!class_exists($factory) || $container->hasDefinition('messenger.transport.redis.factory')) {
-            return;
-        }
-
-        $container->register('messenger.transport.redis.factory', $factory)
-            ->addTag('messenger.transport_factory');
     }
 
     public function getProjectDir(): string

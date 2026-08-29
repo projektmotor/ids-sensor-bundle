@@ -18,13 +18,15 @@ Vier Angaben sind Pflicht:
 ```yaml
 # config/packages/ids_sensor.yaml
 ids_sensor:
-    application_id: 'shop-api'
-    instance_id: '%env(HOSTNAME)%'
-    environment: '%env(APP_ENV)%'
+    application_id: '%env(IDS_APPLICATION_ID)%'
+    environment_id: '%env(IDS_ENVIRONMENT_ID)%'
+    sensor_id: '%env(IDS_SENSOR_ID)%'
     session_hash:
         key: '%env(IDS_SESSION_HASH_KEY)%'
-    transport:
-        dsn: '%env(IDS_REDIS_DSN)%'
+    collector:
+        base_uri: '%env(IDS_COLLECTOR_URL)%'
+        username: '%env(IDS_COLLECTOR_USER)%'
+        password: '%env(IDS_COLLECTOR_PASSWORD)%'
 ```
 
 ## Herkunftskennung
@@ -32,21 +34,19 @@ ids_sensor:
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
 | `enabled` | `true` | `false` schaltet alle Sensoren ab, ohne das Bundle zu entfernen |
-| `application_id` | **Pflicht** | Kennung der überwachten Anwendung |
-| `instance_id` | `null` | Kennung des Hosts/Containers; `null` ermittelt sie **zur Laufzeit** aus dem Hostnamen |
-| `environment` | **Pflicht** | Rohwert; wird über `environment_map` abgebildet |
-| `environment_map` | siehe unten | Abbildung beliebiger Namen auf `prod\|staging\|dev` |
-| `environment_fallback` | `prod` | greift, wenn `environment` nicht abbildbar ist |
+| `application_id` | **Pflicht** | UUID der überwachten Anwendung |
+| `environment_id` | **Pflicht** | UUID der Umgebung |
+| `sensor_id` | **Pflicht** | UUID dieser Installation — **je Node verschieden** |
 
-**`instance_id`**: Tragen zwei Replicas dieselbe, sind sie in jeder Auswertung *eine*
-Instanz — Schwellwerte pro Instanz feuern dann zu spät oder gar nicht. Häufigste Ursache:
-der Wert wird beim Bauen des Container-Images aufgelöst und trägt den Hostnamen des
-Build-Containers. Deshalb löst dieses Bundle ihn zur Laufzeit auf; setzen Sie ihn über
-eine Variable, die je Pod bzw. Host unterschiedlich ist.
+Alle drei vergibt der Collector beim Registrieren. Der Sensor leitet keine davon ab: Den
+Anzeigenamen einer Umgebung führt das Anwendungsregister, und er darf sich ändern, ohne
+dass hier etwas nachzuziehen ist.
 
-**`environment`** ist der Wert, dessen Fehler völlig lautlos bleibt. Der Collector führt
-`env_type` als `NOT NULL` mit genau `prod`, `staging`, `dev` (*4.2.1*). Kommt etwas anderes
-an, scheitert das Einfügen: stiller Totalverlust dieser Instanz.
+**`sensor_id`**: Tragen zwei Replicas dieselbe, sind sie in jeder Auswertung *ein* Sensor,
+und `ids.sensor_silent` schweigt, wenn einzelne ausfallen. In Kubernetes teilen sich alle
+Replikate eines Deployments eine ConfigMap — die Kennung muss also je Node kommen: eigenes
+Secret, Downward API oder knotenspezifische Datei. `application_id` und `environment_id`
+dürfen geteilt sein.
 
 Die mitgelieferte Abbildung — eigene Einträge werden **hinzugemischt**, nicht dagegen
 ausgetauscht:
@@ -204,12 +204,12 @@ Details in [04 — Request-Lebenszyklus](04-request-lebenszyklus.md#sampling-ein
 |---|---|---|
 | `capture_us` | `1500` | Erfassungsbudget im Request; `0` = unbegrenzt (CLI/Worker) |
 | `dispatch_ms` | `50` | Versandbudget nach dem Absenden der Antwort |
-| `connect_timeout_ms` | `20` | Broker-Verbindungsaufbau |
-| `read_timeout_ms` | `30` | Broker-Antwort |
+| `connect_timeout_ms` | `20` | Verbindungsaufbau zum Collector |
+| `read_timeout_ms` | `30` | Antwort des Collectors |
 | `fatal_dispatch_ms` | `15` | Zeitrahmen für die Rettung im Shutdown; Überschreitung wird protokolliert, nicht abgebrochen |
 | `max_events_per_request` | `64` | Puffergrenze pro Durchlauf; Pflicht-Events haben acht Plätze darüber hinaus |
 
-`dispatch_ms` wird als Frist **zwischen** Broker-Operationen geprüft — PHP kann einen
+`dispatch_ms` wird als Frist **zwischen** den Operationen geprüft — PHP kann einen
 laufenden Syscall nicht abbrechen.
 
 **Warum Pflicht-Events eine eigene Reserve haben.** `max_events_per_request` begrenzt,
@@ -233,26 +233,29 @@ Reserve ist endlich; was darüber hinausgeht, wird verworfen und als
 auf einer mod_php-Installation anrichtet, steht in
 [05 — Versandweg](05-versandweg.md#schranke-1-ist-die-antwort-abkoppelbar).
 
-## `transport`
+## `collector`
 
 | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|
-| `name` | `ids_events` | Name des Messenger-Transports |
-| `dsn` | `null` | `null` bedeutet: die Anwendung konfiguriert ihn selbst |
-| `register_transport` | `true` | `false` überlässt die Registrierung der Anwendung |
-| `options` | `[]` | wird über die sicheren Vorgaben gemischt; `auto_setup`, `lazy` und `serializer` sind gesperrt |
+| `base_uri` | `null` | Basisadresse des Collectors; `null` lässt den Sensor erfassen, aber nichts senden |
+| `username` | `null` | Benutzername der Zugangsdaten |
+| `password` | `null` | Passwort — gehört in eine Umgebungsvariable, nicht in die Datei |
+| `token_leeway_s` | `60` | Vorlauf, mit dem das Zugangstoken **vorausschauend** erneuert wird |
+| `verify_tls` | `true` | Zertifikatsprüfung |
 
-**`auto_setup`, `lazy` und `serializer` lassen sich nicht überschreiben.** Sie standen
-hier als Bitte und wurden von `array_merge` überstimmt. Wer einen von ihnen in
-`options` setzt, bekommt jetzt einen Fehler beim Kompilieren:
+**`token_leeway_s`**: Der Sensor holt sein Token an `/api/v1/token` und legt es
+prozessübergreifend ab. Erneuert wird vor dem Ablauf, nicht erst auf ein `401` — eine
+Erneuerung im Fehlerfall wäre ein zweiter Netzwerk-Roundtrip innerhalb des
+50-ms-Versandbudgets, also genau das, was das Budget verhindern soll.
 
-- `auto_setup: true` sendet `XGROUP CREATE … MKSTREAM`, was die XADD-only-Rechte aus
-  [07 — Betrieb](07-betrieb.md#broker-rechte-nur-schreiben) mit `NOPERM` ablehnen. In der
-  Entwicklung mit weiten Rechten fällt das nicht auf, in Produktion beim ersten Versand.
-- `lazy: false` öffnet die Verbindung beim **Bauen** des Dienstes, also außerhalb jedes
-  `try/catch` des Sensors — ein Bruch von fail-open (Konzept 4.).
-- `serializer` ist der `MessageSerializer`; ein anderer schriebe ein anderes Drahtformat
-  als das aus Konzept Abschnitt 3, oder — bei `PhpSerializer` — `unserialize()`-Daten.
+**`verify_tls: false`** verwandelt eine authentifizierte Verbindung in eine, die jeder auf
+dem Weg übernehmen kann, und es fällt im Betrieb nicht auf. `ids:sensor:setup-check`
+meldet es als Befund, ebenso eine `base_uri` ohne `https://`.
+
+**Ohne `base_uri` bleibt der NullShipper stehen.** Das Bundle ist damit installierbar,
+bevor ein Collector bereitsteht — nützlich, um das Erfassungsbudget zu messen, ohne dass
+Netzlatenz und Sensorkosten sich vermischen. `ids:sensor:spool:flush` verweigert dann den
+Dienst, statt den Spool stillschweigend zu leeren.
 
 ## `spool`
 
@@ -283,7 +286,7 @@ Es gibt **keinen** `spool.enabled`-Schalter, und das ist Absicht — Begründung
 | `open_for_s` | `30` | Offenzeit; **`0` macht den Breaker wirkungslos** |
 
 `open_for_s: 0` zählt Fehlschläge, meldet `half_open` und sperrt nie — jeder Request
-zahlt bei einem Broker-Ausfall weiterhin die vollen Timeouts. `ids:sensor:setup-check`
+zahlt bei einem Collector-Ausfall weiterhin die vollen Timeouts. `ids:sensor:setup-check`
 meldet das als Befund.
 
 Die Zustandsübergänge stehen in

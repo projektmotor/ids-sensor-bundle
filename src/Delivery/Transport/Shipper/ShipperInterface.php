@@ -33,10 +33,13 @@ interface ShipperInterface
      * Übergibt einen Heartbeat.
      *
      * Eigene Methode und nicht derselbe Weg wie ein Frame, weil es ein eigener
-     * Nachrichtentyp ist (siehe {@see \ProjektMotor\IdsSensor\Delivery\Transport\Message\Heartbeat}):
-     * `layer`, `event_severity` und `correlation_id` sind laut Konzept 4.2.1 NOT NULL, und
-     * ein Heartbeat hat keines davon. Ihn als Frame zu verpacken würde Ersatzwerte
-     * erfordern und jede Aggregation nach diesen Feldern verfälschen.
+     * Nachrichtentyp ist (Konzept 3.4): `layer`, `event_severity` und `correlation_id`
+     * sind laut Konzept 4.2.1 NOT NULL, und ein Heartbeat hat keines davon. Ihn als
+     * Frame zu verpacken würde Ersatzwerte erfordern und jede Aggregation nach diesen
+     * Feldern verfälschen.
+     *
+     * Beim HTTP-Shipper hat er deshalb eine eigene Route (Konzept 3.6) — damit
+     * unterscheidet der Collector die Nachrichtenarten, ohne den Körper zu parsen.
      *
      * @param array<string, mixed> $payload
      *

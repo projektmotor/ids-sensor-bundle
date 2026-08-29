@@ -15,13 +15,13 @@ use Symfony\Component\Uid\Uuid;
  * mit einem Prozess-Schlüssel sind idempotent: der Collector nimmt je Schlüssel das
  * Maximum und summiert über die Schlüssel.
  *
- * Der Schlüssel ist (instance_id, process_epoch, pid). process_epoch wird einmal pro
+ * Der Schlüssel ist (sensor_id, process_epoch, pid). process_epoch wird einmal pro
  * Prozess erzeugt, damit ein Neustart nicht als Rückwärtssprung erscheint.
  *
  * Diese Umsetzung hält die Werte nur im Prozessspeicher, und dabei bleibt es vorerst.
  * Eine dateibasierte Materialisierung stand hier als „folgt mit dem Spool" — der Spool
  * ist längst da, sie nicht. Sie ist auch keine offene Baustelle, sondern eine
- * Entscheidung: Der Prozess-Schlüssel (instance_id, process_epoch, pid) macht die
+ * Entscheidung: Der Prozess-Schlüssel (sensor_id, process_epoch, pid) macht die
  * Stände collectorseitig zusammensetzbar, ohne dass Prozesse einen gemeinsamen Zustand
  * brauchen. Was ein CLI-Prozess zählt, reist in SEINEN Frames mit; was ein FPM-Kind
  * zählt, in seinen. Erst wenn ein Zähler einen Prozesstod überleben müsste — bisher

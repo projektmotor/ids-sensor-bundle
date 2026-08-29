@@ -38,7 +38,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: json, mbstring, redis, apcu
+          extensions: json, mbstring, apcu
           # memory_limit gleichgezogen mit docker/php/php.ini. setup-php legt
           # php.ini-production zugrunde, und deren 128M reichen der Suite nicht: ein
           # Integrationslauf bootet gut zwei Dutzend Container-Varianten und steht am Ende
@@ -46,20 +46,6 @@ jobs:
           # Suite — kein Testfehler, sondern ein abgeschnittener Prozess.
           ini-values: apc.enable_cli=1, memory_limit=512M
           coverage: none
-
-      # Erst nach dem Checkout, weil die ACL-Datei aus dem Repo kommt. Der Sensor
-      # verbindet sich als eingeschraenkter Nutzer — nur XADD, wie in Produktion.
-      - name: Redis mit ACL starten
-        run: |
-          docker run -d --name redis -p 6379:6379 \
-            -v "${{ github.workspace }}/docker/redis/users.acl:/etc/redis/users.acl:ro" \
-            redis:7-alpine \
-            redis-server --appendonly no --aclfile /etc/redis/users.acl
-          for i in $(seq 1 30); do
-            docker exec redis redis-cli ping >/dev/null 2>&1 && exit 0
-            sleep 1
-          done
-          echo "Redis wurde nicht bereit"; docker logs redis; exit 1
 
       - uses: ramsey/composer-install@v3
         with:
@@ -69,13 +55,6 @@ jobs:
         env:
           SYMFONY_DEPRECATIONS_HELPER: 'max[direct]=0'
         run: vendor/bin/phpunit --testsuite unit,integration ${{ matrix.phpunit }}
-
-      - name: Tests gegen den echten Broker
-        env:
-          IDS_REDIS_DSN: 'redis://ids_sensor:sensor-geheim@127.0.0.1:6379/ids:events:shop-api/ids-collector/sensor'
-          IDS_REDIS_ADMIN: 'redis://127.0.0.1:6379'
-          SYMFONY_DEPRECATIONS_HELPER: 'max[direct]=0'
-        run: vendor/bin/phpunit --group redis
 
   static:
     name: PHPStan und Coding Standards
@@ -90,7 +69,7 @@ jobs:
           # Matrix zu fahren meldet Unterschiede zwischen den Symfony-Zweigen als
           # Fehler im eigenen Code — das waere Rauschen, keine Erkenntnis.
           php-version: '8.3'
-          extensions: json, mbstring, redis, apcu
+          extensions: json, mbstring, apcu
           coverage: none
 
       - uses: ramsey/composer-install@v3

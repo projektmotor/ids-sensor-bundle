@@ -42,7 +42,7 @@ final class DocumentationTest extends TestCase
     private const ABSCHNITTE = [
         'session_hash', 'layers', 'layers.kernel', 'layers.kernel.events', 'layers.security',
         'layers.business', 'raw', 'payload_confidentiality_cleanup', 'sampling', 'budget',
-        'flush', 'transport', 'spool', 'circuit_breaker', 'heartbeat', 'telemetry', 'logging',
+        'flush', 'collector', 'spool', 'circuit_breaker', 'heartbeat', 'telemetry', 'logging',
         'correlation', 'fingerprint',
     ];
 

@@ -4,16 +4,13 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration\PayloadConfidentialityCleanup;
 
-use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
-use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Support\PayloadConfidentialityCleanup\Cleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\Messenger\Envelope;
 
 /**
  * DIE Abnahmeprüfung für Konzept 4.5.1.
@@ -418,28 +415,25 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
 
     private function wireBody(string $variant, ?Request $request = null): string
     {
-        $kernel = $this->boot($variant, 'in-memory://');
+        $kernel = $this->boot($variant);
         $services = $this->services($kernel);
 
         $request ??= $this->loadedRequest();
         $response = $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true);
         $kernel->terminate($request, $response);
 
-        $batches = $this->batches($services);
+        $frames = $this->frames($services);
 
-        self::assertCount(1, $batches, 'Ein Request ergibt genau einen Frame');
+        self::assertCount(1, $frames, 'Ein Request ergibt genau einen Frame');
 
-        $message = $batches[0];
-        /** @var MessageSerializer $serializer */
-        $serializer = $services->get(IdsSensorBundle::SERIALIZER_ID);
-
-        return $serializer->encode(new Envelope($message))['body'];
+        // Genau das, was auf der Leitung steht: der JSON-Rumpf der Sendung.
+        return json_encode($frames[0], \JSON_THROW_ON_ERROR);
     }
 
     private function spoolContent(string $variant): string
     {
-        // Ein Port, auf dem nichts lauscht: der Frame landet zwangsläufig im Spool.
-        $kernel = $this->boot($variant, 'redis://127.0.0.1:6391/ids:cleanup/group/consumer');
+        // Ein Host, den es nicht gibt: der Frame landet zwangsläufig im Spool.
+        $kernel = $this->boot($variant, 'https://nicht-erreichbar.invalid');
         $services = $this->services($kernel);
 
         $request = $this->loadedRequest();
@@ -474,17 +468,18 @@ final class NoPlaintextLeavesTheSensorTest extends IntegrationTestCase
         }
     }
 
-    private function boot(string $variant, string $dsn): TestKernel
+    private function boot(string $variant, string $baseUri = 'https://collector.test'): TestKernel
     {
         $kernel = new TestKernel([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => self::SESSION_KEY],
-            'transport' => ['dsn' => $dsn, 'options' => ['timeout' => 0.05, 'read_timeout' => 0.05]],
+            'collector' => ['base_uri' => $baseUri, 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir],
             // Kein Budget-Deckel: geprüft wird die Redaktion, nicht die Latenz.
             'budget' => ['capture_us' => 0],
-        ], 'cleanup-'.$variant);
+        ], 'cleanup-'.$variant.('https://collector.test' === $baseUri ? '' : '-offline'));
         $kernel->boot();
 
         return $kernel;

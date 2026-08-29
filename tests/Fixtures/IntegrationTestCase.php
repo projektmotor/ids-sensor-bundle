@@ -5,10 +5,7 @@ declare(strict_types=1);
 namespace ProjektMotor\IdsSensor\Tests\Fixtures;
 
 use PHPUnit\Framework\TestCase;
-use ProjektMotor\IdsSensor\Delivery\Transport\Message\EventBatch;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
-use Symfony\Component\VarExporter\LazyObjectInterface;
 
 /**
  * Gemeinsame Basis für Tests, die den TestKernel booten.
@@ -48,51 +45,31 @@ abstract class IntegrationTestCase extends TestCase
     }
 
     /**
-     * Der Transport des Sensors, ausgepackt aus seinem Lazy-Proxy.
+     * Der aufzeichnende HTTP-Client, über den der Sensor im Test versendet.
      *
-     * Seit {@see \ProjektMotor\IdsSensor\DependencyInjection\Compiler\LazyTransportPass}
-     * liefert der Container einen Proxy, der ausschließlich `TransportInterface`
-     * implementiert — in Produktion genau richtig, denn der Shipper ruft nur `send()`.
-     * Die Tests brauchen aber `InMemoryTransport::getSent()`, und das steht nicht im
-     * Interface.
-     *
-     * Auspacken statt den Proxy abschalten: Die Tests sollen denselben Container prüfen,
-     * den die Anwendung bekommt. Ein Transport, der im Test nicht lazy ist, wäre genau
-     * der Unterschied, den ContainerFingerprintTest verhindern soll.
+     * Der TestKernel ersetzt damit `ids_sensor.http_client`. Der echte Pfad durch
+     * HttpShipper und TokenProvider bleibt erhalten — geprüft werden Routenbildung,
+     * Anmeldung und Antwortcodes, nicht nur „irgendetwas wurde übergeben".
      */
-    protected function transport(ContainerInterface $services, string $name = 'ids_events'): InMemoryTransport
+    protected function client(ContainerInterface $services): RecordingHttpClient
     {
-        $transport = $services->get('messenger.transport.'.$name);
+        $client = $services->get('ids_sensor.http_client');
 
-        if ($transport instanceof LazyObjectInterface) {
-            $transport = $transport->initializeLazyObject();
-        }
+        self::assertInstanceOf(RecordingHttpClient::class, $client);
 
-        self::assertInstanceOf(InMemoryTransport::class, $transport);
-
-        return $transport;
+        return $client;
     }
 
     /**
-     * Die Frames, die tatsächlich auf dem Transport gelandet sind.
+     * Die Frames, die tatsächlich auf der Datenroute gelandet sind.
      *
-     * Gezielt nach {@see EventBatch} gefiltert: derselbe Transport befördert auch den
-     * Heartbeat, und der ist ein eigener Nachrichtentyp mit eigenem Payload.
+     * Die Route nimmt eine Liste; hier sind die Listen bereits ausgepackt, weil kein
+     * Test sich für die Bündelung interessiert, der nicht ausdrücklich danach fragt.
      *
-     * @return list<EventBatch>
+     * @return list<array<string, mixed>>
      */
-    protected function batches(ContainerInterface $services, string $name = 'ids_events'): array
+    protected function frames(ContainerInterface $services): array
     {
-        $batches = [];
-
-        foreach ($this->transport($services, $name)->getSent() as $envelope) {
-            $message = $envelope->getMessage();
-
-            if ($message instanceof EventBatch) {
-                $batches[] = $message;
-            }
-        }
-
-        return $batches;
+        return $this->client($services)->frames();
     }
 }

@@ -31,7 +31,7 @@ flowchart TB
     cron --> sched
     term --> sched
     sched["`**Scheduler**<br/><small>drosselt auf interval_s,<br/>prozessübergreifend</small>`"]
-    sched --> send["ids.heartbeat an den Broker"]
+    sched --> send["Heartbeat an den Collector"]
 
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
     classDef transport fill:#F1EFE8,stroke:#5F5E5A,color:#3A3936
@@ -103,61 +103,59 @@ greift.
 | `dropped_frame_too_large` | die Sendung überschreitet `flush.max_frame_bytes` | Payload untersuchen — nicht Plattenplatz, sondern Inhalt |
 | `dropped_spool_full` | Spool voll, Frame verworfen | `spool.max_bytes`, häufiger drainen |
 | `dropped_spool_unreadable` | unlesbare Spool-Zeile oder dauerhaft unversendbarer Frame | ein zweiter Versuch scheitert gleich; Spool-Datei prüfen |
-| `ship_failed` | Broker nicht erreichbar | Broker prüfen; der Frame ging in den Spool |
+| `ship_failed` | Collector nicht erreichbar oder abweisend | Collector prüfen; der Frame ging in den Spool |
 | `heartbeat_failed` | Lebenszeichen konnte nicht gesendet werden | wie `ship_failed` |
 
 **Was nicht zählbar ist**, und das ist eine ehrliche Grenze: `SIGKILL`, der OOM-Killer,
-Container-Eviction und `MAXLEN`-Trimming am Broker sind von innen nicht beobachtbar.
+Container-Eviction und ein Verlust im Collector nach der Annahme sind von innen nicht beobachtbar.
 Stirbt der Prozess hart, sind die gepufferten Events weg — ohne Spur. `ids.event_loss`
 deckt bewusste Verwerfungen und Spool-Überlauf, nicht das harte Wegsterben.
 
 Eine weitere Grenze: entsteht keine Antwort, gibt es kein `kernel.response` — und damit
 kein `raw` der Anfrageseite. Die gepufferten Events werden trotzdem versendet.
 
-## Broker-Rechte: nur schreiben
+## Endpunkt-Rechte: nur schreiben
 
 Der Sensor läuft **in** der Anwendung, die er überwacht. Ist sie kompromittiert, ist er es
-auch. Deshalb darf er ausschließlich schreiben — kein Lesen, kein Löschen (*2.*):
+auch. Deshalb darf er ausschließlich schreiben — kein Lesen, kein Löschen (*2.*).
+
+Das ist keine Rechtekonfiguration mehr, sondern folgt aus dem Endpunktschnitt: Der Sensor
+kennt drei Adressen, und alle drei nehmen nur entgegen.
 
 ```text
-user ids_sensor on >GEHEIM resetkeys resetchannels -@all ~ids:events:* +xadd +ping +client|setinfo
+POST /api/v1/token                                              Anmeldung
+POST /api/v1/sensor-data/{application_id}/{environment_id}/{sensor_id}
+POST /api/v1/sensor-heartbeat/{application_id}/{environment_id}/{sensor_id}
 ```
 
-`+ping` braucht die Verbindungsprüfung. `+client|setinfo` braucht phpredis, weil aktuelle
-Versionen beim Verbinden Bibliotheksname und -version melden — ohne dieses Recht scheitert
-oder protokolliert der Verbindungsaufbau, je nach Version. Ein Detail, das genau in einer
-gehärteten Umgebung auffällt und sonst nirgends.
+Es gibt keinen Endpunkt, der gespeicherte Events zurückgibt, und kein `DELETE`. Ein
+Angreifer in der Anwendung kann damit weder abgesendete Events löschen noch die anderer
+Requests mitlesen.
 
-Ausdrücklich **nicht** erteilt sind `xgroup`, `xread`, `xreadgroup`, `xrange`, `xdel` und
-`del`: ein Angreifer in der Anwendung kann damit weder abgesendete Events löschen noch die
-noch nicht konsumierten Events anderer Requests mitlesen.
+**Die eigentliche Kontrolle ist die Eigentümerprüfung** (*3.6*): Der durch das Token
+authentifizierte Nutzer muss Eigentümer der Kette Anwendung → Umgebung → Sensor sein, die
+im Pfad steht. Ein Sensor kann in seine Konfiguration schreiben, was er will — maßgeblich
+ist, ob es dem gehört, der sich angemeldet hat. Die UUIDs im Pfad sind nicht ratbar, aber
+sie sind nicht die Kontrolle.
 
-Daraus folgt zwingend **`auto_setup: false`**. Der Standard von Symfonys Redis-Transport
-sendet `XGROUP CREATE … MKSTREAM`, und das lehnen die Rechte mit `NOPERM` ab. Dieses Bundle
-setzt den Wert selbst; wer ihn überschreibt, bekommt eine Anwendung, die in der Entwicklung
-funktioniert und beim ersten Versand in Produktion scheitert. **Der wahrscheinlichste
-Erstinstallationsfehler.** Stream und Consumer-Gruppe erzeugt der Collector.
+**Zugangsdaten und Sperre.** Der Collector gibt beim Registrieren `sensor_id`, Benutzername
+und Passwort aus. Ein auffällig gewordener Sensor wird dort stillgelegt — ohne dass jemand
+Infrastruktur anfassen muss. Das ist der Vorteil gegenüber einer Broker-ACL, die getrennt
+gepflegt werden musste.
 
-Übertragen wird ausschließlich JSON, niemals PHP-serialisierte Daten. Das ist eine
-Sicherheitsentscheidung: der Sensor braucht zwingend Schreibrecht, und ein Angreifer mit
-Codeausführung könnte über `PhpSerializer` einen präparierten Payload einstellen, den der
-Collector deserialisiert — Codeausführung in genau der Komponente, die die Kompromittierung
-überleben soll.
+Übertragen wird ausschließlich JSON. Der Sensor braucht zwingend Schreibrecht, und alles,
+was der Collector entgegennimmt, muss er als Daten behandeln — niemals als etwas, das er
+selbst ausführt oder deserialisiert.
 
 ### Ihre Messenger-Einrichtung bleibt unberührt
 
-Das Bundle registriert **einen Transport** und sonst nichts: keine `buses`, kein `routing`,
-keine Middleware. Der Sensor spricht diesen Transport unmittelbar an.
+Das Bundle registriert **keinen** Messenger-Transport, keine `buses`, kein `routing` und
+keine Middleware. Der Sensor spricht den Collector unmittelbar über HTTP an.
 
-Das ist zugesagt und mit einem Test belegt, weil die naheliegende Alternative — ein eigener
-Message-Bus — Ihre Anwendung beschädigt hätte: sobald ein Bundle einen Wert für
-`framework.messenger.buses` beisteuert, greift Symfonys Vorgabe `messenger.bus.default`
-nicht mehr. Eine Anwendung ohne ausdrücklich benannte Buses hätte danach nur noch den
-sendenden Bus des Sensors gehabt, und jedes `$bus->dispatch()` wäre wirkungslos geworden —
-ohne Fehler und ohne Warnung.
-
-Wer den Transport lieber selbst konfiguriert: `transport.register_transport: false`, und
-den Transport unter dem Namen aus `transport.name` anlegen.
+`symfony/messenger` ist nur noch eine optionale Abhängigkeit: Ist es vorhanden, hängt sich
+der Sensor an `WorkerMessageHandledEvent` und `WorkerMessageFailedEvent`, damit ein Worker
+seine Business-Events nicht bis zum Prozessende puffert. Fehlt es, entfallen diese beiden
+Flush-Punkte und sonst nichts.
 
 ## Trusted Proxies
 
@@ -170,7 +168,7 @@ gesetzt, ist `actor.ip` bei **jedem** Event die Proxy-IP. Alle IP-basierten Rege
 | Befehl | Zweck |
 |---|---|
 | `ids:sensor:setup-check` | Betriebsprüfung. Rückgabewert ≠ 0 heißt: die Erkennung ist wirkungslos. Für den Deploy. |
-| `ids:sensor:spool:flush` | Leert den Spool in Richtung Broker. Unter mod_php Pflicht. |
+| `ids:sensor:spool:flush` | Leert den Spool in Richtung Collector. Unter mod_php Pflicht. |
 | `ids:sensor:heartbeat` | Sendet ein Lebenszeichen. Für cron oder systemd-Timer. |
 
 `ids:sensor:setup-check` bitte **nicht** mit `|| true` entschärfen. Der Sinn ist, dass eine
@@ -195,7 +193,7 @@ die Business-Ebene tatsächlich anbinden — siehe
 
 | Symptom | Wahrscheinliche Ursache |
 |---|---|
-| `No transport supports Messenger DSN redis://…` | `symfony/redis-messenger` fehlt — es ist hier eine Entwicklungsabhängigkeit, die Anwendung muss es selbst verlangen |
+| `Anmeldung am Collector scheiterte mit 401` | Benutzername oder Passwort stimmen nicht — `collector.username`/`collector.password` prüfen |
 | `NOPERM … XGROUP` beim ersten Prod-Versand | `auto_setup` wurde überschrieben |
 | Collector meldet `ids.sensor_silent`, Sensor läuft | Heartbeat-cron fehlt (unter mod_php Pflicht) |
 | Gar nichts kommt an, keine Fehlermeldung | unter mod_php: `spool:flush` läuft nicht, oder der Drain-Prozess sieht ein anderes Verzeichnis |

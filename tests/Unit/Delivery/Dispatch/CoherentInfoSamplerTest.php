@@ -8,7 +8,6 @@ use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsEventData\Event\Actor;
 use ProjektMotor\IdsEventData\Event\NormalizedEvent;
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
-use ProjektMotor\IdsEventData\Vocabulary\Environment;
 use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Delivery\Dispatch\CoherentInfoSampler;
@@ -203,7 +202,7 @@ final class CoherentInfoSamplerTest extends TestCase
             $eventType,
             '11111111-1111-4111-8111-111111111111',
             $severity,
-            new SensorIdentity('shop-api', 'web-03', Environment::Prod),
+            new SensorIdentity('9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31', '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4'),
             new Actor('alice', '203.0.113.7'),
         );
     }

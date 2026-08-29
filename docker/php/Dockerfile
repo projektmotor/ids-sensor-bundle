@@ -1,10 +1,11 @@
 ARG PHP_VERSION=8.3
 FROM php:${PHP_VERSION}-cli-alpine
 
-# ext-redis wird für den Redis-Streams-Transport gebraucht, apcu für Zähler/Heartbeat/Breaker.
+# apcu für Zähler, Heartbeat-Drosselung, Breaker-Zustand und Token-Cache. ext-redis ist
+# mit dem Wechsel auf die REST-Schnittstelle (Konzept 3.6) entfallen.
 RUN apk add --no-cache git unzip $PHPIZE_DEPS \
- && pecl install redis apcu \
- && docker-php-ext-enable redis apcu \
+ && pecl install apcu \
+ && docker-php-ext-enable apcu \
  && apk del $PHPIZE_DEPS
 
 COPY --from=composer/composer:2-bin /composer /usr/bin/composer

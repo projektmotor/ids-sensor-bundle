@@ -110,9 +110,10 @@ final class HeartbeatCommandTest extends TestCase
             // dessen Schlüssel besteht aus application_id und instance_id. Ohne das
             // drosselte der erste Test in diesem Prozess alle folgenden.
             'application_id' => 'shop-'.$variant,
-            'environment' => 'prod',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
-            'transport' => ['dsn' => 'in-memory://'],
+            'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
             'heartbeat' => ['stamp_file' => $this->stampFile($variant)],
         ], $overrides), 'heartbeat-cmd-'.$variant);
         $kernel->boot();

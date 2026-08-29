@@ -75,10 +75,6 @@ final class ConfigurationReachTest extends TestCase
         'session_hash' => 'Zwischenknoten ohne eigenen Wert.',
         'session_hash.min_key_length' => 'Wird in assertSessionHashKeyIsUsable() zur Compile-Zeit geprüft.',
         'enabled' => 'Der Kill-Schalter. Entscheidet in loadExtension(), ob überhaupt Dienste geladen werden.',
-        'instance_id' => 'Fließt über InstanceIdProvider in ids_sensor.identity_provider ein.',
-        'environment' => 'Geht als Konstruktorargument an ids_sensor.environment_resolver, nicht über einen Parameter.',
-        'environment_map' => 'dito',
-        'environment_fallback' => 'dito',
         'session_hash.enabled' => 'Entscheidet in loadExtension() über den Import von services_kernel.yaml.',
         // `session_hash.key` stand hier mit der Begründung, ein Parameter machte den
         // HMAC-Schlüssel per debug:container einsehbar. Die Begründung beschrieb einen
@@ -100,10 +96,8 @@ final class ConfigurationReachTest extends TestCase
         'sampling' => 'Zwischenknoten.',
         'budget' => 'Zwischenknoten.',
         'flush' => 'Zwischenknoten.',
-        'transport' => 'Zwischenknoten.',
-        'transport.dsn' => 'Entscheidet in loadExtension() über den Import von services_transport.yaml und den Transport-Alias.',
-        'transport.register_transport' => 'Entscheidet in loadExtension(), ob der Messenger-Transport registriert wird.',
-        'transport.options' => 'Wird in loadExtension() über TRANSPORT_DEFAULTS gemischt und an die Messenger-Konfiguration gegeben.',
+        'collector' => 'Zwischenknoten ohne eigenen Wert.',
+        'collector.base_uri' => 'Entscheidet in loadExtension() zusätzlich über den Import von services_transport.yaml.',
         'spool' => 'Zwischenknoten.',
         'circuit_breaker' => 'Zwischenknoten.',
         'heartbeat' => 'Zwischenknoten.',
@@ -126,7 +120,6 @@ final class ConfigurationReachTest extends TestCase
     private const OHNE_LESER = [
         'ids_sensor.enabled' => 'Der Kill-Schalter: entscheidet in loadExtension(), ob überhaupt Dienste geladen werden; reist zusätzlich im Heartbeat mit.',
         'ids_sensor.config' => 'Die vollständige Konfiguration für ids:sensor:setup-check — wird als Ganzes injiziert.',
-        'ids_sensor.transport.name' => 'Liest der LazyTransportPass zur Compile-Zeit.',
         'ids_sensor.layers.business.capture_mode' => 'Liest der BusinessCaptureModePass zur Compile-Zeit.',
         'ids_sensor.layers.business.event_classes' => 'dito',
         'ids_sensor.layers.kernel.capture_fatal_errors' => 'Entscheidet in loadExtension() über den Import von services_kernel_fatal_errors.yaml; bleibt als Parameter für ids:sensor:setup-check ablesbar.',

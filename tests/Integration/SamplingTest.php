@@ -4,15 +4,11 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Tests\Integration;
 
-use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
-use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestKernel;
-use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\Messenger\Envelope;
 
 /**
  * Sampling durch den echten Container (Konzept 4.2.3).
@@ -34,7 +30,7 @@ final class SamplingTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        self::assertSame([], $this->batches($services), 'Kein Frame, wenn alle Events weggesampelt sind');
+        self::assertSame([], $this->frames($services), 'Kein Frame, wenn alle Events weggesampelt sind');
 
         /** @var Counters $counters */
         $counters = $services->get('ids_sensor.counters');
@@ -54,9 +50,9 @@ final class SamplingTest extends IntegrationTestCase
         $request = Request::create('/boom');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        $batches = $this->batches($services);
-        self::assertCount(1, $batches);
-        self::assertSame(3, $batches[0]->eventCount(), 'request, exception und response');
+        $frames = $this->frames($services);
+        self::assertCount(1, $frames);
+        self::assertCount(3, $frames[0]['events'], 'request, exception und response');
 
         /** @var Counters $counters */
         $counters = $services->get('ids_sensor.counters');
@@ -76,8 +72,7 @@ final class SamplingTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        /** @var array{events: list<array<string, mixed>>} $frame */
-        $frame = json_decode($this->wireBody($services), true, 512, \JSON_THROW_ON_ERROR);
+        $frame = $this->frames($services)[0];
 
         self::assertNotSame([], $frame['events']);
 
@@ -105,36 +100,27 @@ final class SamplingTest extends IntegrationTestCase
             $request = Request::create('/ok');
             $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-            $batches = $this->batches($services);
+            $frames = $this->frames($services);
 
-            if ([] === $batches) {
+            if ([] === $frames) {
                 continue;
             }
 
-            /** @var array{events: list<array<string, mixed>>} $frame */
-            $frame = json_decode($this->wireBody($services), true, 512, \JSON_THROW_ON_ERROR);
-            $gefunden = $frame['events'][0] ?? null;
+            $gefunden = $frames[0]['events'][0] ?? null;
         }
 
         self::assertNotNull($gefunden, 'Bei Rate 0,9 muss innerhalb von 50 Versuchen ein Request überleben');
         self::assertSame(0.9, $gefunden['sampling_rate']);
     }
 
-    private function wireBody(ContainerInterface $services): string
-    {
-        /** @var MessageSerializer $serializer */
-        $serializer = $services->get(IdsSensorBundle::SERIALIZER_ID);
-
-        return $serializer->encode(new Envelope($this->batches($services)[0]))['body'];
-    }
-
     private function boot(string $variant, float $rate): TestKernel
     {
         $kernel = new TestKernel([
-            'application_id' => 'shop-api',
-            'environment' => 'prod',
+            'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => self::SESSION_KEY],
-            'transport' => ['dsn' => 'in-memory://'],
+            'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
             'sampling' => ['info_rate' => $rate],
             'budget' => ['capture_us' => 0],
             // Der Heartbeat würde die Nachrichtenzählung dieses Tests nur verrauschen.

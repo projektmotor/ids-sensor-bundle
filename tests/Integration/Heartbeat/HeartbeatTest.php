@@ -9,9 +9,7 @@ use ProjektMotor\IdsSensor\Delivery\Heartbeat\Mode;
 use ProjektMotor\IdsSensor\Delivery\Heartbeat\Scheduler;
 use ProjektMotor\IdsSensor\Delivery\Transport\Breaker\CircuitBreaker;
 use ProjektMotor\IdsSensor\Delivery\Transport\Message\Heartbeat;
-use ProjektMotor\IdsSensor\Delivery\Transport\MessageSerializer;
 use ProjektMotor\IdsSensor\Delivery\Transport\Spool\FileSpool;
-use ProjektMotor\IdsSensor\IdsSensorBundle;
 use ProjektMotor\IdsSensor\Support\Telemetry\Counters;
 use ProjektMotor\IdsSensor\Tests\Fixtures\IntegrationTestCase;
 use ProjektMotor\IdsSensor\Tests\Fixtures\TestCleaner;
@@ -20,7 +18,6 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\Messenger\Envelope;
 
 /**
  * Der Heartbeat durch den echten Container (Konzept 2.).
@@ -108,16 +105,13 @@ final class HeartbeatTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        $payload = $this->heartbeats($services)[0]->payload;
+        $payload = $this->heartbeats($services)[0];
 
-        // Konzept 2. verlangt ausdrücklich application_id und instance_id.
+        // Konzept 1 verlangt ausdrücklich alle drei Kennungen.
         self::assertSame($this->applicationId, $payload['application_id']);
-        self::assertIsString($payload['instance_id']);
-        self::assertNotSame('', $payload['instance_id']);
-        self::assertSame('prod', $payload['environment']);
-
-        self::assertSame('ids.heartbeat', $payload['type']);
-        self::assertSame(1, $payload['schema_version']);
+        self::assertSame('3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522', $payload['environment_id']);
+        self::assertSame('c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4', $payload['sensor_id']);
+        self::assertSame(2, $payload['schema_version']);
 
         // Der Modus entscheidet, was ein Schweigen bedeutet — deshalb reist er mit.
         self::assertSame('both', $payload['heartbeat_mode']);
@@ -153,7 +147,7 @@ final class HeartbeatTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        $payload = $this->heartbeats($services)[0]->payload;
+        $payload = $this->heartbeats($services)[0];
 
         self::assertIsString($payload['process_epoch']);
         self::assertNotSame('', $payload['process_epoch']);
@@ -161,10 +155,10 @@ final class HeartbeatTest extends IntegrationTestCase
     }
 
     /**
-     * Der Heartbeat ist ein EIGENER Nachrichtentyp und trägt einen eigenen type-Header —
-     * der Collector kann also entscheiden, bevor er den Body liest.
+     * Der Heartbeat geht an eine EIGENE Route — der Collector kann also entscheiden,
+     * bevor er den Körper liest (Konzept 3.6).
      */
-    public function testTheHeartbeatCarriesItsOwnTypeHeader(): void
+    public function testTheHeartbeatGoesToItsOwnRoute(): void
     {
         $kernel = $this->boot('typ');
         $services = $this->services($kernel);
@@ -172,15 +166,16 @@ final class HeartbeatTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        /** @var MessageSerializer $serializer */
-        $serializer = $services->get(IdsSensorBundle::SERIALIZER_ID);
-        $encoded = $serializer->encode(new Envelope($this->heartbeats($services)[0]));
+        $adressen = array_column($this->client($services)->requests, 'url');
+        $heartbeatRouten = array_values(array_filter(
+            $adressen,
+            static fn (string $url): bool => str_contains($url, '/api/v1/sensor-heartbeat/'),
+        ));
 
-        self::assertSame(MessageSerializer::TYPE_HEARTBEAT, $encoded['headers'][MessageSerializer::HEADER_TYPE]);
-        self::assertJson($encoded['body']);
+        self::assertNotSame([], $heartbeatRouten, 'Der Heartbeat muss auf seiner eigenen Route landen');
+        self::assertStringNotContainsString('/sensor-data/', $heartbeatRouten[0]);
 
-        /** @var array<string, mixed> $decoded */
-        $decoded = json_decode($encoded['body'], true, 512, \JSON_THROW_ON_ERROR);
+        $decoded = $this->heartbeats($services)[0];
 
         // Ein Heartbeat hat keine dieser drei Angaben — sie sind laut Konzept 4.2.1
         // NOT NULL. Genau deshalb ist er kein Event.
@@ -226,7 +221,7 @@ final class HeartbeatTest extends IntegrationTestCase
         $request = Request::create('/ok');
         $kernel->terminate($request, $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, true));
 
-        self::assertSame([], $this->transport($services)->getSent(), 'Kein Versand im Request');
+        self::assertSame([], $this->client($services)->requests, 'Kein Versand im Request');
 
         /** @var Counters $counters */
         $counters = $services->get('ids_sensor.counters');
@@ -259,7 +254,7 @@ final class HeartbeatTest extends IntegrationTestCase
     public function testAFailedHeartbeatDoesNotSetTheStamp(): void
     {
         $kernel = $this->boot('fehlschlag', [
-            'transport' => ['dsn' => 'redis://127.0.0.1:6392/ids:hb/group/consumer', 'options' => ['timeout' => 0.05, 'read_timeout' => 0.05]],
+            'collector' => ['base_uri' => 'https://nicht-erreichbar.invalid'],
         ]);
         $services = $this->services($kernel);
 
@@ -289,21 +284,11 @@ final class HeartbeatTest extends IntegrationTestCase
     }
 
     /**
-     * @return list<Heartbeat>
+     * @return list<array<string, mixed>>
      */
     private function heartbeats(ContainerInterface $services): array
     {
-        $heartbeats = [];
-
-        foreach ($this->transport($services)->getSent() as $envelope) {
-            $message = $envelope->getMessage();
-
-            if ($message instanceof Heartbeat) {
-                $heartbeats[] = $message;
-            }
-        }
-
-        return $heartbeats;
+        return $this->client($services)->heartbeats();
     }
 
     /**
@@ -348,9 +333,10 @@ final class HeartbeatTest extends IntegrationTestCase
     {
         $kernel = new TestKernel(array_replace_recursive([
             'application_id' => $this->applicationId,
-            'environment' => 'prod',
+            'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+            'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
             'session_hash' => ['key' => self::SESSION_KEY],
-            'transport' => ['dsn' => 'in-memory://'],
+            'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
             'spool' => ['dir' => $this->spoolDir],
             'budget' => ['capture_us' => 0],
         ], $overrides), 'heartbeat-'.$variant);

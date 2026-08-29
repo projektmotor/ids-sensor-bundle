@@ -37,10 +37,11 @@ final class MessengerInteroperabilityTest extends TestCase
 {
     /** @var array<string, mixed> */
     private const SENSOR = [
-        'application_id' => 'shop-api',
-        'environment' => 'prod',
+        'application_id' => '9b1c4f80-2a77-4d3e-9c15-7e2b6a4f0d31',
+        'environment_id' => '3f6d21ac-58b0-4e91-a7c4-11d9e0b8c522',
+        'sensor_id' => 'c40a7e13-9d62-4b88-8f05-6a1e3c72b9d4',
         'session_hash' => ['key' => IntegrationTestCase::SESSION_KEY],
-        'transport' => ['dsn' => 'in-memory://'],
+        'collector' => ['base_uri' => 'https://collector.test', 'username' => 'sensor', 'password' => 'geheim'],
     ];
 
     /**

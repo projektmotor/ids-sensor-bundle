@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/packagist/l/projektmotor/ids-sensor-bundle)](LICENSE)
 
 **Intrusion detection sensors for Symfony applications.** Captures security-relevant
-events, normalizes them into a fixed wire format, and ships them over Redis Streams to a
+events, normalizes them into a fixed wire format, and ships them over HTTPS to a
 separately operated collector — without ever slowing down the application it watches.
 
 ```mermaid
@@ -18,7 +18,7 @@ flowchart LR
         code -.->|"kernel, security<br/>and business events"| sensor
     end
 
-    broker[("Redis Stream")]
+    broker[("Collector<br/>/api/v1/sensor-data")]
 
     subgraph collector["Separately operated collector"]
         direction TB
@@ -27,7 +27,7 @@ flowchart LR
         consumer --> db
     end
 
-    sensor -->|"write-only (XADD)"| broker
+    sensor -->|"write-only (POST)"| broker
     broker -->|"read"| consumer
 
     classDef capture fill:#E1F5EE,stroke:#0F6E56,color:#085041
@@ -108,22 +108,18 @@ Details: [Observation layers](doc/02-beobachtungsebenen.md).
 |---|---|
 | PHP | ≥ 8.2 |
 | Symfony | ^6.4 \| ^7.0 |
-| Broker | Redis with Streams (`XADD`), reachable from the application |
+| Collector | Reachable over HTTPS from the application |
 | Required extensions | `ext-json` |
-| Recommended | `ext-redis` (via `symfony/redis-messenger`), `ext-apcu` (cross-process throttling) |
+| Recommended | `ext-apcu` (cross-process throttling, breaker state, token cache) |
 
 ## Installation
 
 ```bash
 composer require projektmotor/ids-sensor-bundle
-composer require symfony/redis-messenger
 ```
 
-**The second line is not optional.** `symfony/redis-messenger` is a dev dependency of this
-bundle, because the choice of transport belongs to the application and `ext-redis` should
-not be forced. Symfony only registers bridge factories for packages the application itself
-requires. Without it, the first thing you will see is
-`No transport supports Messenger DSN redis://…`.
+That is the whole install. Earlier versions needed a second package for the message
+broker; the sensor now talks to the collector over HTTPS and brings its own client.
 
 Symfony Flex registers the bundle automatically. Without Flex, add it to
 `config/bundles.php`:
@@ -137,19 +133,27 @@ return [
 
 ### Minimal configuration
 
-Four values are mandatory:
+Four values are mandatory. The collector hands you the three UUIDs and the credentials
+when you register:
 
 ```yaml
 # config/packages/ids_sensor.yaml
 ids_sensor:
-    application_id: 'shop-api'
-    instance_id: '%env(HOSTNAME)%'
-    environment: '%env(APP_ENV)%'
+    application_id: '%env(IDS_APPLICATION_ID)%'
+    environment_id: '%env(IDS_ENVIRONMENT_ID)%'
+    sensor_id: '%env(IDS_SENSOR_ID)%'
     session_hash:
         key: '%env(IDS_SESSION_HASH_KEY)%'
-    transport:
-        dsn: '%env(IDS_REDIS_DSN)%'
+    collector:
+        base_uri: '%env(IDS_COLLECTOR_URL)%'
+        username: '%env(IDS_COLLECTOR_USER)%'
+        password: '%env(IDS_COLLECTOR_PASSWORD)%'
 ```
+
+**`sensor_id` must differ per node.** One sensor is one running installation; if replicas
+share the identifier they are indistinguishable, and a silent sensor goes unnoticed. In
+Kubernetes all replicas of a Deployment share a ConfigMap — take this one from a per-pod
+secret or the Downward API instead.
 
 Generate the HMAC key — a **dedicated** one, at least 32 characters, deliberately *not*
 `APP_SECRET`:
@@ -216,9 +220,9 @@ at that point depends on the runtime:
 
 | Runtime | Response detachable | Delivery |
 |---|---|---|
-| PHP-FPM, LiteSpeed, FrankenPHP, RoadRunner | yes | direct to Redis |
+| PHP-FPM, LiteSpeed, FrankenPHP, RoadRunner | yes | direct to the collector |
 | **mod_php** | **no** | **local spool** |
-| CLI, Messenger workers | n/a | direct to Redis |
+| CLI, Messenger workers | n/a | direct to the collector |
 
 > **Under mod_php, `ids:sensor:spool:flush` is mandatory.** It is the only delivery path
 > there. Without a cron entry or systemd timer, the sensor writes, nobody collects, and the
@@ -279,7 +283,6 @@ make install     # composer install
 make test        # unit + integration
 make stan        # PHPStan level 8
 make cs-fix      # php-cs-fixer
-make test-redis  # against a real broker
 ```
 
 How `src/` is laid out and why — which namespace belongs to which section of the concept,

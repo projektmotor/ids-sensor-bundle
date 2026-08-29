@@ -76,7 +76,7 @@ dauerhaft überprüfbar, nicht nur im Benchmark.
 ### Der Puffer
 
 `Sensor\EventBuffer` ist eine Liste im Arbeitsspeicher des laufenden Prozesses. Kein
-Cache, keine Datei, keine Queue — ein Netzwerk-Roundtrip zum Broker würde das 5-ms-Budget
+Cache, keine Datei, keine Queue — ein Netzwerk-Roundtrip zum Collector würde das 5-ms-Budget
 allein aufbrauchen.
 
 Eine Obergrenze, und eine Reserve dahinter:
@@ -111,7 +111,7 @@ nicht mehr bootet.
 
 Sampling heißt hier: **einen Teil der Events gar nicht erst zu senden.** Nicht kürzen,
 nicht zusammenfassen, nicht später löschen — sie entstehen im Puffer und werden vor dem
-Frame-Bau verworfen. Gespart werden Broker-Durchsatz, Speicher und Kosten im Collector;
+Frame-Bau verworfen. Gespart werden Netzdurchsatz, Speicher und Kosten im Collector;
 verloren geht die Beobachtung, vollständig und endgültig.
 
 Deshalb wird jeder so verworfene Event als `dropped_sampling` gezählt. Sampling ist ein

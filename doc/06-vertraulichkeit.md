@@ -1,7 +1,7 @@
 # 06 — Vertraulichkeit
 
 Sensible Werte werden **im Sensor** unkenntlich gemacht, bevor etwas den Prozess verlässt
-(*4.5.1*). Nicht im Collector — andernfalls liefen Klartext-Zugangsdaten über den Broker
+(*4.5.1*). Nicht im Collector — andernfalls liefen Klartext-Zugangsdaten über die Leitung
 und landeten dort in Queues, Logs und Spool-Dateien.
 
 Die Feldnamen bleiben erhalten: dass eine Anfrage ein Feld `password` mitbrachte, ist

@@ -7,7 +7,7 @@ namespace ProjektMotor\IdsSensor\Delivery\Transport\Shipper;
 /**
  * Verwirft Frames.
  *
- * Die Vorgabe, solange keine `transport.dsn` konfiguriert ist. Damit ist das Bundle
+ * Die Vorgabe, solange keine `collector.base_uri` konfiguriert ist. Damit ist das Bundle
  * installierbar, bevor Infrastruktur bereitsteht — und das Erfassungsbudget aus
  * Konzept 2.1 lässt sich beweisen, ohne dass Broker-Latenz und Sensor-Kosten
  * vermischt werden.
