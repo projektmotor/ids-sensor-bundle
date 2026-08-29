@@ -475,7 +475,7 @@ final class IdsSensorBundle extends AbstractBundle
     {
         /** @var array{config: string|null, merge_defaults: bool, replacement: string} $cleanup */
         $cleanup = $config['payload_confidentiality_cleanup'];
-        /** @var array{enabled: bool, severities: list<string>, max_bytes: int, include_request_body: bool, skip_multipart: bool, max_request_body_bytes: int} $raw */
+        /** @var array{enabled: bool, severities: list<string>, max_bytes: int, include_request_body: bool, skip_multipart: bool, max_request_body_bytes: int, always_for: array{event_types: list<string>, path_patterns: list<string>}} $raw */
         $raw = $config['raw'];
 
         $defaults = \dirname(__DIR__).'/config/payload_confidentiality_cleanup.dist.yaml';
@@ -513,6 +513,8 @@ final class IdsSensorBundle extends AbstractBundle
         $builder->setParameter('ids_sensor.raw.max_bytes', $raw['max_bytes']);
         $builder->setParameter('ids_sensor.raw.include_request_body', $raw['include_request_body']);
         $builder->setParameter('ids_sensor.raw.skip_multipart', $raw['skip_multipart']);
+        $builder->setParameter('ids_sensor.raw.always_for.event_types', $raw['always_for']['event_types']);
+        $builder->setParameter('ids_sensor.raw.always_for.path_patterns', $raw['always_for']['path_patterns']);
         $builder->setParameter('ids_sensor.raw.max_request_body_bytes', $raw['max_request_body_bytes']);
 
         $container->import('../config/services_payload_confidentiality_cleanup.yaml');

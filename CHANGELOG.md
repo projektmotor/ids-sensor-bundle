@@ -13,6 +13,40 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Added — `raw.always_for`: Belege für Befunde auf `info`-Events (offener Punkt OB11)
+
+Ob `raw` mitreist, hing ausschließlich an `event_severity`. Ein Alarm entsteht aber erst im
+Collector und kann nicht zurückwirken — ein Befund wie R2b („Pfadlisten-Treffer mit Status
+200") stand deshalb ohne forensischen Beleg da: Das Event ist `info`, das `raw` war längst
+verworfen, als der Alarm entstand.
+
+Der Sensor kann das nicht selbst entscheiden. Er kennt die Erkennungsregeln des Collectors
+nicht, und nach Konzept 2. soll er sie nicht kennen. Entschieden wird deshalb zweistufig:
+
+1. **Sensorseitig benennt der Betreiber Kandidaten** — `raw.always_for.event_types` (genaue
+   Übereinstimmung) und `raw.always_for.path_patterns` (PCRE gegen `payload.path`).
+2. **Collectorseitig wird weiter gefiltert.** Nur der Collector kennt die Regeln und kann
+   endgültig entscheiden, was er behält. Konzept 3.5 und 4.5.2 halten diese Hälfte fest.
+
+Die Aufgabenteilung ist damit die richtige herum: Der Sensor liefert, der Collector wählt
+aus. **Beide Listen sind leer als Vorgabe** — wer nichts einstellt, bekommt das bisherige
+Verhalten unverändert.
+
+**Wer die Liste benutzt, gibt eine Grenze auf.** `raw` macht über 95 % des Datenvolumens
+aus, und `info` ist die Masse aller Events; ein Muster wie `#^/#` hebt das Volumenbudget um
+Größenordnungen. Gedacht ist sie für einzelne, benannte Pfade. `raw.enabled: false` schlägt
+die Liste — wer das Feld ganz abschaltet, hat eine Entscheidung getroffen, die eine
+Kandidatenliste nicht unterlaufen darf.
+
+`Gate::allows()` bekommt dafür Kontext (`event_type`, `path`) und damit eine neue Signatur.
+Der Pfad kommt aus dem bereits gebauten **Payload**, nicht aus dem erfassten Rohwert: Dort
+steht er gekürzt und, wo er durch die Redaktion läuft, bereinigt — ein Muster gegen den
+Rohwert könnte auf einem Wert treffen, der so nie versendet wird.
+
+**Nicht umgesetzt bleibt der dritte im Konzept erwogene Weg:** der Collector fordert `raw`
+nach, der Sensor hält Kandidaten kurz vor. Er kostete Speicher im Request-Pfad und steht
+damit gegen das Latenzbudget aus 2.1.
+
 ### Added — `resource_type` und `resource_id` auf beiden Ebenen (offener Punkt O2)
 
 Regel **B7** ist eine Kernel-Regel und vergleicht „numerisch benachbarte

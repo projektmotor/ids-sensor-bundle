@@ -90,7 +90,11 @@
                 "max_bytes": 32768,
                 "include_request_body": true,
                 "max_request_body_bytes": 32768,
-                "skip_multipart": true
+                "skip_multipart": true,
+                "always_for": {
+                    "event_types": [],
+                    "path_patterns": []
+                }
             },
             "payload_confidentiality_cleanup": {
                 "config": null,
@@ -199,6 +203,8 @@
         ],
         "ids_sensor.payload_confidentiality_cleanup.replacement": "[confidential]",
         "ids_sensor.payload_confidentiality_cleanup.version": 2,
+        "ids_sensor.raw.always_for.event_types": [],
+        "ids_sensor.raw.always_for.path_patterns": [],
         "ids_sensor.raw.enabled": true,
         "ids_sensor.raw.include_request_body": true,
         "ids_sensor.raw.max_bytes": 32768,
@@ -1126,7 +1132,9 @@
             "synthetic": false,
             "arguments": [
                 true,
-                "%ids_sensor.raw.severities%"
+                "%ids_sensor.raw.severities%",
+                [],
+                []
             ],
             "tags": []
         },

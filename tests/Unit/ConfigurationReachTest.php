@@ -85,6 +85,7 @@ final class ConfigurationReachTest extends TestCase
         'layers.business' => 'Zwischenknoten.',
         'layers.business.enabled' => 'Entscheidet in loadExtension() über den Import von services_business.yaml.',
         'raw' => 'Zwischenknoten.',
+        'raw.always_for' => 'Zwischenknoten.',
         'payload_confidentiality_cleanup' => 'Zwischenknoten.',
         'payload_confidentiality_cleanup.merge_defaults' => 'Wird beim Laden der Redaktionsliste zur Compile-Zeit ausgewertet.',
         'budget' => 'Zwischenknoten.',

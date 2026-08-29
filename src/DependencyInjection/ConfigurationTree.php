@@ -381,6 +381,59 @@ final class ConfigurationTree
         return $node;
     }
 
+    /**
+     * Die Ausnahmeliste, die `raw` auch an `info`-Events hängt — Konzept 4.5.2,
+     * offener Punkt OB11.
+     *
+     * Die Stufenregel allein erzeugte eine Lücke: Ob `raw` mitreist, hängt an
+     * `event_severity`, ein Alarm entsteht aber erst im Collector und kann nicht
+     * zurückwirken. Ein Befund wie R2b („Pfadlisten-Treffer mit Status 200") stand
+     * damit ohne forensischen Beleg da.
+     *
+     * Der Sensor kennt die Erkennungsregeln des Collectors nicht und soll sie nicht
+     * kennen (Konzept 2.). Deshalb entscheidet hier der BETREIBER, welche Fälle er als
+     * Kandidaten mitschicken will; der Collector filtert anschließend weiter. Leer als
+     * Vorgabe — wer nichts einstellt, bekommt das bisherige Verhalten.
+     */
+    private static function rawAlwaysForNode(): ArrayNodeDefinition
+    {
+        $node = new ArrayNodeDefinition('always_for');
+        $node
+            ->addDefaultsIfNotSet()
+            ->info(
+                'Hängt raw auch an info-Events. ACHTUNG: raw macht über 95 % des Datenvolumens aus, '
+                .'und info ist die Masse aller Events — die Liste ist für einzelne, benannte Fälle '
+                .'gedacht. Wer sie weit fasst, hebt das Volumenbudget um Größenordnungen.'
+            )
+            ->children()
+                ->arrayNode('event_types')
+                    ->scalarPrototype()->end()
+                    ->defaultValue([])
+                    ->info('event_type-Werte, etwa "kernel.response". Genaue Übereinstimmung, kein Muster.')
+                ->end()
+                ->arrayNode('path_patterns')
+                    ->scalarPrototype()
+                        ->validate()
+                            // Dieselbe Falle wie bei ignored_paths und ignored_commands:
+                            // ein Muster ohne Trennzeichen kompiliert nicht und trifft
+                            // deshalb nie. Hier wäre der Schaden der stillste von allen —
+                            // der Betreiber glaubte, einen Beleg zu sichern, und bekäme
+                            // keinen.
+                            ->ifTrue(static fn (mixed $pattern): bool => !\is_string($pattern) || false === @preg_match($pattern, ''))
+                            ->thenInvalid(
+                                'Ungültiger regulärer Ausdruck %s. path_patterns sind PCRE-Muster MIT '
+                                .'Trennzeichen — also "#^/_profiler#" statt "/_profiler".'
+                            )
+                        ->end()
+                    ->end()
+                    ->defaultValue([])
+                    ->info('PCRE-Muster MIT Trennzeichen gegen payload.path — greift auf den Ebenen, die einen führen.')
+                ->end()
+            ->end();
+
+        return $node;
+    }
+
     private static function rawNode(): ArrayNodeDefinition
     {
         $node = new ArrayNodeDefinition('raw');
@@ -425,6 +478,7 @@ final class ConfigurationTree
                     ->defaultTrue()
                     ->info('multipart/form-data wird nicht erfasst — Datei-Uploads würden den Frame sprengen.')
                 ->end()
+                ->append(self::rawAlwaysForNode())
             ->end();
 
         return $node;

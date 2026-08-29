@@ -17,6 +17,12 @@ services:
         arguments:
             $enabled: '%ids_sensor.raw.enabled%'
             $severities: '%ids_sensor.raw.severities%'
+            # Die Ausnahmeliste zu Konzept 4.5.2 (offener Punkt OB11): Leer als Vorgabe,
+            # also unveraendertes Verhalten. Sie ist die einzige Stelle, an der die
+            # Stufengrenze aus Abschnitt 3 nach OBEN durchbrochen werden kann — und zwar
+            # nur auf ausdrueckliche Anweisung des Betreibers.
+            $alwaysEventTypes: '%ids_sensor.raw.always_for.event_types%'
+            $alwaysPathPatterns: '%ids_sensor.raw.always_for.path_patterns%'
 
     ids_sensor.raw.builder:
         class: ProjektMotor\IdsSensor\Support\RawPayload\Builder

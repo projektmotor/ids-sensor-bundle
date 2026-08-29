@@ -227,6 +227,23 @@ Wer `raw` ganz vermeiden will: `raw.enabled: false`. Wer nur den sensibelsten Te
 weglassen will: `raw.include_request_body: false`. Beides kostet forensische Tiefe, nicht
 Erkennung — die Erkennungsregeln arbeiten auf `payload`, nicht auf `raw`.
 
+### Die Gegenrichtung: `raw.always_for`
+
+Die Stufenregel schneidet auch dort, wo man nicht schneiden will. Ob `raw` mitreist, hängt
+an `event_severity`; ein Alarm entsteht aber erst im Collector und kann nicht zurückwirken.
+Ein Befund wie R2b („Pfadlisten-Treffer mit Status 200") stand deshalb ohne Beleg da — das
+Event ist `info`, das `raw` war längst verworfen. Das war der offene Punkt (*OB11*).
+
+`raw.always_for.event_types` und `raw.always_for.path_patterns` benennen Ausnahmen. Sie
+sind die **einzige** Stelle, an der die Stufengrenze nach oben durchbrochen werden kann,
+und leer als Vorgabe. Der Sensor liefert damit Kandidaten, der Collector filtert weiter —
+nur er kennt die Regeln.
+
+**Datenschutzrechtlich ist das ein Hebel in die andere Richtung:** Was hier eingetragen
+wird, überträgt personenbezogene Daten bei Vorgängen, die bislang keine übertrugen. Die
+Liste gehört deshalb zu den Punkten, die im Abschnitt „Betreiberpflichten" unten
+dokumentiert sein wollen — und nicht weiter gefasst, als der Beleg es verlangt.
+
 ## Abgrenzung: drei Dinge, die alle „bereinigen"
 
 Nur eines davon stellt Vertraulichkeit her. Die Verwechslung ist naheliegend genug, dass

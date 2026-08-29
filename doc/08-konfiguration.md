@@ -178,6 +178,33 @@ Stellungsargument, eine Verbindungszeichenkette. Übertragen wird der Befehlsnam
 | `include_request_body` | `true` | der sensibelste Teil, deshalb ein eigener Schalter — gilt für Formularfelder **und** JSON-Körper |
 | `skip_multipart` | `true` | Datei-Uploads würden den Frame sprengen |
 | `max_request_body_bytes` | `32768` | Obergrenze des JSON-Körpers, geprüft am `Content-Length` **vor** dem Lesen; `0` nimmt keinen Körper auf |
+| `always_for.event_types` | `[]` | `event_type`-Werte, die `raw` **auch bei `info`** tragen; genaue Übereinstimmung, kein Muster |
+| `always_for.path_patterns` | `[]` | dasselbe über PCRE-Muster **mit Trennzeichen** gegen `payload.path` |
+
+**`always_for` ist die einzige Stelle, an der die Stufengrenze nach oben durchbrochen
+werden kann.** Ohne sie hängt die Übertragung von `raw` allein an `event_severity` — ein
+Alarm entsteht aber erst im Collector und kann nicht zurückwirken. Ein Befund wie R2b
+(„Pfadlisten-Treffer mit Status 200") stand deshalb ohne forensischen Beleg da: Das Event
+ist `info`, also war das `raw` längst verworfen, als der Alarm entstand.
+
+Der Sensor kann das nicht selbst entscheiden — er kennt die Erkennungsregeln des Collectors
+nicht, und das ist Absicht. Hier entscheidet der **Betreiber**, welche Fälle als Kandidaten
+mitreisen; der Collector filtert anschließend weiter. Die Aufgabenteilung ist damit die
+richtige herum.
+
+**Wer die Liste benutzt, gibt eine Grenze auf.** `raw` macht über 95 % des Datenvolumens
+aus, und `info` ist die Masse aller Events. Ein Muster wie `#^/#` hebt das Volumenbudget um
+Größenordnungen. Gedacht ist die Liste für einzelne, benannte Pfade:
+
+```yaml
+ids_sensor:
+    raw:
+        always_for:
+            path_patterns: ['#^/_profiler#', '#^/\.env$#']
+```
+
+`raw.enabled: false` schlägt die Liste — wer das Feld ganz abschaltet, hat eine
+Entscheidung getroffen, die eine Kandidatenliste nicht unterlaufen darf.
 
 **`max_request_body_bytes` und `max_bytes` greifen ineinander.** Die erste Grenze lässt den
 Körper herein, die zweite wirft ihn wieder hinaus — bei der Kappung steht `request_body` an

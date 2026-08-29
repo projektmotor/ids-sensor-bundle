@@ -7,6 +7,7 @@ namespace ProjektMotor\IdsSensor\Processing\Normalization;
 use ProjektMotor\IdsEventData\Event\Actor;
 use ProjektMotor\IdsEventData\Event\NormalizedEvent;
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Payload\KernelPayload;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Support\RawPayload\Gate;
@@ -66,10 +67,29 @@ final class EventFactory
             // Header, Redaktion und Trace erst beim Aufruf auf. Ein null hier heißt, dass
             // diese Arbeit nie stattfindet — bei info-Events, also der Masse, ist das der
             // Unterschied zwischen kostenlos und teuer.
-            null === $this->rawGate || $this->rawGate->allows($severity)
+            null === $this->rawGate || $this->rawGate->allows($severity, $eventType, self::pathOf($payload))
                 ? $captured->rawBuilder()
                 : null,
         );
+    }
+
+    /**
+     * Der Pfad aus dem bereits gebauten Payload — für die Ausnahmeliste des Gates.
+     *
+     * Aus dem PAYLOAD und nicht aus dem erfassten Event: Dort steht er gekürzt und, wo
+     * er durch die Redaktion läuft, bereinigt. Ein Muster gegen den Rohwert könnte auf
+     * einem Wert treffen, der so nie versendet wird.
+     *
+     * Ebenen ohne Pfad — Security außerhalb von access_control, Business — liefern hier
+     * null, und die Musterprüfung entfällt.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private static function pathOf(array $payload): ?string
+    {
+        $path = $payload[KernelPayload::FIELD_PATH] ?? null;
+
+        return \is_string($path) ? $path : null;
     }
 
     /**
