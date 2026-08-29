@@ -13,6 +13,59 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Changed — Konzept: Ergebnisse der Tiefenprüfung
+
+**Wieder nur `doc/concept/`. Am Quellcode wurde keine Zeile angefasst**, und `doc/01`–`doc/09`
+beschreiben weiterhin korrekt den ausgelieferten Stand.
+
+Eine systematische Prüfung des Konzepts auf Widersprüche, Lücken und technologische Fehler.
+Vier Befunde waren kritisch:
+
+- **Die Zeitachse war angreifbar.** Jede Zeitfensterregel filterte auf `timestamp`, den der
+  Sensor setzt — also ein Prozess, der laut Abschnitt 2 als kompromittierbar gilt. Sechs
+  Minuten Zurückdatieren genügten, um aus **jedem** Fenster von B1–B9 und X1–X4 zu fallen.
+  Neu ist `effective_at`: Der Collector klemmt `timestamp` in ein an `received_at`
+  verankertes Fenster, statt es zu ersetzen — ein bloßer Feldtausch hätte den Fehler nur
+  umgedreht und Nachläufe als „gerade eben" gewertet.
+- **Autorisierung und Datenpartitionierung hingen nicht zusammen.** Das Token band eine
+  `sensor_id`, gespeichert wurde nach `application_id`. Neu tragen die Routen das vollständige
+  Tripel als UUID, und die Kontrolle ist ein Satz: Der angemeldete Nutzer muss Eigentümer der
+  Kette Anwendung → Umgebung → Sensor sein.
+- **`actor.ip` ohne `trusted_proxies`** ist hinter jedem Reverse Proxy für alle Events
+  dieselbe Adresse. Sieben Regeln liefen damit ins Leere, ohne Fehlermeldung — jetzt als
+  Betriebsvoraussetzung geführt.
+- **„Sensor" bedeutete dreierlei.** `instance_id` entfällt zugunsten von `sensor_id`: Ein
+  Sensor **ist** eine laufende Installation, je Node wird eine registriert. Die drei
+  Erfassungsbausteine heißen nicht mehr so.
+
+Dazu elf Widersprüche und vierzehn Lücken, darunter: `occurrence_count` zählte Cooldown-Fenster
+statt Vorkommen; der Detection Job durfte `metric_baselines` nicht schreiben, obwohl er sie
+füllt; `LIKE … INCLUDING ALL` stand vor den `CREATE INDEX`, `events_info` hätte keinen
+einzigen bekommen; die Bump-Regeln, auf die 3.4 seit jeher verweist, gab es nicht (jetzt 3.7);
+`sampling_rate`, `dispatch_path` und `spool_delay_ms` hatten keine Spalte; für die
+Stundenaggregate fehlte die Tabelle (jetzt `metric_samples`).
+
+**Neu im Drahtformat:** Die Routen tragen `application_id`/`environment_id`/`sensor_id`, alle
+als UUID; maßgeblich ist der Rumpf, der Pfad wird dagegen geprüft. Der Heartbeat bekommt einen
+eigenen Endpunkt, womit alle `X-Ids-*`-Header entfallen — die Route trägt die Nachrichtenart.
+`schema_version` steht nur noch im Frame (`v` entfällt), Events tragen keine eigene Fassung.
+Umgebungen werden collectorseitig frei benannt; `env_type`, `environment_map` und
+`environment_fallback` entfallen ersatzlos.
+
+**Das ist ein `schema_version`-Bump und reicht damit in
+[`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data) hinein** — die
+erste Konzeptänderung, die das tut. Vorher unterschätzt: Frei benannte Umgebungen und „Rumpf
+gewinnt" zusammen erzwingen, dass der Rumpf `environment_id` statt des Namens trägt, sonst
+legte jede Umbenennung im Collector alle Sensoren mit `422` lahm.
+
+**Ausdrücklich nicht in dieser Runde** und für einen zweiten Durchgang vorgemerkt: die Befunde
+zu Sampling gegen Signaturerkennung, `granted`-Entscheidungen ohne Leser, Anomalieschwellen bei
+kleinen Zahlen, Schlüsselrotation sowie die Indexfragen (der GIN-Index auf `payload` bedient
+`->>`-Abfragen nachweislich nicht).
+
+**Vormerkung für die Umsetzung:** Zu den bereits vorgemerkten Transportschlüsseln kommt, dass
+`application_id` den Typ wechselt und `environment_id` sowie `sensor_id` hinzukommen.
+
 ### Changed — Konzeptentscheidung: Transport auf REST am Collector, Redis entfällt vollständig
 
 **Nur `doc/concept/concept-v1.md` und die zugehörige Grafik sind geändert. Am Quellcode

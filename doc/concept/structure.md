@@ -5,12 +5,12 @@ dritte die Beobachtungsebene. Wer den Konzeptabschnitt kennt, findet den Ordner;
 Ordner sieht, weiß, wann der Code läuft.
 
 Die Aufteilung folgt der Reihenfolge aus Konzept Abschnitt 1 — *„Erfassung,
-Normalisierung, Redaktion (4.5.1), Versand an den Broker"*.
+Normalisierung, Redaktion (4.5.1), Versand an den Collector"*.
 
 | Namespace | Konzept | Wann läuft das? |
 |---|---|---|
 | `Contract/` | 2.1.3 | in der überwachten Anwendung |
-| `Sensor/` | 2.1 Sensorik | **Phase A** — im Request, unter dem 5-ms-Budget |
+| `Sensor/` | 2.1 Sensorik | **Phase A** — im Request, Erfassungsbudget 1500 µs |
 | `Processing/Normalization/` | 2.2 + 3.1 | **Phase B** — nach `Response::send()` |
 | `Delivery/Dispatch/` | 2.1 „Dispatch an den Transport" | Phase B — `kernel.terminate` |
 | `Delivery/Transport/` | 3.3 Transportformat | Phase B und CLI (`spool:flush`) |
