@@ -674,7 +674,7 @@ Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Er
                 "dropped_spool_full": 0, "dropped_spool_unwritable": 0, "dropped_spool_unencodable": 0,
                 "dropped_spool_unreadable": 0, "dropped_buffer_full": 0, "dropped_capture_budget": 0,
                 "dropped_capture_error": 0, "dropped_decision_cap": 0, "dropped_no_normalizer": 0,
-                "dropped_normalize_error": 0, "dropped_frame_too_large": 0, "dropped_unknown_fields_capped": 0,
+                "dropped_normalize_error": 0, "dropped_frame_too_large": 0,
                 "ship_failed": 0, "heartbeat_sent": 12, "heartbeat_failed": 0 },
   "latency": { "in_request_overhead_us": { "p50": 96, "p99": 210 }, "dispatch_ms": { "p50": 2, "p99": 9 } },
   "spool": { "bytes": 0, "spooled_frames": 0, "pending_files": 0, "oldest_pending_age_s": null },
@@ -1041,7 +1041,9 @@ Nach 3.7 nimmt der Collector eine Sendung mit neuerer `schema_version` an und ve
 
 **Warum eine eigene Spalte und nicht `raw`:** `raw` wird nur für `warning` und `critical` übertragen (Abschnitt 3). Für `info`-Events — die Masse — gäbe es dort nichts, und die Rettung griffe ausgerechnet für den größten Teil nicht. Die Spalte läuft dagegen mit der Retention **ihrer** Tabelle, also zwölf Monate für `events_relevant`.
 
-**Sie ist gedeckelt, und das ist keine Feinheit.** `raw` ist über `raw.max_bytes` begrenzt und entsteht nur unter Bedingungen. `unknown_fields` nimmt dagegen entgegen, was der Collector nicht kennt — und was er nicht kennt, bestimmt der Sensor. Ohne Grenze wäre das ein unbegrenzter Schreibkanal aus einer kompromittierbaren Anwendung in den Beweisspeicher, auf den nie eine Regel schaut. Es gilt deshalb eine Größengrenze je Ereignis; eine Kappung wird als `dropped_unknown_fields_capped` gezählt (3.4).
+**Sie ist gedeckelt, und das ist keine Feinheit.** `raw` ist über `raw.max_bytes` begrenzt und entsteht nur unter Bedingungen. `unknown_fields` nimmt dagegen entgegen, was der Collector nicht kennt — und was er nicht kennt, bestimmt der Sensor. Ohne Grenze wäre das ein unbegrenzter Schreibkanal aus einer kompromittierbaren Anwendung in den Beweisspeicher, auf den nie eine Regel schaut. Es gilt deshalb eine Größengrenze je Ereignis.
+
+Gezählt wird die Kappung **collectorseitig**, nicht im Heartbeat: Der Sensor weiß nichts davon — er hat ein Feld gesendet, das seine Fassung kennt und der Collector nicht. Die Zähler aus 3.4 sind Sensorzähler; ein Vorgang, der erst beim Empfang entsteht, gehört in die Selbstüberwachung des Collectors (offener Punkt OB4).
 
 **Kein Index.** Es gibt keine Abfrage, die ihn nutzen würde, und die Spalte liegt auf der schreibstärksten Tabelle des Systems.
 
