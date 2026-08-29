@@ -18,3 +18,14 @@ services:
             $binder: '@ids_sensor.captured_event_binder'
             $authenticatorNames: '@ids_sensor.authenticator_name_resolver'
             $budget: '@ids_sensor.capture_budget'
+
+    # Ohne eigenen Schalter: Der Wechsel in eine fremde Identität ist keine Bauart von
+    # Anmeldung, sondern die Voraussetzung dafür, dass die drei anderen Ereignisse
+    # überhaupt der richtigen Person zugeordnet werden. Ihn abschaltbar zu machen hieße,
+    # die Zuordnung abschaltbar zu machen.
+    ids_sensor.sensor.switch_user:
+        class: ProjektMotor\IdsSensor\Sensor\Security\SwitchUserSensor
+        arguments:
+            $buffer: '@ids_sensor.event_buffer'
+            $binder: '@ids_sensor.captured_event_binder'
+            $budget: '@ids_sensor.capture_budget'

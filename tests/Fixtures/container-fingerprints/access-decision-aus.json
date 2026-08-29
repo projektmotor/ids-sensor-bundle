@@ -1260,6 +1260,24 @@
                 ]
             }
         },
+        "ids_sensor.sensor.switch_user": {
+            "class": "ProjektMotor\\IdsSensor\\Sensor\\Security\\SwitchUserSensor",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [
+                "@ids_sensor.event_buffer",
+                "@ids_sensor.captured_event_binder",
+                "@ids_sensor.capture_budget"
+            ],
+            "tags": {
+                "kernel.event_subscriber": [
+                    []
+                ]
+            }
+        },
         "ids_sensor.session_id_hasher": {
             "class": "ProjektMotor\\IdsSensor\\Sensor\\Context\\SessionIdHasher",
             "public": false,

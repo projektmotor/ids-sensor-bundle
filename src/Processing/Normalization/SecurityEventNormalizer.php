@@ -68,6 +68,13 @@ final class SecurityEventNormalizer implements EventNormalizerInterface
                 SecurityPayload::FIELD_RESOURCE => FieldValue::asString($captured->get(SecurityPayload::FIELD_RESOURCE)),
                 SecurityPayload::FIELD_DECISION => FieldValue::asString($captured->get(SecurityPayload::FIELD_DECISION)),
             ],
+            // Konzept 3.1.2: actor.user trägt den Übernehmenden, target_user den
+            // Übernommenen. Kein firewall — SwitchUserEvent trägt keinen, siehe
+            // {@see \ProjektMotor\IdsSensor\Sensor\Security\SwitchUserSensor}.
+            SecurityPayload::EVENT_SWITCH_USER,
+            SecurityPayload::EVENT_SWITCH_USER_EXIT => [
+                SecurityPayload::FIELD_TARGET_USER => FieldValue::asString($captured->get(SecurityPayload::FIELD_TARGET_USER)),
+            ],
             default => [],
         };
     }

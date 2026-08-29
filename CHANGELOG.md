@@ -13,6 +13,54 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Added — Die Rechteübernahme hinterlässt jetzt eine Spur (offener Punkt OB10)
+
+Symfonys `SwitchUserListener` erzeugt **keines** der drei Security-Ereignisse — weder eine
+Anmeldung noch eine Autorisierungsentscheidung über den übernommenen Nutzer. Ein
+Administrator, der in ein Kundenkonto wechselte, hinterließ deshalb überhaupt keine Spur,
+und alles, was er danach tat, sah aus wie eine Handlung des Kunden. Der bisherige
+Workaround — die Anwendung solle es selbst als Business-Event der Klasse V6 melden —
+entfällt.
+
+Neu ist `Sensor\Security\SwitchUserSensor` mit zwei Ereignissen:
+
+| `event_type` | Wann | Stufe |
+|---|---|---|
+| `security.switch_user` | eine fremde Identität wird übernommen | `warning` |
+| `security.switch_user.exit` | die Übernahme wird beendet | `info` |
+
+**Zwei Typen und nicht der eine, den Konzept 6.3 angedacht hatte.** Ohne das Ende bliebe
+jede spätere Handlung unter der fremden Identität **dauerhaft** von einer echten Handlung
+des Übernommenen ununterscheidbar — das Ereignis wäre eine Feststellung ohne Konsequenz.
+Erst die beiden klammern das Zeitfenster, in dem die Zuordnung nicht stimmt. Symfony feuert
+für beide Richtungen dasselbe Framework-Event; welche vorliegt, erkennt der Sensor am
+Token: beim Wechsel hinein ein `SwitchUserToken`, beim Verlassen der wiederhergestellte
+ursprüngliche. Das ist keine Heuristik, sondern die Bauweise des Listeners.
+
+Entgegen der Annahme im Konzept war dafür **keine neue Fassung** nötig: `event_type` ist
+nach 3.7 ein offenes Vokabular, `schema_version` bleibt 3.
+
+**Die Richtung der Zuordnung ist die eigentliche Aussage.** `actor.user` trägt den
+Übernehmenden, `payload.target_user` den Übernommenen. Andersherum wäre der Vorgang von
+einer gewöhnlichen Handlung des Kunden nicht zu unterscheiden. Der Übernehmende kommt aus
+dem ORIGINALTOKEN des `SwitchUserToken` und nicht aus dem Token-Speicher — der Listener
+setzt den neuen Token erst nach dem Ereignis.
+
+**Kein `firewall` im Payload.** `SwitchUserEvent` trägt keinen, und `TokenInterface` kennt
+`getFirewallName()` nicht; nur einzelne Token-Klassen tun das. Ihn über eine Typprüfung
+herbeizuraten hieße, ein Feld des Drahtformats von der Bauart eines fremden Tokens abhängig
+zu machen. `security.access_decision` kommt aus demselben Grund ohne ihn aus.
+
+**Kein eigener Schalter.** Der Sensor hängt an `layers.security.authentication`. Der
+Wechsel in eine fremde Identität ist keine Bauart von Anmeldung, sondern die Voraussetzung
+dafür, dass die drei anderen Ereignisse überhaupt der richtigen Person zugeordnet werden;
+ihn abschaltbar zu machen hieße, die Zuordnung abschaltbar zu machen.
+
+**Nebenbefund aus dem Integrationstest:** Symfonys eigene Prüfung auf
+`ROLE_ALLOWED_TO_SWITCH` läuft durch den `AccessDecisionManager` und erzeugte schon bisher
+ein `security.access_decision`. Das ersetzt die beiden neuen Ereignisse nicht — es sagt,
+dass jemand die Übernahme *durfte*, nicht, *wen* er übernommen hat.
+
 ### Added — Die Kernel-Ebene sieht jetzt auch die Konsole (offener Punkt E1)
 
 Console-Commands, Messenger-Worker und Cronjobs erzeugten keines der drei

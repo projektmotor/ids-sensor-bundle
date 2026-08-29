@@ -269,6 +269,23 @@ Der Zustand liegt **prozessübergreifend** (APCu, ersatzweise eine Datei), sonst
 | `security.authentication.failure` | Klassischer Indikator für Brute-Force/Credential-Stuffing | Zeitstempel, versuchte Benutzerkennung (falls vorhanden), Fehlergrund/Exception-Typ (z. B. `BadCredentialsException`), Firewall-Name, Client-IP, Request-ID |
 | `security.access_decision` — Autorisierungsentscheidung (Voter-Ergebnis, z. B. via `AuthorizationCheckerInterface`/`security.access_denied_url`-Listener) | Erkennung von Rechteausweitungsversuchen (Zugriff auf fremde Ressourcen) | Zeitstempel, Benutzerkennung, angefragtes Attribut/Recht, angefragte Ressource (Identifier, kein vollständiges Objekt), Entscheidung (granted/denied), Request-ID |
 
+**Ein vierter Vorgang: die Rechteübernahme.** Symfonys `SwitchUserListener` erzeugt **keines** der drei Ereignisse oben — weder eine Anmeldung noch eine Autorisierungsentscheidung über den übernommenen Nutzer. Ein Administrator, der in ein Kundenkonto wechselt, hinterließ deshalb überhaupt keine Spur, und alles, was er danach tat, sah aus wie eine Handlung des Kunden. Das war der offene Punkt **OB10**.
+
+| Event | Warum relevant für IDS | Konkrete Felder |
+|---|---|---|
+| `security.switch_user` | Beginn eines Zeitfensters, in dem die Zuordnung von Handlung zu Person nicht stimmt | Zeitstempel, `actor.user` = der Übernehmende, `target_user` = der Übernommene |
+| `security.switch_user.exit` | Ende dieses Zeitfensters | dieselben Felder; `target_user` ist der Wiederhergestellte |
+
+**Zwei Typen und nicht einer.** Ohne das Ende bliebe jede spätere Handlung unter der fremden Identität dauerhaft von einer echten Handlung des Übernommenen ununterscheidbar — das Ereignis wäre eine Feststellung ohne Konsequenz. Erst die beiden klammern das Fenster. Symfony feuert für beide Richtungen dasselbe Framework-Event; welche vorliegt, erkennt der Sensor am Token (beim Wechsel hinein ein `SwitchUserToken`, beim Verlassen der wiederhergestellte ursprüngliche).
+
+**Die Richtung der Zuordnung ist die eigentliche Aussage.** `actor.user` trägt den Übernehmenden, `target_user` den Übernommenen. Andersherum wäre der Vorgang von einer gewöhnlichen Handlung des Kunden nicht zu unterscheiden — und genau diese Unterscheidung ist der Zweck.
+
+**Kein `firewall` im Payload.** `SwitchUserEvent` trägt keinen Firewall-Namen, und `TokenInterface` kennt `getFirewallName()` nicht; nur einzelne Token-Klassen tun das. Ihn über eine Typprüfung herbeizuraten hieße, ein Feld des Drahtformats von der Bauart eines fremden Tokens abhängig zu machen. Die Autorisierungsentscheidung kommt aus demselben Grund ohne ihn aus.
+
+**Einstufung: `warning` für den Beginn, `info` für das Ende.** Der Beginn ist berichtenswert, unabhängig davon, ob er berechtigt war; das Ende stellt den Normalzustand wieder her und ist eine Auskunft, keine Auffälligkeit. Der praktische Unterschied liegt in `raw` und der Aufbewahrungsstufe aus 4.2.3.
+
+**Nebenbefund, der bestehen bleibt:** Symfonys Prüfung auf `ROLE_ALLOWED_TO_SWITCH` läuft durch den `AccessDecisionManager` und erzeugt damit ohnehin ein `security.access_decision`. Das ersetzt die beiden Ereignisse nicht — es sagt, dass jemand die Übernahme DURFTE, nicht, wen er übernommen hat.
+
 #### 2.1.3 Business-/Domain-Events
 
 **Konkreter Vorschlag:** Da Business-Events pro Projekt naturgemäß unterschiedlich sind, wird kein fester Event-Katalog definiert, sondern ein **fester Vertrag (Interface)**, den jede Anwendung selbst implementiert, um Events an den Business-Sensor anzubinden:
@@ -622,6 +639,17 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 ```
 - `resource`: Identifier-String (`Klasse#ID`), niemals das vollständige Objekt
 - `decision`: `"granted"` oder `"denied"`
+
+##### `security.switch_user` und `security.switch_user.exit`
+```json
+{
+  "target_user": "kunde@example.com"
+}
+```
+- `actor.user` trägt den **Übernehmenden**, `target_user` den Übernommenen (siehe 2.1.2)
+- Beim Verlassen ist `target_user` der Wiederhergestellte, also derselbe wie `actor.user`
+- Kein `firewall`: `SwitchUserEvent` trägt keinen, und `TokenInterface` kennt `getFirewallName()` nicht
+- Einstufung `warning` beim Beginn, `info` beim Ende
 
 #### 3.1.3 Business-Ebene / -Events
 
@@ -1869,7 +1897,7 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 | OB6 | ~~**`correlation_id`-Erzeugung**~~ — **erledigt** durch die Umsetzung: der Sensor erzeugt sie beim ersten `kernel.request` als UUIDv7. Eine eingehende Request-ID wird nur übernommen, wenn `correlation.require_trusted_proxy` erfüllt ist — sonst wäre sie reine Client-Eingabe, und ein Angreifer könnte die Spur eines Opfers übernehmen. | — | — |
 | OB5 | ~~**Symfony-Versionsbindung**~~ — **entschieden**: Zielversion des `IdsSensorBundle` ist PHP 8.2+ mit Symfony `^6.4\|^7.0`. Damit entfällt der Legacy-Doppelpfad für das alte Authenticator-System vollständig. Titel und Scope in Abschnitt 1 sind noch nachzuziehen. In einer 5.4-Anwendung ist das Bundle **nicht installierbar**. | — | — |
 | OB9 | **Toleranzschwelle für `dispatch_path: deferred`** (3.3.1) — sie ist zugleich die Klemmgrenze für `effective_at` (4.2.1) und damit nicht mehr nur eine Frage der Echtzeitregeln, sondern der gesamten Zeitachse. Der Consumer muss entscheiden, bis zu welchem `spool_delay_ms` er Echtzeit-Regeln auf einen nachgesendeten Frame anwendet. Empfehlung als Startwert: das Zweifache des im Heartbeat gemeldeten `drain_interval_s`. Ohne diese Festlegung ist unter mod_php **entweder** die Echtzeit-Erkennung dauerhaft aus, **oder** ein Ausfall-Nachlauf verfälscht bereits ausgewertete Zeitfenster. **Seit der Umstellung auf REST betrifft das nicht mehr nur mod_php:** Der gebündelte Versandmodus aus 3.6 ist auch unter PHP-FPM wählbar und markiert dort jeden Frame als `deferred`. Wer bündelt, ohne dass die Schwelle gesetzt ist, schaltet die Echtzeit-Erkennung ab, ohne es zu merken. | H | — |
-| OB10 | **Rechteübernahme per User-Switch ist ein blinder Fleck** — Symfonys `SwitchUserListener`/`SwitchUserEvent` erzeugt **keines** der Events aus 2.1.1 bis 2.1.3. Ein Administrator, der die Identität eines Kunden übernimmt, hinterlässt im IDS keine Spur. Bis zur Klärung ist das über ein Business-Event (V6 in 2.1.3) abzudecken; sauberer wäre ein zehnter Event-Typ in `schema_version` 2. | M | — |
+| OB10 | ~~**Rechteübernahme per User-Switch ist ein blinder Fleck**~~ — **erledigt** durch die Umsetzung: `security.switch_user` und `security.switch_user.exit` stehen in 2.1.2 und 3.1.2. Es wurden zwei Typen statt des angedachten einen, weil ohne das Ende jede spätere Handlung unter der fremden Identität dauerhaft falsch zugeordnet bliebe. Eine neue Fassung war entgegen der Annahme nicht nötig — `event_type` ist nach 3.7 ein offenes Vokabular. Der Workaround über ein V6-Business-Event entfällt. | — | — |
 | OB8 | **Datenschutz-Entscheidung** — bewusst nachrangig behandelt (Abschnitt 3 und 4.5.1), vor produktivem Einsatz mit echten Nutzerdaten erneut zu prüfen: Rechtsgrundlage, Aufbewahrungsfristen, Auskunftsfähigkeit. | M | — |
 | OB11 | **Kein `raw` für Alerts auf `info`-Events** — die Übertragung hängt allein an `event_severity` (Abschnitt 3, 4.2.3); der Alert entsteht erst im Collector und kann nicht zurückwirken. Ein Befund wie R2b („Pfadlisten-Treffer mit Status 200") steht damit ohne forensischen Beleg da. Zu entscheiden: sensorseitig zusätzliche Kandidaten mit `raw` versehen, oder die Lücke annehmen und in 4.5.2 benennen. **Ein Gegenargument ist mit der Umstellung auf REST weggefallen:** Bislang schloss die Rechtetrennung (Sensor: nur `XADD`, kein `read`) aus, dass der Sensor überhaupt eine Antwort erfährt. Über HTTP erfährt er sie (3.6), ein Rückkanal existiert also. Was fehlt, sind die Daten — der Frame ist zum Zeitpunkt der Antwort abgesendet und nicht mehr vorhanden. Ein dritter Weg wäre damit denkbar (der Collector fordert `raw` nach, der Sensor hält Kandidaten kurz vor), kostet aber Speicher im Request-Pfad und ist gegen das Latenzbudget aus 2.1 zu prüfen. | M | — |
 | OB12 | **Rückstau an den Ingest-Endpunkten** — 3.6 legt fest, wie der Sensor auf `429` reagiert (spoolen, `Retry-After` beachten, der Breaker zählt einen Fehler). Offen ist die Gegenseite: ab welcher Rate der Collector ablehnt, mit welchem `Retry-After`, und wie er einen lauten, aber gesunden Sensor von einem flutenden Angreifer mit erbeuteten Zugangsdaten unterscheidet. Die drei Routen brauchen dabei **getrennte** Grenzen: Ein Heartbeat kommt einmal je Minute, Frames im Sekundentakt, und `/api/v1/token` ist die einzige für alle Sensoren gemeinsame Adresse und damit die einzige Stelle, an der Zugangsdaten durchprobiert werden können. | M | — |

@@ -17,6 +17,7 @@ use Symfony\Component\Security\Core\User\InMemoryUser;
 final class SecurityConfig
 {
     public const USER = 'alice';
+    public const ADMIN = 'admin';
     public const PASSWORD = 'geheim';
 
     /**
@@ -60,6 +61,34 @@ final class SecurityConfig
     {
         $config = self::basic();
         unset($config['firewalls']['main']['stateless']);
+
+        return $config;
+    }
+
+    /**
+     * Wie basic(), zusätzlich ein Administrator und die Rechteübernahme.
+     *
+     * Der zweite Nutzer ist nötig, weil eine Übernahme zwei Identitäten braucht: den
+     * Übernehmenden und den Übernommenen. `ROLE_ALLOWED_TO_SWITCH` ist die Rolle, die
+     * Symfonys SwitchUserListener per Vorgabe verlangt.
+     *
+     * Baut auf {@see stateful()} und nicht auf {@see basic()}: Das VERLASSEN der Übernahme
+     * setzt voraus, dass der SwitchUserToken den Request überlebt hat — er trägt den
+     * ursprünglichen Token in sich, und ohne ihn findet der Listener keinen, zu dem er
+     * zurückkehren könnte. Bei einer zustandslosen Firewall meldete sich der
+     * Administrator in jedem Request neu an, und `_switch_user=_exit` liefe in eine
+     * AuthenticationCredentialsNotFoundException.
+     *
+     * @return array<string, mixed>
+     */
+    public static function withSwitchUser(): array
+    {
+        $config = self::stateful();
+        $config['providers']['test_users']['memory']['users'][self::ADMIN] = [
+            'password' => self::PASSWORD,
+            'roles' => ['ROLE_ADMIN', 'ROLE_ALLOWED_TO_SWITCH'],
+        ];
+        $config['firewalls']['main']['switch_user'] = true;
 
         return $config;
     }

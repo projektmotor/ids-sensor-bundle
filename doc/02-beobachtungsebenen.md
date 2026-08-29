@@ -121,10 +121,29 @@ Beobachtet die Security-Komponente, sofern das SecurityBundle registriert ist.
 | Anmeldung erfolgreich | `security.authentication.success` | `Sensor\Security\AuthenticationSensor` |
 | Anmeldung gescheitert | `security.authentication.failure` | `Sensor\Security\AuthenticationSensor` |
 | Autorisierungsentscheidung | `security.access_decision` | `Sensor\Security\AccessDecisionSensor` |
+| Fremde Identität übernommen | `security.switch_user` | `Sensor\Security\SwitchUserSensor` |
+| Übernahme beendet | `security.switch_user.exit` | `Sensor\Security\SwitchUserSensor` |
 
 Die Spalte trägt den **übertragenen** Wert, nicht den Namen der PHP-Konstante. Diese
 Zeichenketten sind Paketgrenze: der Collector wertet genau sie aus (*3.1.2*), und wer eine
 Auswertung oder einen Filter auf einen anderen Wert baut, trifft nichts — lautlos.
+
+### Rechteübernahme: zwei Ereignisse, nicht eines
+
+`security.switch_user` allein wäre wertlos. Ohne das Ende bliebe jede spätere Handlung
+unter der fremden Identität **dauerhaft** von einer echten Handlung des Übernommenen
+ununterscheidbar — erst die beiden Ereignisse klammern das Zeitfenster, in dem die
+Zuordnung nicht stimmt. Symfony feuert für beide Richtungen dasselbe Framework-Event;
+welche vorliegt, erkennt der Sensor am Token.
+
+`actor.user` ist der **Übernehmende**, `payload.target_user` der Übernommene. Andersherum
+wäre der Vorgang von einer gewöhnlichen Handlung des Kunden nicht zu unterscheiden.
+Eingestuft wird der Beginn als `warning`, das Ende als `info`.
+
+Der Sensor hat **keinen eigenen Schalter**: Der Wechsel in eine fremde Identität ist keine
+Bauart von Anmeldung, sondern die Voraussetzung dafür, dass die drei anderen Ereignisse
+überhaupt der richtigen Person zugeordnet werden. Ihn abschaltbar zu machen hieße, die
+Zuordnung abschaltbar zu machen. Er hängt an `layers.security.authentication`.
 
 `AccessDecisionSensor` dekoriert den `AccessDecisionManagerInterface` und feuert damit bei
 **jedem** `isGranted()`. Das ist der teuerste Sensor des Bundles. Abgesichert ist er durch
@@ -188,11 +207,12 @@ Was fehlt, wenn eine Klasse nicht instrumentiert wird:
 | V5 | Massenoperationen | `export.bulk_generated`, `record.bulk_deleted` | Datenabfluss über legitime Exportfunktionen bleibt unsichtbar — auf Kernel-Ebene ist ein Massenexport ein Einzelabruf |
 | V6 | Administrative Funktionen | `admin.action_performed` | Missbrauch privilegierter Funktionen nach erfolgreichem Rechteerwerb wird nicht erfasst (zweiter Teil der Kette in Regel X3) |
 
-**Nicht im Katalog, aber ein blinder Fleck:** Symfonys `SwitchUserListener` erzeugt keines
-der Events aus (*2.1.1*) bis (*2.1.3*) — ein Administrator, der die Identität eines Kunden
-übernimmt, hinterlässt im IDS keine Spur. Das Konzept führt das als offenen Punkt **OB10**
-und verlangt bis zu dessen Klärung, es über ein Business-Event der Klasse V6 abzudecken.
-Wer User-Switch benutzt, sollte diese Meldung also selbst auslösen.
+**Der User-Switch war lange ein blinder Fleck.** Symfonys `SwitchUserListener` erzeugt
+keines der Events aus (*2.1.1*) bis (*2.1.3*) — ein Administrator, der die Identität eines
+Kunden übernimmt, hinterließ im IDS keine Spur, und alles, was er danach tat, sah aus wie
+eine Handlung des Kunden. Seit `SwitchUserSensor` ist das geschlossen (*OB10*); der frühere
+Workaround über ein Business-Event der Klasse V6 entfällt. Wer die Übernahme darüber hinaus
+fachlich protokollieren will, kann V6 weiterhin benutzen — nötig ist es nicht mehr.
 
 ## Eine Ebene abschalten? Nein.
 

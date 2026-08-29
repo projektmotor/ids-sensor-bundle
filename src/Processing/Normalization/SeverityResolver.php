@@ -118,6 +118,15 @@ final class SeverityResolver
     /**
      * Security-Events: Anmeldeerfolg info, Anmeldefehler warning,
      * Autorisierungsentscheidung je nach Ausgang.
+     *
+     * WARUM DIE ÜBERNAHME warning IST UND IHR ENDE NICHT
+     *
+     * Eine Rechteübernahme ist der Beginn eines Zeitfensters, in dem die Zuordnung von
+     * Handlung zu Person nicht stimmt — berichtenswert unabhängig davon, ob sie
+     * berechtigt war. Ihr Ende stellt den Normalzustand wieder her und ist damit eine
+     * Auskunft, keine Auffälligkeit. Der praktische Unterschied: `warning` trägt `raw`
+     * und liegt in der langen Aufbewahrung (Konzept 4.2.3) — beim Beginn ist beides
+     * gewollt, beim Ende wäre es Volumen ohne Erkenntnisgewinn.
      */
     public function forSecurity(string $eventType, ?string $decision = null): Severity
     {
@@ -125,6 +134,8 @@ final class SeverityResolver
             SecurityPayload::EVENT_AUTH_SUCCESS => Severity::Info,
             SecurityPayload::EVENT_AUTH_FAILURE => Severity::Warning,
             SecurityPayload::EVENT_ACCESS_DECISION => SecurityPayload::DECISION_DENIED === $decision ? Severity::Warning : Severity::Info,
+            SecurityPayload::EVENT_SWITCH_USER => Severity::Warning,
+            SecurityPayload::EVENT_SWITCH_USER_EXIT => Severity::Info,
             default => Severity::Info,
         };
     }
