@@ -11,7 +11,43 @@ jederzeit ändern — durchgesetzt von
 ein eigenes Paket und einen eigenen Changelog:
 [`projektmotor/ids-event-data`](https://github.com/projektmotor/ids-event-data).
 
-## [Unreleased]
+## [0.2.0] — 2026-08-29
+
+Die erste Fassung, die den REST-Transport ausliefert — und die erste, in der die
+Beobachtung nicht mehr am HttpKernel endet.
+
+**Was bricht.** Der Transport ist vollständig ausgetauscht: Der Sensor spricht den
+Collector über HTTPS an, statt in einen Redis-Stream zu schreiben. `schema_version` steht
+auf 3, die Kennungen sind drei UUIDs, und `symfony/messenger` ist von einer harten zu einer
+optionalen Abhängigkeit geworden.
+
+**Der Umstieg von 0.1.x ist ohne Anpassung nicht möglich** und läuft in dieser Reihenfolge:
+
+1. Am Collector registrieren — er vergibt `application_id`, `environment_id`, `sensor_id`
+   (alle drei UUIDs) sowie Benutzername und Passwort. Der Sensor leitet nichts mehr ab.
+2. `sensor_id` **je Node** setzen, nicht aus einer geteilten ConfigMap: Sonst sind
+   Replikate ununterscheidbar und `ids.sensor_silent` schweigt beim Ausfall einzelner.
+3. `transport.*` durch `collector.*` ersetzen. Die vollständige Gegenüberstellung
+   entfallener und neuer Schlüssel steht unten unter *Breaking — Umsetzung: REST-Transport,
+   drei UUID-Kennungen, schema_version 2*.
+4. `ids:sensor:setup-check` laufen lassen — er prüft fehlende Zugangsdaten, eine
+   `base_uri` ohne HTTPS und ein abgeschaltetes `verify_tls`.
+
+Der Collector muss dabei **zuerst** stehen: Er ist die Quelle der Kennungen, und ein Sensor
+ohne sie kommt nicht am Ingest vorbei.
+
+**Was nicht bricht.** `Contract\*` ist unverändert. `IdsResourceIdentifier` und
+`SecurityRelevantBusinessEvent` sehen genauso aus wie in 0.1.1, obwohl die
+Ressourcenangabe darunter zerlegt wurde — das war eine der Randbedingungen dieser Fassung
+und keine glückliche Fügung.
+
+**Fünf offene Punkte des Konzepts sind geschlossen** (E1, OB10, O2, OB11, OB8). Zwei davon
+schließen echte Beobachtungslücken: Konsolenläufe und die Rechteübernahme per User-Switch
+erzeugten bis hierher überhaupt kein Ereignis. **`schema_version` bleibt dabei bei 3** —
+alle neuen Ereignistypen und Felder sind additiv im Sinne von Konzept 3.7, der Collector
+braucht keine Migration.
+
+Setzt `projektmotor/ids-event-data` `^0.4` voraus.
 
 ### Changed — Datenschutz ist entschieden, nicht offen (offener Punkt OB8)
 

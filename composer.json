@@ -70,13 +70,6 @@
             "phpstan/extension-installer": true
         }
     },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "/ids-event-data",
-            "options": { "symlink": false, "versions": { "projektmotor/ids-event-data": "0.4.0" } }
-        }
-    ],
     "minimum-stability": "stable",
     "prefer-stable": true
 }

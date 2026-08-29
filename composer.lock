@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "aabf88f8c0e561784e0f89f822a1966e",
+    "content-hash": "7faf376acfdf65b9f8867ed6cdf90cf7",
     "packages": [
         {
             "name": "projektmotor/ids-event-data",
             "version": "0.4.0",
-            "dist": {
-                "type": "path",
-                "url": "/ids-event-data",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/projektmotor/ids-event-data.git",
                 "reference": "aa11a632c3d96917006f7a2afbdf4b10700e425b"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/projektmotor/ids-event-data/zipball/aa11a632c3d96917006f7a2afbdf4b10700e425b",
+                "reference": "aa11a632c3d96917006f7a2afbdf4b10700e425b",
+                "shasum": ""
             },
             "require": {
                 "ext-mbstring": "*",
@@ -32,11 +38,7 @@
                     "ProjektMotor\\IdsEventData\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "ProjektMotor\\IdsEventData\\Tests\\": "tests/"
-                }
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -54,10 +56,11 @@
                 "security",
                 "wire-format"
             ],
-            "transport-options": {
-                "symlink": false,
-                "relative": false
-            }
+            "support": {
+                "issues": "https://github.com/projektmotor/ids-event-data/issues",
+                "source": "https://github.com/projektmotor/ids-event-data/tree/0.4.0"
+            },
+            "time": "2026-08-29T21:01:01+00:00"
         },
         {
             "name": "psr/cache",
