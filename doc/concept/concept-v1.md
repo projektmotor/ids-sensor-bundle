@@ -1,6 +1,6 @@
 # IDS-Konzept: Generische Symfony-Anwendung (6.4 / 7.x)
 
-**Stand:** 13.08.2026
+**Stand:** 30.08.2026
 **Status:** In Bearbeitung — Neuansatz, ersetzt vorheriges Zwei-Profil-Komplexsystem (TYPO3 + API/Symfony)
 **Versionshistorie:** Version 1 gesichert am 13.08.2026 (Stand nach Restrukturierung: Abschnitte 1–4 und 6, inkl. Zwei-Bundle-Auslieferung und Erkennungsstruktur in 4.3. Die Restrukturierung führte die Erkennung aus einem eigenen Abschnitt 5 nach 4.3 zusammen; eine Ziffer 5 gibt es seitdem nicht mehr.)
 · 15.08.2026: zwei Literale des Drahtformats umbenannt, damit Konzept und Code dieselben Wörter benutzen — `redaction_version` → `cleanup_version` (3.1, 3.4) und `[redacted]` → `[confidential]` (4.5.1). Die deutsche Prosa bleibt bei „Redaktion"; der Implementierung liegt sie als `Support\PayloadConfidentialityCleanup\` zugrunde. Inhaltlich ändert sich nichts.
@@ -8,6 +8,7 @@
 · 16.08.2026, zweiter Durchgang: Ergebnis eines Abgleichs von Konzept, Dokumentationsreihe `doc/01`–`doc/09` und Quellcode. **Inhaltliche Änderungen:** (a) Die `raw`-Bedingung „für alle Events, die einen Alert ausgelöst haben" ist in Abschnitt 3 und 4.2.3 **gestrichen** — sie ist vom Sensor nicht erfüllbar, weil der Alert erst im Collector entsteht; die Folge steht als offener Punkt OB11. (b) `correlation_id` ist in 2.2.4 ergänzt und für Läufe ohne Request festgelegt (neuer Unterabschnitt „Korrelation außerhalb des Requests"). (c) Die Redaktionsliste in 4.5.1 steht auf `version: 2` und führt die beiden `X-Debug-*`-Header; 3.4 zeigt entsprechend `cleanup_version: 2`. (d) Sechs Bausteine der Umsetzung sind nachgezogen: Erfassungsbudget und Circuit Breaker in 2.1, Sub-Requests, fatale Fehler und `ignored_paths` in 2.1.1, `environment_map`/`environment_fallback` in 2.2.1. (e) 3.4 zeigt die tatsächlich gesendeten Heartbeat-Felder. **Redaktionell:** Die offenen Punkte in 6.1/6.3 tragen jetzt das Präfix `OB` und kollidieren nicht mehr mit den Batch-Regeln B1–B9 aus 4.3.2/4.3.3; Verweise auf einen „Abschnitt 5" zeigen auf 4.3.6; der `alerts`-Index heißt `idx_alerts_first_seen` (eine Spalte `created_at` gibt es nicht); 2.2.1 führt `timestamp` und `correlation_id`; der doppelte Wirksamkeitshinweis in Abschnitt 2 ist entfernt.
 · 29.08.2026: **inhaltliche Änderung, die größte seit Version 1** — der Transport zwischen Sensor und Collector wechselt vom Message Broker auf eine REST-Schnittstelle. Der Sensor sendet per HTTPS an `POST /api/v1/sensor-data/{application_id}/{environment_id}/{sensor_id}`, angemeldet mit vom Collector ausgegebenen Zugangsdaten und einem daraus geholten, gecachten JWT (neuer Abschnitt 3.6). Damit fällt Redis in **beiden** Rollen weg: als Transport und als In-Memory-Zählerspeicher der Echtzeitregeln, der jetzt eine `UNLOGGED`-Tabelle in der ohnehin vorhandenen PostgreSQL-Datenbank ist (4.2.1, 4.3). **Das System besteht danach aus zwei Bausteinen statt vier:** der überwachten Anwendung und dem Collector. Betroffen sind 1, 2, 2.1, 3.3–3.6, 4, 4.1, 4.2, 4.3, 4.4, 4.5 und 6. Das Drahtformat aus Abschnitt 3 ändert sich **nicht**, deshalb kein `schema_version`-Bump. **Umgesetzt.** Hier stand, der Quellcode bleibe bewusst unverändert und liefere weiterhin den Redis-Streams-Transport aus. Das galt bis zur Umsetzung; seither beschreiben `doc/01`–`doc/09` wieder denselben Stand wie das Konzept.
 · 29.08.2026, zweiter Durchgang: Ergebnis einer Tiefenprüfung auf Widersprüche, Lücken und technologische Fehler. **Inhaltliche Änderungen:** (a) Zeitfensterregeln filtern nicht mehr auf dem sensorgesetzten `timestamp`, sondern auf einem an `received_at` verankerten `effective_at` (4.2.1, 4.3.2) — Zurückdatieren war bis dahin eine vollständige Umgehung der Batch-Erkennung. (b) Die Routen tragen das Tripel `application_id`/`environment_id`/`sensor_id`, alle als UUID; maßgeblich ist der Rumpf, der Pfad wird dagegen geprüft, und der angemeldete Nutzer muss Eigentümer der Kette sein (3.6). (c) `instance_id` entfällt zugunsten von `sensor_id`: Ein Sensor **ist** eine laufende Installation, je Node wird eine registriert (1, 2.3). (d) Umgebungen werden collectorseitig frei benannt; `env_type` wird `TEXT`, `environment_map` und `environment_fallback` entfallen. (e) `schema_version` steht nur noch im Frame; das Feld `v` entfällt, Events tragen keine eigene Fassung. (f) Neue Spalten `effective_at`, `dispatch_path`, `spool_delay_ms` und `unknown_fields`; neue Tabellen `realtime_counters` und `metric_samples`. (g) Neue Abschnitte: 2.3 Betriebsvoraussetzungen und 3.7 Fassungswechsel (die „Bump-Regeln", auf die 3.4 seit jeher verweist, ohne dass es sie gab). (h) Retention von `events_info` und `events_raw` auf 45 Tage, damit Baseline-Poisoning feststellbar wird; Volumenrechnung auf 5–7 Events je Request. **Dritter Durchgang, 29.08.2026 — die zurückgestellten Befunde:** (i) **Sampling entfällt vollständig** (4.2.3, 3.7): Eine Rate lässt sich hochrechnen, ein verpasster Signaturtreffer nicht, und ausgerechnet die bestätigte Exposition (R2b, X4) wäre ungeschützt geblieben. Das Feld `sampling_rate` verschwindet damit aus Ereignis und Schema. (j) **Der Sitzungshash kommt ohne Schlüssel aus** (2.2.4, 2.3): Der HMAC-Schlüssel wirkte gegen das Bedrohungsmodell aus Abschnitt 2 nie — die überwachte Anwendung muss ihn lesen können. Getragen wird die Einwegbeziehung von der Entropie der Session-ID; die Frage der Schlüsselrotation löst sich damit auf. (k) `granted`-Entscheidungen bekommen ihren benannten Zustand (4.3) und einen offenen Punkt E6. (l) Gefälschte Events gegen Dritte sind als Randbedingung von E5 geführt (2, 4.5.3). (m) Die Anomalieschwelle bekommt Mindestfallzahl, Streuungsuntergrenze und robuste Alternative (4.3.5, 4.2.4). (n) Der GIN-Index auf `payload` weicht Ausdrucksindizes, und `events_info` bekommt einen eigenen, kleineren Indexsatz (4.2.2). (o) `realtime_counters` bekommt `fillfactor` und ein eigenes Autovacuum (4.2.1).
+· 30.08.2026: **inhaltliche Änderung — erster Fassungswechsel des Ereignisformats seit Version 1: `schema_version` steht auf 4.** (a) Der Frame trägt ein neues **Pflichtfeld** `frame_id` (3.3). Der Collector legt jede Sendung als Zeile ab, und die braucht einen Schlüssel; bei at-least-once sind Duplikate der Normalfall, und ohne Schlüssel ist die zweite Zustellung derselben Sendung von einer zweiten Sendung nicht zu unterscheiden. (b) 3.7 bekommt die Regelzeile **„ein neues Pflichtfeld"**, die bisher durch beide Listen fiel — dieselbe Lückenart wie zuvor bei der Zählerumbenennung. Für Fassungen ≤ 3 leitet der Collector die Kennung deterministisch ab, damit „älter als bekannt: verarbeiten" gewahrt bleibt; die Ausnahme von „der Collector setzt nichts ein" ist in 3.3 und 3.6 ausdrücklich benannt. (c) **Zwei neue Tabellen: `frames` und `heartbeats`.** Der Frame war bis hierher nur Transportformat — wann die Sendung versiegelt wurde, wie viele Ereignisse sie trug, welche Zählerstände sie meldete, war nach dem Auspacken verloren. Der Heartbeat hatte überhaupt keine Tabelle, obwohl 3.4 drei Auswertungen über die Zeit verlangt und 4.2 für `ids.dispatch_path_implausible` eine Heartbeat-Historie voraussetzte, die es nicht gab. (d) Die Event-Tabellen bekommen `frame_id` — ohne Index und ohne Fremdschlüssel, jeweils begründet. (e) **4.2 ist neu gegliedert:** 4.2.1 trägt das vollständige, ausführbare Schema an einem Stück, inklusive aller Indizes; 4.2.2 trägt die gesamte Begründung samt Indizierung; 4.2.4 nur noch die Bedeutung der Auswertungsspalten. Zuvor war das Schema über vier Unterabschnitte verstreut, zwei Tabellen standen ohne eigene Überschrift mitten in der Prosa, und die Einleitung von 4.2 war ein Satzfragment mit falschem Querverweis. Die Nummern 4.2.3 und 4.2.4 bleiben, damit die 34 Verweise darauf gültig bleiben. (f) 3.3 legt fest, dass der Frame die **vollständige** Zählerliste trägt — solange die Stände nur durchliefen, war das gleichgültig; gespeichert entscheiden sie über ein Datenvolumen. (g) `unknown_fields` gilt jetzt auch für Frame und Heartbeat; 3.7 sagte das seit jeher zu, das Schema löste es nicht ein. (h) **Ein Schutz, den 4.2.1 beschrieb, ohne dass es ihn gab:** Die Obergrenze von `effective_at` sollte verhindern, dass eine noch nicht angelegte Partition adressiert wird — partitioniert wird aber auf `timestamp`. 4.1 weist vordatierte Sendungen jetzt mit `422` ab. Neue offene Punkte: OB14, OB15.
 
 ---
 
@@ -58,12 +59,12 @@
 - [4. IdsBackendBundle - Zentrale Sammelstelle](#4-idsbackendbundle---zentrale-sammelstelle)
   - [4.1 Ingest-Endpunkt und Consumer](#41-ingest-endpunkt-und-consumer)
   - [4.2 PostgreSQL-Datenbank](#42-postgresql-datenbank)
-    - [4.2.1 Tabellenschema](#421-tabellenschema)
-    - [4.2.2 Indizierung](#422-indizierung)
+    - [4.2.1 Das vollständige Schema](#421-das-vollständige-schema)
+    - [4.2.2 Begründung des Schemas — Ereignisse, Sendungen, Indizes](#422-begründung-des-schemas--ereignisse-sendungen-indizes)
     - [4.2.3 Retention & Partitionierung](#423-retention--partitionierung)
       - [Volumenbudget und gestufte Retention](#volumenbudget-und-gestufte-retention)
       - [Partitionierung mit pg_partman](#partitionierung-mit-pg_partman)
-    - [4.2.4 Auswertungstabellen](#424-auswertungstabellen)
+    - [4.2.4 Auswertungstabellen — was in ihnen steht](#424-auswertungstabellen--was-in-ihnen-steht)
   - [4.3 Detection](#43-detection)
     - [4.3.1 Echtzeit-Regeln (pro Event, im Consumer)](#431-echtzeit-regeln-pro-event-im-consumer)
     - [4.3.2 Periodische Regeln (Batch, alle 1–5 Minuten)](#432-periodische-regeln-batch-alle-15-minuten)
@@ -362,7 +363,7 @@ Ohne diese drei Felder kann eine gemeinsame Sammelstelle die Herkunft eines Even
 
 **`actor.ip` setzt `framework.trusted_proxies` voraus.** Ohne diese Einstellung liefert Symfony die Adresse des letzten Hops — hinter jedem Load Balancer also für alle Events dieselbe. Sieben Regeln hängen daran (R3, B1–B5, X4); sie laufen dann weiter und messen nichts. Als Betriebsvoraussetzung geführt in 2.3.
 
-**Zusätzlich `received_at`:** `timestamp` wird von der Anwendung gesetzt und hängt damit an der Uhr des Anwendungsservers — einer Uhr, die im Bedrohungsmodell aus Abschnitt 2 dem Angreifer gehört. Der Consumer setzt deshalb zusätzlich `received_at` und leitet daraus `effective_at` ab, den Wert, auf dem alle Zeitfensterregeln arbeiten (4.2.1). Die Differenz von `timestamp` und `received_at` bleibt daneben als Maß für Uhrendrift erhalten.
+**Zusätzlich `received_at`:** `timestamp` wird von der Anwendung gesetzt und hängt damit an der Uhr des Anwendungsservers — einer Uhr, die im Bedrohungsmodell aus Abschnitt 2 dem Angreifer gehört. Der Consumer setzt deshalb zusätzlich `received_at` und leitet daraus `effective_at` ab, den Wert, auf dem alle Zeitfensterregeln arbeiten (4.2.2). Die Differenz von `timestamp` und `received_at` bleibt daneben als Maß für Uhrendrift erhalten. Gemessen wird sie je **Sendung** in `frames` (4.2.2) — dort stehen mit `flushed_at`, `received_at` und `spool_delay_ms` alle drei Größen beieinander, die es dafür braucht.
 
 ##### Konkrete Ableitungsregeln für event_severity
 
@@ -487,7 +488,7 @@ Die Abschnitte oben beschreiben, *was* der Sensor leistet. Dieser beschreibt, *u
 | Spool-Verzeichnis node-lokal | Auf NFS oder einem geteilten Volume holt man genau den Netzwerkzugriff zurück, den der Spool aus dem Request entfernt hat | Betriebsdokumentation (`doc/05`) |
 | Session-IDs mit mindestens 128 Bit Entropie (`session.sid_length` × `session.sid_bits_per_character`) | `actor.session_id_hash` ist ungeschlüsselt (2.2.4). Bei zu kurzer ID lässt er sich durchprobieren, und die Event-Datenbank wird zu dem Session-Hijacking-Vektor, den das Hashen verhindern soll | setup-check |
 | Umgebung im Anwendungsregister vorhanden | Sendungen werden abgewiesen (3.6) | Antwortcode `422` und der Verlustzähler `dropped_rejected` |
-| **Uhrensynchronisation (NTP)** | Der Collector klemmt `timestamp` an `received_at` (4.2.1). Eine nachlaufende Uhr schiebt damit jedes Ereignis an die Toleranzgrenze, und die Zeitachse stimmt nicht mehr — sichtbar nur, wenn jemand hinsieht | Heartbeat, plus collectorseitiger Befund aus der Differenz beider Werte |
+| **Uhrensynchronisation (NTP)** | Der Collector klemmt `timestamp` an `received_at` (4.2.2). Eine nachlaufende Uhr schiebt damit jedes Ereignis an die Toleranzgrenze, und die Zeitachse stimmt nicht mehr — sichtbar nur, wenn jemand hinsieht | Heartbeat, plus collectorseitiger Befund aus der Differenz beider Werte |
 
 **Was hier nicht steht, gehört auch nicht als Zusage ins Konzept.** Eine Anforderung, die auf keiner der drei Ebenen prüfbar ist, kann niemand einlösen — dieselbe Linie, die 4.2.3 zieht, wenn es die `raw`-Bedingung streicht, die der Sensor nicht erfüllen kann.
 
@@ -536,7 +537,7 @@ Aus dem Normalisierungs-Mapping aus Abschnitt 2.2 ergibt sich folgendes gemeinsa
 
 **`schema_version` ist kein Feld des Events.** Es steht einmal im Frame (3.3) und gilt für alle Events darin. Eine Sendung hat eine Fassung; sie zweihundertmal zu wiederholen brächte keine Aussage und ließe zwei Werte auseinanderlaufen, die nie verschieden sein dürfen.
 
-`raw` ist **kein Pflichtfeld**: Es wird ausschließlich für Events mit `event_severity` in (`warning`, `critical`) übertragen und gespeichert (Begründung: siehe „Volumenbudget und gestufte Retention“). `received_at`, `effective_at` und `unknown_fields` setzt der Consumer (4.2.1); sie sind nicht Teil des übertragenen Events.
+`raw` ist **kein Pflichtfeld**: Es wird ausschließlich für Events mit `event_severity` in (`warning`, `critical`) übertragen und gespeichert (Begründung: siehe „Volumenbudget und gestufte Retention“). `received_at`, `effective_at` und `unknown_fields` setzt der Consumer (4.2.2); sie sind nicht Teil des übertragenen Events.
 
 Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Ebene und Ausführungskontext ist nicht jeder Wert bestimmbar (siehe „Bildung der Sitzungskontext-Felder“).
 
@@ -720,12 +721,13 @@ Ein Request erzeugt typischerweise drei bis fünf Events, bei vielen Autorisieru
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
+  "frame_id": "0198f2c1-4a7b-7e30-9d51-6b2f8c04a913",
   "sensor": { "application_id": "9b1c4f80-…", "environment_id": "3f6d21ac-…", "sensor_id": "c40a7e13-…", "process_epoch": "01a0…", "pid": 4711 },
   "flushed_at": "2026-08-14T10:15:32.487Z",
   "dispatch_path": "direct",
   "spool_delay_ms": 0,
-  "counters": { "captured": 918273, "sent": 918100, "dropped_spool_full": 33 },
+  "counters": { "captured": 918273, "sent": 918100, "dropped_spool_full": 33, "…": 0 },
   "events": [ /* die normalisierten Events dieses Requests */ ]
 }
 ```
@@ -734,13 +736,25 @@ Der Frame ist **kein Event** und ändert das Event-Schema oben nicht — er umh�
 
 **`schema_version` steht hier und nur hier.** Ein früher vorhandenes Feld `v` meinte dasselbe und ist entfallen. Damit ist eine Spool-Zeile vollständig selbstbeschreibend: Wird sie nach einem Sensor-Update nachgesendet, trägt sie ihre eigene, ältere Fassung mit sich — genau das, was 3.7 voraussetzt.
 
+**Die Sendung hat eine eigene Kennung.** `frame_id` ist ein Pflichtfeld, und der Sensor erzeugt es beim **Bauen** des Frames — nicht beim Versenden. Der Collector führt je Sendung eine Zeile (4.2.1); die braucht einen Schlüssel, und weil die Zustellgarantie at-least-once ist (Abschnitt 4), sind Duplikate der Normalfall und kein Störfall. Ohne Schlüssel wäre die zweite Zustellung derselben Sendung von einer zweiten Sendung nicht zu unterscheiden. `event_id` löst dasselbe Problem seit jeher eine Ebene tiefer.
+
+**`correlation_id` ist dafür kein Ersatz**, und zwar aus drei Gründen: Läufe ohne Request tragen dort den Leerstring (2.2.4), die Flush-Punkte eines Messenger-Workers teilen einen Lauf auf mehrere Frames, und `flush.max_frame_bytes` tut dasselbe. Ein Frame ist deshalb nicht dasselbe wie ein Request.
+
+**Beim Nachsenden bleibt die Kennung unverändert** — wie der ganze Frame (siehe unten). Zöge der Weg über den Spool eine neue, wäre ein Frame, der den Direktversand versucht, scheitert, gespoolt und später zugestellt wird, zweimal dieselbe Sendung unter zwei Schlüsseln, und die Deduplizierung liefe genau in dem Fall ins Leere, für den es sie gibt.
+
+**Die Zählerliste im Frame ist dieselbe wie im Heartbeat.** Das Beispiel oben kürzt ab; übertragen wird die vollständige, geschlossene Liste aus 3.4, jeder Zähler, auch mit dem Wert `0`. Der Grund ist derselbe, der ihn dort trägt: Ein fehlender Schlüssel wäre zweideutig — „nichts verloren" oder „diese Sensorfassung kennt den Zähler nicht". Die Festlegung steht jetzt auch hier, weil der Collector die Zählerstände je Sendung speichert und die Liste damit über ein Datenvolumen entscheidet (4.2.3), nicht mehr nur über einen durchlaufenden Wert.
+
 **Die Kennungen im `sensor`-Block sind maßgeblich.** Der Pfad der Sendung (3.6) trägt dieselben drei Werte und wird gegen sie geprüft; bei Abweichung wird die Sendung abgewiesen. Der Collector setzt nichts ein, was nicht im Frame stand — was gespeichert wird, ist genau das, was gesendet wurde.
+
+**Eine einzige Ausnahme davon, und sie ist benannt:** Ein Frame mit `schema_version` ≤ 3 trägt kein `frame_id`, weil es das Feld damals nicht gab. Der Collector *leitet* es dann ab statt es zu erfinden — als UUIDv5 über einen festen Namensraum und die Zeichenkette `sensor_id | process_epoch | pid | flushed_at`, alle vier Werte aus dem Frame selbst. Die Ableitung ist deterministisch: Derselbe nachgesendete Frame ergibt dieselbe Kennung, und genau darauf beruht die Deduplizierung. Erkennbar ist sie an `schema_version < 4`; ein zusätzliches Kennzeichen gibt es bewusst nicht, weil das zwei Wahrheiten für einen Sachverhalt wären. Ohne diese Regel widerspräche 3.7 sich selbst — dort steht „älter als bekannt: verarbeiten".
+
+> **Das Restrisiko der Ableitung, benannt statt verschwiegen:** Zwei Frames desselben Prozesses in derselben Millisekunde ergeben dieselbe Kennung, und die zweite Zeile fiele weg. Betroffen ist nur der Zustellnachweis — die **Ereignisse** deduplizieren über ihre eigene `event_id` und sind unberührt. Der Fall ist collectorseitig zählbar (offener Punkt OB4) und verschwindet mit dem letzten Sensor der Fassung 3.
 
 Derselbe Frame ist auch das Format im lokalen Spool — eine Zeile je Frame. Beim Nachsenden wird er unverändert weitergeschickt, also **nicht** erneut normalisiert oder redigiert; ein zweiter Redaktionsdurchlauf wäre eine zweite Gelegenheit, es falsch zu machen. Ein gebündelter Versand (3.6) packt mehrere dieser Zeilen als JSON-Liste in **einen** POST; am einzelnen Frame ändert das nichts.
 
 #### 3.3.1 `dispatch_path` — drei Zustände statt eines Flags
 
-Nachgesendete Events tragen alte `timestamp`-Werte und würden sonst bereits ausgewertete Zeitfenster verfälschen — dieselbe Fehlerklasse wie die Uhrendrift in „Anwendungs-, Umgebungs- und Sensorkontext". Wie der Collector damit umgeht, legt `effective_at` in 4.2.1 fest.
+Nachgesendete Events tragen alte `timestamp`-Werte und würden sonst bereits ausgewertete Zeitfenster verfälschen — dieselbe Fehlerklasse wie die Uhrendrift in „Anwendungs-, Umgebungs- und Sensorkontext". Wie der Collector damit umgeht, legt `effective_at` in 4.2.2 fest.
 
 Ein binäres Flag („zu spät: ja/nein") genügt dafür **nicht**, und das ist der entscheidende Punkt: unter mod_php gibt es kein `fastcgi_finish_request()`, weshalb dort **planmäßig jeder Frame** über den lokalen Spool läuft. Mit einem Flag wäre jeder dieser Frames als „zu spät" markiert angekommen, und der Consumer hätte eine mod_php-Installation **dauerhaft von der Echtzeit-Erkennung ausgeschlossen** — die Regeln R1–R7 aus 4.3.1 hätten dort nie gefeuert. Ein Flag kann einen planmäßigen Transportweg nicht von einer Störung unterscheiden.
 
@@ -748,22 +762,24 @@ Ein binäres Flag („zu spät: ja/nein") genügt dafür **nicht**, und das ist 
 |---|---|---|---|
 | `direct` | der Frame unmittelbar nach dem Absenden der Antwort an den Collector ging | keine | Echtzeit-Regeln **und** Speicherung — der Normalfall unter PHP-FPM |
 | `deferred` | der Frame planmäßig über den Spool lief — unter mod_php, oder weil der gebündelte Versandmodus eingestellt ist (3.6) | begrenzt: höchstens ein Drain-Intervall | Echtzeit-Regeln **weiterhin anwenden**, solange `spool_delay_ms` unter der consumerseitigen Toleranz liegt; darüber wie `recovered` behandeln |
-| `recovered` | der Frame im Spool lag, weil der Collector nicht erreichbar war oder die Sendung mit `429`/`5xx` abgewiesen hatte | unbegrenzt — Minuten bis Stunden | **weder Echtzeit- noch Zeitfensterregeln**; nur Speicherung und Auswertungen ohne Fensterbezug (siehe 4.2.1, `effective_at`) |
+| `recovered` | der Frame im Spool lag, weil der Collector nicht erreichbar war oder die Sendung mit `429`/`5xx` abgewiesen hatte | unbegrenzt — Minuten bis Stunden | **weder Echtzeit- noch Zeitfensterregeln**; nur Speicherung und Auswertungen ohne Fensterbezug (siehe 4.2.2, `effective_at`) |
 
 `dispatch_path` ist **kein Schalter**, sondern ein vom Sensor abgeleiteter Tatsachenwert; die Anwendung kann ihn nicht setzen. Konfigurierbar ist nur die **Toleranzschwelle auf der Consumer-Seite** — sie gehört ins IdsBackendBundle und ist dort noch zu vereinbaren (Empfehlung als Startwert: das Zweifache des im Heartbeat gemeldeten `drain_interval_s`).
+
+**Seit der Collector jede Sendung ablegt (4.2.1), ist diese Schwelle messbar statt geschätzt.** `dispatch_path` und `spool_delay_ms` stehen je Frame in `frames`; ihre Verteilung je Sensor sagt, wo die Toleranz tatsächlich liegen muss. OB9 bleibt offen — aber es ist keine Frage mehr, die nur durch Raten zu beantworten wäre.
 
 ### 3.4 Heartbeat — ein eigener Nachrichtentyp, kein Event
 
 Abschnitt 2 verlangt ein Lebenszeichen im festen Intervall, damit die Stilllegung des Sensors ein detektierbares Ereignis wird. Es wird **nicht** als Event nach dem Schema oben übertragen, und das ist keine Auslegungsfrage:
 
 - `layer` ist ein Enum aus `kernel|security|business`. Ein Heartbeat gehört zu keiner dieser Ebenen — er ist eine Aussage **über den Sensor**, nicht über die Anwendung.
-- `layer`, `event_severity` und `correlation_id` sind laut Tabellenschema in 4.2.1 `NOT NULL`. Ein Heartbeat hat keines davon: er beobachtet nichts, hat keinen Schweregrad und gehört zu keinem Request.
+- `layer`, `event_severity` und `correlation_id` sind laut dem Schema in 4.2.1 `NOT NULL`. Ein Heartbeat hat keines davon: er beobachtet nichts, hat keinen Schweregrad und gehört zu keinem Request.
 
 Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Ereignistabelle schreiben, die keine Ereignisse sind — und jede Aggregation nach `layer` oder `event_severity` wäre um sie verfälscht. Der Heartbeat ist deshalb eine eigene Nachricht an einem **eigenen Endpunkt** (`/api/v1/sensor-heartbeat/…`, siehe 3.6), sodass der Collector sie unterscheiden kann, **ohne den Body zu parsen**. Eine frühere Fassung leistete das über einen Typ-Header; die Route ist der natürlichere Weg und macht den Header entbehrlich.
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "sent_at": "2026-08-14T10:15:32.487Z",
   "application_id": "9b1c4f80-…", "environment_id": "3f6d21ac-…", "sensor_id": "c40a7e13-…",
   "process_epoch": "01a0…", "pid": 4711,
@@ -783,6 +799,8 @@ Ersatzwerte zu erfinden, nur um das Schema zu erfüllen, würde Zeilen in die Er
   "cleanup_version": 2
 }
 ```
+
+**Der Heartbeat bekommt kein `frame_id`.** Er ist keine Sendung von Ereignissen, sondern eine Aussage über den Sensor — dieselbe Trennung, aus der oben folgt, dass er kein Event ist. Seine `schema_version` steigt trotzdem auf 4: Das Drahtformat hat **eine** Fassung, nicht eine je Nachrichtenart. Andernfalls hätte die Abkündigungsmessung am Ende von 3.7 zwei Antworten, und der Collector wüsste nicht, welche gilt.
 
 Zu zwei Blöcken, die feiner aufgelöst sind, als „ich lebe" verlangt:
 
@@ -806,6 +824,8 @@ Der Heartbeat trägt bewusst mehr als „ich lebe". Er ist der einzige Kanal, ü
 - **`ids.event_loss`** (Restrisiko in Abschnitt 4) braucht die Verlustzähler. Reisen sie nur im Frame mit, sind sie genau dann unsichtbar, wenn kein Verkehr da ist — also im Fall „Sensor läuft, aber nichts kommt an".
 - **Das 5-ms-Versprechen aus 2.1** ist nur überprüfbar, wenn die gemessene Latenz im Betrieb berichtet wird und nicht nur im Benchmark.
 - **Der Spool-Füllstand** entscheidet unter mod_php über Datenverlust. Läuft der Drain-Prozess nicht, wächst `oldest_pending_age_s` unbegrenzt; von außen ist das ausschließlich hier sichtbar, und zwar bevor der Spool volläuft und verwirft.
+
+**Wohin der Heartbeat geht.** Die drei Anforderungen oben verlangen Auswertungen über die Zeit — „seit wann schweigt dieser Sensor", „wie hat sich der Spool-Füllstand entwickelt", „hält die gemessene Latenz das Versprechen aus 2.1". Dafür braucht es einen Verlauf, nicht den letzten Stand. Der Collector legt deshalb jeden Heartbeat als Zeile ab (`heartbeats`, 4.2.1). Bis dahin verlangte dieser Abschnitt Auswertungen, für die das Schema keine Tabelle vorsah; ebenso setzte 4.2.1 für `ids.dispatch_path_implausible` eine Heartbeat-Historie voraus, die es nirgends gab.
 
 **Die Zähler sind absolut, nicht als Zuwachs.** Abschnitt 4 sichert at-least-once-Zustellung zu; bei einer erneuten Zustellung würden Deltas doppelt zählen. Übertragen werden deshalb Absolutwerte samt `process_epoch` und `pid`: der Consumer bildet Zuwächse selbst und erkennt am Wechsel der Epoche, dass ein neuer Prozess bei null angefangen hat — ohne sie wäre ein Neustart von einem Zählerrücksprung nicht zu unterscheiden.
 
@@ -905,7 +925,7 @@ Jede Route hat genau **eine** Körperform. Die Datenroute nimmt eine Liste von F
 
 **Alle drei Kennungen stehen im Pfad**, damit der Collector weiterleiten, protokollieren und Raten begrenzen kann, bevor er Kryptografie oder Rumpf anfasst. Sie sind UUIDs und damit nicht ratbar.
 
-**Maßgeblich ist aber der Rumpf.** Der Collector füllt die Spalten aus dem Frame und weist eine Sendung ab, deren Pfad etwas anderes behauptet (`422`). Der Vorzug ist forensisch: Was gespeichert wird, ist genau das, was gesendet wurde — der Collector setzt nichts ein, was nie im Frame stand. Das hält die Aussage aus Abschnitt 1 aufrecht, dass das normalisierte Ereignisformat die Paketgrenze ist, und es hält den Spool sauber: Eine nachgesendete Zeile trägt ihre Herkunft in sich und hängt nicht daran, unter welcher URL sie beim Drain-Lauf hinausging.
+**Maßgeblich ist aber der Rumpf.** Der Collector füllt die Spalten aus dem Frame und weist eine Sendung ab, deren Pfad etwas anderes behauptet (`422`). Der Vorzug ist forensisch: Was gespeichert wird, ist genau das, was gesendet wurde — der Collector setzt nichts ein, was nie im Frame stand. Die einzige Ausnahme ist die abgeleitete `frame_id` für Fassungen ≤ 3, und sie ist in 3.3 samt Ableitungsregel benannt. Das hält die Aussage aus Abschnitt 1 aufrecht, dass das normalisierte Ereignisformat die Paketgrenze ist, und es hält den Spool sauber: Eine nachgesendete Zeile trägt ihre Herkunft in sich und hängt nicht daran, unter welcher URL sie beim Drain-Lauf hinausging.
 
 Frame (3.3) und Heartbeat (3.4) sind vom Transportweg unabhängig — welcher Endpunkt sie entgegennimmt, ändert an ihrem Inhalt nichts.
 
@@ -944,7 +964,7 @@ Diese Tabelle ist normativ. Der Sensor muss „geht nie" von „später erneut" 
 | Antwort | Bedeutung | Der Sensor |
 |---|---|---|
 | `202 Accepted` | dauerhaft entgegengenommen | zählt `sent`; der Breaker schließt |
-| `400`, `413`, `422` | die Sendung ist aus sich heraus nicht annehmbar | **verwirft** sie, zählt `dropped_rejected`; **nicht** spoolen, Breaker unberührt |
+| `400`, `413`, `422` | die Sendung ist aus sich heraus nicht annehmbar — dazu zählt ein Frame mit `schema_version` ≥ 4 **ohne** `frame_id` | **verwirft** sie, zählt `dropped_rejected`; **nicht** spoolen, Breaker unberührt |
 | `401` | Token abgelaufen oder ungültig | meldet sich einmal neu an und wiederholt einmal |
 | `403` | der angemeldete Nutzer ist nicht Eigentümer der Kette im Pfad, oder die Zugangsdaten sind gesperrt | **verwirft**, zählt `dropped_rejected` und protokolliert als Fehler; Breaker unberührt. Ein Konfigurationsfehler heilt nicht durch Warten, und Spoolen füllte den Puffer mit Sendungen, die nie angenommen werden |
 | `429` | Ratengrenze erreicht | **spoolt**, beachtet `Retry-After`; der Breaker zählt einen Fehler |
@@ -974,7 +994,7 @@ Zwei Folgen, die zum Modell gehören und nicht verschwiegen werden:
 
 Sensor und Collector werden getrennt deployed und laufen zeitweise auseinander. `schema_version` (3.3) macht das beherrschbar — aber nur, wenn festliegt, **wann** die Zahl steigen muss. Bislang verwies 3.4 auf „die Bump-Regeln aus 3", die es nicht gab.
 
-**Ohne Fassungswechsel erlaubt — alles rein Additive.** Ein Collector, der es nicht kennt, ignoriert es beziehungsweise legt es nach 4.2.1 in `unknown_fields` ab:
+**Ohne Fassungswechsel erlaubt — alles rein Additive.** Ein Collector, der es nicht kennt, ignoriert es beziehungsweise legt es nach 4.2.2 in `unknown_fields` ab:
 
 - ein neues **optionales** Feld in Event, Frame oder Heartbeat
 - ein **optionales** Feld entfernen, dessen Fehlen bereits eine definierte Bedeutung trägt — ein Collector, der es kennt, liest weiter richtig, er sieht nur nie mehr etwas anderes als seinen Vorgabewert
@@ -988,6 +1008,7 @@ Die zweite Zeile ist der Fall, mit dem `sampling_rate` aus dem Format verschwund
 **Fassungswechsel erforderlich** — alles, was einen Collector, der die alte Fassung kennt, zu einer falschen Auslegung verleitet:
 
 - ein Pflichtfeld entfernen oder umbenennen
+- **ein neues Pflichtfeld** in Event, Frame oder Heartbeat
 - den Typ eines Feldes ändern
 - ein Feld von optional auf Pflicht heben
 - ein neuer Wert in einem **geschlossenen** Vokabular
@@ -997,6 +1018,8 @@ Die zweite Zeile ist der Fall, mit dem `sampling_rate` aus dem Format verschwund
 Der letzte Fall ist der gefährlichste und deshalb ausdrücklich genannt: Er erzeugt keinen Fehler, sondern falsche Befunde, und kein Test findet ihn.
 
 **Die Zeile zur Umbenennung eines Zählers ist neu, und sie schließt eine Lücke.** Oben steht „ein neuer Zähler" als additiv und „ein Zähler entfällt, weil der Vorgang entfallen ist" ebenso — eine Umbenennung ist beides zugleich, und der Vorgang entfällt gerade **nicht**. Sie fiel damit durch beide Listen. Seit 3.4 verlangt, dass jeder Zähler mitreist, auch mit dem Wert `0`, ist jeder Zählerschlüssel ein Pflichtfeld; ihn umzubenennen ist deshalb derselbe Fall wie die erste Zeile dieser Liste. Ein Collector, der den alten Namen erwartet, liest sonst dauerhaft `0` — und bei einem Verlustzähler wäre das eine stillschweigend zu niedrige `ids.event_loss`.
+
+**Die Zeile zum neuen Pflichtfeld ist ebenfalls neu, und sie schließt dieselbe Art von Lücke.** Oben steht „ein neues **optionales** Feld" als additiv; unten stand bislang nur „ein Feld von optional auf Pflicht heben", und das setzt voraus, dass es das Feld schon gab. Ein Feld, das sofort als Pflichtfeld entsteht, fiel damit durch beide Listen — genauso wie zuvor die Zählerumbenennung. Der Schaden ist derselbe wie in der ersten Zeile: Ein Collector der alten Fassung liest dauerhaft nichts, wo etwas steht. Bei `frame_id` hieße das: kein Zustellnachweis, für keinen Sensor, und unbemerkt, weil nichts fehlschlägt. `frame_id` (3.3) ist der Fall, an dem die Lücke aufgefallen ist, und der Grund, warum die Fassung auf 4 steht.
 
 **Geschlossene und offene Vokabulare.** Ob ein neuer Wert additiv ist, hängt daran, wie der Collector ihn speichert:
 
@@ -1009,8 +1032,8 @@ Das ist keine Formalie: Eine vierte Beobachtungsebene wäre ein neuer `layer`-We
 
 **Umgang mit fremden Fassungen.**
 
-- **älter als bekannt:** verarbeiten. Das ist der Zweck des Feldes (Abschnitt 1).
-- **neuer als bekannt:** **annehmen, nicht verwerfen.** Der Collector verarbeitet, so weit sein Schema reicht, und legt die ihm unbekannten Anteile in `unknown_fields` ab (4.2.1). Wird das IdsBackendBundle später aktualisiert, ist die Erkennung darauf nachträglich noch möglich. Verwerfen wäre ein Erkennungsausfall, ausgelöst durch ein Composer-Update beim Kunden.
+- **älter als bekannt:** verarbeiten. Das ist der Zweck des Feldes (Abschnitt 1). Wo eine ältere Fassung ein heutiges Pflichtfeld nicht kennt, muss der Collector es **ableiten** statt die Sendung abzuweisen — für `frame_id` ist die Regel in 3.3 festgelegt. Ohne einen solchen Ersatz machte jedes neue Pflichtfeld diese Zeile leer.
+- **neuer als bekannt:** **annehmen, nicht verwerfen.** Der Collector verarbeitet, so weit sein Schema reicht, und legt die ihm unbekannten Anteile in `unknown_fields` ab (4.2.2). Wird das IdsBackendBundle später aktualisiert, ist die Erkennung darauf nachträglich noch möglich. Verwerfen wäre ein Erkennungsausfall, ausgelöst durch ein Composer-Update beim Kunden.
 
 **Wann eine Fassung abgekündigt werden darf — gemessen, nicht geschätzt.** Der Heartbeat trägt `schema_version`, und jeder Sensor ist registriert (Abschnitt 1). Der Collector sieht damit, welche Fassungen im Feld laufen. Eine Fassung darf fallengelassen werden, wenn kein registrierter, aktiver Sensor sie seit einer festzulegenden Frist gemeldet hat. Der Betreiber sieht vorher, wen die Abkündigung träfe.
 
@@ -1043,7 +1066,7 @@ ON CONFLICT (event_id, "timestamp") DO NOTHING;
 
 **Duplikate sind über HTTP wahrscheinlicher als über einen Broker, und das ist eingeplant.** Läuft eine Sendung in den Timeout, weiß der Sensor nicht, ob sie angekommen ist: Sie kann vollständig entgegengenommen und abgelegt worden sein, während nur die Antwort verloren ging. Der Sensor spoolt dann und sendet später erneut — richtig, denn die Gegenannahme („war bestimmt angekommen") verlöre Events. Die Deduplizierung oben deckt genau diesen Fall ab. **Ein Idempotency-Key ist deshalb ausdrücklich nicht vorgesehen:** Er löste ein Problem, das `event_id` bereits löst, und verlangte dem Collector einen zweiten Zustand ab, der selbst wieder eine Haltbarkeit und eine Aufräumregel brauchte.
 
-**Der Consumer schreibt in einer Transaktion** in `events` und — sofern zutreffend (siehe „Volumenbudget und gestufte Retention“) — `events_raw`. Ein teilweise geschriebenes Event darf nicht entstehen.
+**Der Consumer schreibt in einer Transaktion** in `frames`, in `events` und — sofern zutreffend (siehe „Volumenbudget und gestufte Retention“) — `events_raw`. Ein teilweise geschriebenes Event darf nicht entstehen, und eine Sendung ohne ihre Ereignisse ebenso wenig.
 
 > **Restrisiko, das aus fail-open folgt:** Ein Angreifer kann die Erkennung abschalten, indem er den Ingest-Endpunkt oder den Consumer überlastet, und den eigentlichen Angriff anschließend unbeobachtet ausführen. Denial of Service gegen das IDS wird damit zu einem sinnvollen Vorbereitungsschritt. Die Gegenmaßnahme ist keine technische Härtung des Transports, sondern **Sichtbarkeit**: Jeder verworfene oder verlorene Event wird gezählt und löst ab einem Schwellwert einen eigenen Alert aus (`rule_id = "ids.event_loss"`, siehe 4.2.4). Ein stiller Ausfall ist gefährlicher als ein sichtbarer, weil er Schutz suggeriert, den es nicht gibt.
 
@@ -1057,28 +1080,44 @@ Die Sammelstelle nimmt in zwei Schritten entgegen, und die Trennung ist beabsich
 
 > Hier stand, der Endpunkt gleiche den `sub`-Claim gegen den Pfad ab. Das war eine Umsetzungsvariante, keine Zusage, und es widersprach 3.6: Verbindlich am Token sind nur `iat` und `exp`, und die Kontrolle ist die Eigentümerprüfung. Ob der Collector sie je Sendung im Anwendungsregister nachschlägt oder beim Anmelden in das Token schreibt, bleibt seine Sache.
 
-**Der Consumer** liest die abgelegten Sendungen, packt sie aus und schreibt die Events unverändert in die Datenbank; keine weitere Transformation, reines Mapping der bereits normalisierten Top-Level-Felder auf Spalten. Er entscheidet anhand von `event_severity`, in welche Event-Tabelle geschrieben wird, setzt `received_at` und `effective_at` (4.2.1) und führt die Echtzeitregeln aus (4.3.1).
+**Der Consumer** liest die abgelegten Sendungen, packt sie aus und schreibt die Events unverändert in die Datenbank; keine weitere Transformation, reines Mapping der bereits normalisierten Top-Level-Felder auf Spalten. Er entscheidet anhand von `event_severity`, in welche Event-Tabelle geschrieben wird, setzt `received_at`, `effective_at` (4.2.2) und `frame_id` an jedem Event des Frames und führt die Echtzeitregeln aus (4.3.1).
 
 **Eine Transaktion je Frame.** Das ist auch fachlich die richtige Klammer: Ein Frame ist ein Request (3.3), und dessen Ereignisse gehören zusammen oder gar nicht in den Speicher. Je Frame und Tabelle ein Multi-Row-`INSERT … ON CONFLICT DO NOTHING`, dazu die Zählerupserts aus 4.4 in derselben Transaktion — nicht ein Insert je Event, was bei einem Frame mit zweihundert Ereignissen zweihundert Roundtrips statt einem wären. Die Größe ist von selbst begrenzt, weil `flush.max_frame_bytes` einen Frame deckelt.
 
+**Zuerst die Sendung, dann die Ereignisse.** Den Anfang macht die eine Zeile in `frames` (4.2.1), danach folgen die Events; jedes trägt die `frame_id` seiner Sendung. Ein Fremdschlüssel steht nicht dazwischen — die Begründung dafür steht in 4.2.2. Trägt der Frame keine Kennung, weil er aus einer Fassung ≤ 3 stammt, leitet der Consumer sie nach der Regel in 3.3 ab.
+
 Eine gebündelte Sendung (3.6) enthält mehrere Frames und damit mehrere Transaktionen, nicht eine. Scheitert der dreißigste Frame, bleiben die ersten neunundzwanzig geschrieben: Ein Drain-Lauf soll nicht alles verlieren, weil eine Zeile fehlerhaft ist.
+
+**Der Heartbeat läuft daneben, nicht darin.** Er kommt über einen eigenen Endpunkt (3.6), wird nie gebündelt und braucht keine Transaktionsklammer über sich hinaus: eine Zeile in `heartbeats`, `ON CONFLICT (sensor_id, sent_at) DO NOTHING`. Geschrieben wird sie **immer**, auch wenn jeder Zähler auf `0` steht — sonst wäre die Zusage aus 3.4, dass jeder Zähler mitreist, an der Speicherung wieder verloren, und „keine Verluste" ließe sich von „kein Heartbeat" nicht unterscheiden.
+
+**Was zu weit in der Zukunft liegt, wird abgewiesen.** `events_*` partitionieren auf `timestamp`, `frames` auf `flushed_at`, `heartbeats` auf `sent_at` — alle drei sensorgesetzt und damit im Bedrohungsmodell aus Abschnitt 2 angreiferkontrolliert. Ein weit vordatierter Wert adressiert eine Partition, die `pg_partman` noch nicht angelegt hat; das `INSERT` schlüge fehl, und der Verlust fiele auf der Collector-Seite an, wo ihn kein Sensorzähler bemerkt. Der Consumer weist deshalb mit `422` ab, was jenseits des Premake-Horizonts aus 4.2.3 liegt.
+
+> Hier stand diese Grenze bisher nirgends, und 4.2.1 begründete die Obergrenze von `effective_at` unter anderem damit, dass sich „keine Partition adressieren lässt, die `pg_partman` noch nicht angelegt hat". Das trifft für `effective_at` zu — nur ist es nicht der Partitionierungsschlüssel. Der Schutz, den der Satz beschrieb, bestand für `timestamp` nicht; jetzt besteht er, und zwar an der Stelle, an der die Sendung ankommt.
 
 **Warum der Endpunkt nicht selbst in PostgreSQL schreibt:** Er antwortet synchron, und an dieser Antwort hängt die at-least-once-Zusage. Ein Endpunkt, der Ereignisspeicherung, Ableitung und Regelauswertung erledigt, bevor er `202` sendet, verschiebt die gesamte Verarbeitungszeit in ein Wartefenster des Sensors — und ein langsamer Consumer würde als Timeout bei der überwachten Anwendung ankommen. Wie der Collector die Sendungen zwischen Endpunkt und Consumer ablegt, ist seine interne Entscheidung; nach außen sichtbar ist nur, dass `202` „dauerhaft abgelegt" bedeutet.
 
 ### 4.2 PostgreSQL-Datenbank
 
-die Event-Tabellen `events_relevant` und `events_info` (strukturgleich, getrennt wegen gestufter Retention, gemeinsam abfragbar über die View `events`), die Rohdatentabelle `events_raw` (nur selektiv gefüllt), die Auswertungstabellen `alerts`, `metric_samples` und `metric_baselines` (siehe 4.5) sowie die Zählertabelle `realtime_counters` der Echtzeitschicht
+Die Sammelstelle hält neun Tabellen und eine View. Die Event-Tabellen `events_relevant` und `events_info` sind strukturgleich und allein wegen der gestuften Retention getrennt (4.2.3); gemeinsam abfragbar sind sie über die View `events`. Daneben stehen die Rohdatentabelle `events_raw` (nur selektiv gefüllt), die beiden Sendungstabellen `frames` und `heartbeats` (4.2.2), die Zählertabelle `realtime_counters` der Echtzeitschicht sowie die Auswertungstabellen `alerts`, `metric_samples` und `metric_baselines` (4.2.4).
 
-#### 4.2.1 Tabellenschema
+Das vollständige Schema steht an einem Stück in 4.2.1. Begründet wird es in 4.2.2, aufbewahrt nach 4.2.3, und was in den Auswertungstabellen inhaltlich steht, sagt 4.2.4.
+
+#### 4.2.1 Das vollständige Schema
+
+Alle Datenbankobjekte an einer Stelle. **Der Block ist in Ausführungsreihenfolge und darf nicht umgestellt werden** — warum, steht in Schritt 3 und noch einmal ausführlich in 4.2.2. Begründet wird hier nichts; das tut 4.2.2 Spalte für Spalte, 4.2.3 für die Aufbewahrung und 4.2.4 für die Auswertungstabellen.
 
 ```sql
-CREATE TYPE layer_type AS ENUM ('kernel', 'security', 'business');
-CREATE TYPE severity_level AS ENUM ('info', 'warning', 'critical');
+-- 1. Typen. Alle Tabellen unten verweisen darauf.
+CREATE TYPE layer_type         AS ENUM ('kernel', 'security', 'business');
+CREATE TYPE severity_level     AS ENUM ('info', 'warning', 'critical');
 CREATE TYPE dispatch_path_type AS ENUM ('direct', 'deferred', 'recovered');
+CREATE TYPE alert_source       AS ENUM ('realtime', 'batch', 'positive_path', 'anomaly');
 
+-- 2. Die Vorlage der beiden Event-Tabellen.
 CREATE TABLE events_relevant (
     schema_version      SMALLINT NOT NULL,
     event_id            UUID NOT NULL,
+    frame_id            UUID NOT NULL,
     "timestamp"         TIMESTAMPTZ NOT NULL,
     received_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     effective_at        TIMESTAMPTZ NOT NULL,
@@ -1100,20 +1139,164 @@ CREATE TABLE events_relevant (
     PRIMARY KEY (event_id, "timestamp")
 ) PARTITION BY RANGE ("timestamp");
 
+-- 3. Die Kopie MUSS hier stehen und nicht hinter Schritt 9.
+--    LIKE ... INCLUDING ALL kopiert den Stand zum Zeitpunkt der Ausführung.
+--    Stünde sie nach den Indizes, erbte events_info alle neun von
+--    events_relevant — genau das, was 4.2.2 ausschließt.
 CREATE TABLE events_info (LIKE events_relevant INCLUDING ALL)
     PARTITION BY RANGE ("timestamp");
 
+-- 4. Rohbelege, getrennt wegen abweichender Retention (4.2.3).
 CREATE TABLE events_raw (
     event_id        UUID NOT NULL,
     "timestamp"     TIMESTAMPTZ NOT NULL,
     raw             JSONB NOT NULL,
     PRIMARY KEY (event_id, "timestamp")
 ) PARTITION BY RANGE ("timestamp");
-```
 
-**Die Indizes aus 4.2.2 werden erst danach angelegt, und für jede Tabelle einzeln.** `LIKE … INCLUDING ALL` kopiert den Stand zum Zeitpunkt der Ausführung; stünden die `CREATE INDEX` erst danach, bekäme `events_info` keinen einzigen davon, und zwar unbemerkt, weil sie ja definiert sind. Das ist hier kein Nachteil, sondern die Voraussetzung: `events_info` **soll** einen anderen, kleineren Indexsatz bekommen (4.2.2). `INCLUDING ALL` überträgt weiterhin Typen, Vorgaben und Constraints — nur eben keine Indizes, die es zum Kopierzeitpunkt noch nicht gibt. Die View entsteht zuletzt:
+-- 5. Die Sendung. Eine Zeile je Frame (3.3).
+CREATE TABLE frames (
+    frame_id            UUID NOT NULL,
+    flushed_at          TIMESTAMPTZ NOT NULL,
+    received_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    schema_version      SMALLINT NOT NULL,
+    application_id      UUID NOT NULL,
+    environment_id      UUID NOT NULL,
+    sensor_id           UUID NOT NULL,
+    process_epoch       TEXT NOT NULL,
+    pid                 INTEGER NOT NULL,
+    dispatch_path       dispatch_path_type NOT NULL,
+    spool_delay_ms      INTEGER NOT NULL DEFAULT 0,
+    event_count         INTEGER NOT NULL,
+    byte_size           INTEGER NOT NULL,
+    counters            JSONB NOT NULL,
+    unknown_fields      JSONB,
+    PRIMARY KEY (frame_id, flushed_at)
+) PARTITION BY RANGE (flushed_at);
 
-```sql
+-- 6. Das Lebenszeichen. Eine Zeile je Heartbeat (3.4).
+--    Spaltenname = Pfad im JSON, Punkt durch Unterstrich ersetzt.
+CREATE TABLE heartbeats (
+    sensor_id                    UUID NOT NULL,
+    sent_at                      TIMESTAMPTZ NOT NULL,
+    received_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    schema_version               SMALLINT NOT NULL,
+    application_id               UUID NOT NULL,
+    environment_id               UUID NOT NULL,
+    process_epoch                TEXT NOT NULL,
+    pid                          INTEGER NOT NULL,
+    heartbeat_mode               TEXT NOT NULL,
+    triggered_by                 TEXT NOT NULL,
+    interval_s                   INTEGER NOT NULL,
+    seconds_since_last           INTEGER,
+    runtime_policy               TEXT NOT NULL,
+    runtime_sapi                 TEXT NOT NULL,
+    runtime_response_detachable  BOOLEAN NOT NULL,
+    runtime_dispatch_path        dispatch_path_type NOT NULL,
+    runtime_drain_interval_s     INTEGER NOT NULL,
+    spool_bytes                  BIGINT,
+    spool_spooled_frames         INTEGER,
+    spool_pending_files          INTEGER,
+    spool_oldest_pending_age_s   INTEGER,
+    circuit_breaker_state        TEXT,
+    circuit_breaker_failures     INTEGER,
+    circuit_breaker_open_count   INTEGER,
+    circuit_breaker_open_for_ms  BIGINT,
+    cleanup_version              SMALLINT NOT NULL,
+    counters                     JSONB NOT NULL,
+    latency                      JSONB NOT NULL,
+    unknown_fields               JSONB,
+    PRIMARY KEY (sensor_id, sent_at)
+) PARTITION BY RANGE (sent_at);
+
+-- 7. Die Zähler der Echtzeitschicht. UNLOGGED ist Absicht (4.2.2).
+CREATE UNLOGGED TABLE realtime_counters (
+    key        TEXT PRIMARY KEY,
+    value      BIGINT      NOT NULL DEFAULT 0,
+    expires_at TIMESTAMPTZ NOT NULL
+) WITH (
+    fillfactor                     = 70,
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_cost_delay   = 0
+);
+
+-- 8. Auswertung (4.2.4).
+CREATE TABLE metric_samples (
+    application_id  UUID NOT NULL,
+    environment_id  UUID NOT NULL,
+    metric_name     TEXT NOT NULL,
+    bucket_start    TIMESTAMPTZ NOT NULL,
+    value           DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (application_id, environment_id, metric_name, bucket_start)
+);
+
+CREATE TABLE metric_baselines (
+    application_id  UUID NOT NULL,
+    environment_id  UUID NOT NULL,
+    metric_name     TEXT NOT NULL,
+    bucket          SMALLINT NOT NULL,        -- Stunde des Tages, 0–23 (4.2.4)
+    computed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    mean            DOUBLE PRECISION NOT NULL,
+    stddev          DOUBLE PRECISION NOT NULL,
+    sample_count    INTEGER NOT NULL,
+    PRIMARY KEY (application_id, environment_id, metric_name, bucket, computed_at)
+);
+
+CREATE TABLE alerts (
+    alert_id            UUID PRIMARY KEY,
+    dedup_key           TEXT NOT NULL,
+    first_seen          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    occurrence_count    INTEGER NOT NULL DEFAULT 1,
+    rule_id             TEXT NOT NULL,        -- z. B. "R3", "B1", "X2", "anomaly:login_failure_rate"
+    alert_severity      severity_level NOT NULL,
+    source              alert_source NOT NULL,
+    application_id      UUID NOT NULL,
+    environment_id      UUID NOT NULL,
+    knowledge_version   TEXT,                 -- Stand der Pfad-Wissensbasis (4.3.1), bei R2/R2b/X4
+    correlation_ids     TEXT[],               -- betroffene correlation_id(s), falls vorhanden
+    actor_user          TEXT,
+    actor_ip            INET,
+    actor_session_hash  TEXT,
+    description         TEXT NOT NULL,
+    details             JSONB                 -- regel-spezifische Zusatzinfos (Zählerstand, Baseline-Wert)
+);
+
+-- 9. Indizes, je Tabelle einzeln. Erst hier, aus dem Grund in Schritt 3.
+--    Welche Regel welchen Index liest: 4.2.2.
+
+CREATE INDEX idx_evr_timestamp        ON events_relevant ("timestamp");
+CREATE INDEX idx_evr_correlation_id   ON events_relevant (correlation_id);
+CREATE INDEX idx_evr_layer_event_type ON events_relevant (layer, event_type);
+CREATE INDEX idx_evr_actor_ip         ON events_relevant (actor_ip);
+CREATE INDEX idx_evr_scope            ON events_relevant (application_id, environment_id, effective_at);
+CREATE INDEX idx_evr_actor_user_ts    ON events_relevant (actor_user, "timestamp");
+CREATE INDEX idx_evr_session_hash     ON events_relevant (actor_session_hash);
+CREATE INDEX idx_evr_http_status      ON events_relevant (((payload->>'http_status')::int));
+CREATE INDEX idx_evr_path             ON events_relevant ((payload->>'path'));
+
+CREATE INDEX idx_evi_scope         ON events_info (application_id, environment_id, effective_at);
+CREATE INDEX idx_evi_actor_ip      ON events_info (actor_ip);
+CREATE INDEX idx_evi_actor_user_ts ON events_info (actor_user, "timestamp");
+CREATE INDEX idx_evi_http_status   ON events_info (((payload->>'http_status')::int));
+CREATE INDEX idx_evi_path          ON events_info ((payload->>'path'));
+
+-- events_raw: keine über den Primärschlüssel hinaus (4.2.2).
+
+CREATE INDEX idx_frames_sensor_received ON frames (sensor_id, received_at);
+CREATE INDEX idx_frames_scope           ON frames (application_id, environment_id, received_at);
+
+CREATE INDEX idx_hb_received_at ON heartbeats (received_at);
+CREATE INDEX idx_hb_scope       ON heartbeats (application_id, environment_id, received_at);
+
+CREATE INDEX idx_realtime_counters_expires_at ON realtime_counters (expires_at);
+
+CREATE UNIQUE INDEX idx_alerts_dedup ON alerts (dedup_key);
+CREATE INDEX idx_alerts_first_seen   ON alerts (first_seen);
+CREATE INDEX idx_alerts_rule_id      ON alerts (rule_id);
+CREATE INDEX idx_alerts_actor_ip     ON alerts (actor_ip);
+
+-- 10. Die View zuletzt.
 CREATE VIEW events AS
     SELECT * FROM events_relevant
     UNION ALL
@@ -1121,6 +1304,20 @@ CREATE VIEW events AS
 ```
 
 `SELECT *` löst die Spaltenliste bei der Erzeugung auf; jede später ergänzte Spalte verlangt ein `CREATE OR REPLACE VIEW`.
+
+Die Aufbewahrung und die Partitionierung stehen nicht hier: `CREATE EXTENSION pg_partman` und die `create_parent`-Aufrufe gehören nach 4.2.3. Der Block oben ist ohne sie ausführbar — die Tabellen sind dann partitioniert, aber ohne Partitionen.
+
+#### 4.2.2 Begründung des Schemas — Ereignisse, Sendungen, Indizes
+
+4.2.1 zeigt, *was* angelegt wird. Hier steht, *warum* — Spalte für Spalte, Tabelle für Tabelle, Index für Index. Wer nur das Schema braucht, ist oben fertig.
+
+**Die Indizes stehen im Block von 4.2.1 erst hinter der `LIKE`-Kopie, und zwar für jede Tabelle einzeln.** `LIKE … INCLUDING ALL` kopiert den Stand zum Zeitpunkt der Ausführung; stünde die Kopie erst hinter ihnen, bekäme `events_info` keinen einzigen davon, und zwar unbemerkt, weil sie ja definiert sind. Das ist hier kein Nachteil, sondern die Voraussetzung: `events_info` **soll** einen anderen, kleineren Indexsatz bekommen (4.2.2). `INCLUDING ALL` überträgt weiterhin Typen, Vorgaben und Constraints — nur eben keine Indizes, die es zum Kopierzeitpunkt noch nicht gibt. Die View entsteht zuletzt:
+
+##### Die beiden Event-Tabellen und ihre Spalten
+
+**Aufteilung in `events_relevant` und `events_info`:** Beide Tabellen sind strukturgleich; die Trennung dient allein der gestuften Retention (siehe „Volumenbudget und gestufte Retention“). Der Consumer entscheidet beim Schreiben anhand von `event_severity`, in welche Tabelle das Event geht. Die View `events` fasst beide zusammen — alle Regelabfragen aus Abschnitt 4.3 arbeiten gegen die View und müssen die Aufteilung nicht kennen. Für Regeln, die ausschließlich relevante Events betrachten (die meisten), ist die direkte Abfrage von `events_relevant` die schnellere Variante.
+- `layer` und `event_severity` als ENUM statt freiem Text — verhindert Tippfehler/Inkonsistenzen bei festen Wertebereichen
+- `event_type` bleibt `TEXT` (nicht ENUM), da Business-Ebene beliebige, projektdefinierte Event-Namen liefert
 
 **Aufteilung in zwei Tabellen:** `raw` ist mit Abstand am datenintensivsten, aber am schnellsten irrelevant (nur für kurzfristige forensische Nachanalyse). Die Trennung von `events` (kompakt, normalisiert) und `events_raw` (groß, kurzlebig) ermöglicht unterschiedliche Retention-Zeiträume je Tabelle (siehe 4.2.3). Der Consumer schreibt beim Einfügen eines Events in beide Tabellen (gleiche `event_id`/`timestamp`, eine Transaktion).
 
@@ -1132,6 +1329,8 @@ CREATE VIEW events AS
 - `application_id`, `environment_id`, `sensor_id` als `UUID` statt `TEXT` — sie sind registrierte Kennungen (Abschnitt 1), keine frei gewählten Namen. Der Anzeigename der Umgebung steht im Anwendungsregister, nicht hier: Er ist änderbar, die Kennung nicht
 - `dispatch_path` und `spool_delay_ms` — sie stehen im Frame (3.3.1) und müssen mitgespeichert werden, weil `effective_at` unten von ihnen abhängt. Ohne sie wäre nach dem Schreiben nicht mehr feststellbar, welche Zeile aus einem Nachlauf stammt
 - `unknown_fields` — siehe „Vorwärtskompatibilität" unten
+- `frame_id` — die Sendung, in der das Ereignis ankam (3.3). Ohne sie wäre „welche Ereignisse trug dieser Frame" nur über `correlation_id` zu beantworten, und die trägt bei Läufen ohne Request den Leerstring, während ein Lauf zugleich über mehrere Frames gehen kann. Die Spalte kostet 16 Byte — `uuid` hat `typalign = 'c'` und damit keine Auffüllbytes —, also rund 2,7 % auf die 600 Byte je Zeile aus 4.2.3. Das liegt unter der Genauigkeit einer Volumenrechnung, die selbst auf einer ausdrücklich ungemessenen Annahme steht. **Ohne Index**, nach der Regel unten: Der einzige Leser wäre das Dashboard aus Abschnitt 4, und das ist Gegenstand eines späteren Konzepts (offener Punkt OB14). **Ohne Fremdschlüssel** auf `frames`, aus demselben Grund wie bei `alerts` (4.2.4) und aus zwei technischen: Die Tabellen partitionieren auf verschiedenen Spalten, und sie haben verschiedene Fristen — ein zehn Monate altes Ereignis in `events_relevant` zeigte auf eine längst verworfene Partition von `frames`
+- `events_raw` bekommt **kein** `frame_id` — die Tabelle wird ausschließlich per `event_id` einzeln abgefragt (siehe „Weitere Festlegungen" unten); der Weg zur Sendung läuft über die Event-Zeile
 
 ##### `effective_at` — die Zeitachse, auf der die Regeln arbeiten
 
@@ -1168,25 +1367,42 @@ Gezählt wird die Kappung **collectorseitig**, nicht im Heartbeat: Der Sensor we
 
 **Kein Index.** Es gibt keine Abfrage, die ihn nutzen würde, und die Spalte liegt auf der schreibstärksten Tabelle des Systems.
 
-**Aufteilung in `events_relevant` und `events_info`:** Beide Tabellen sind strukturgleich; die Trennung dient allein der gestuften Retention (siehe „Volumenbudget und gestufte Retention“). Der Consumer entscheidet beim Schreiben anhand von `event_severity`, in welche Tabelle das Event geht. Die View `events` fasst beide zusammen — alle Regelabfragen aus Abschnitt 4.3 arbeiten gegen die View und müssen die Aufteilung nicht kennen. Für Regeln, die ausschließlich relevante Events betrachten (die meisten), ist die direkte Abfrage von `events_relevant` die schnellere Variante.
-- `layer` und `event_severity` als ENUM statt freiem Text — verhindert Tippfehler/Inkonsistenzen bei festen Wertebereichen
-- `event_type` bleibt `TEXT` (nicht ENUM), da Business-Ebene beliebige, projektdefinierte Event-Namen liefert
+**Sie gilt für alle drei Nachrichtenarten.** `unknown_fields` steht deshalb nicht nur auf den Event-Tabellen, sondern auch auf `frames` und `heartbeats`. 3.7 sagt seit jeher zu, unbekannte Anteile abzulegen; für die Frame- und die Heartbeat-Ebene gab es dafür bis hierher keinen Ort, und ein neues Feld eines neueren Sensors ging dort still verloren — entgegen genau dieser Zusage. Die Deckelung aus dem vorigen Absatz gilt je Nachricht.
+
+##### `frames` — die Sendung als Datenstruktur
+
+3.3 legt den Frame als Transportformat fest, und bis hierher wurde davon beim Auspacken fast alles verworfen: Es blieben `dispatch_path` und `spool_delay_ms`, weil `effective_at` sie braucht. Wann die Sendung versiegelt wurde, wann sie ankam, wie viele Ereignisse sie trug, welcher Prozess sie schickte und welche Zählerstände sie meldete — all das war nach dem Schreiben nicht mehr feststellbar. Der Collector hält deshalb je Sendung eine Zeile.
+
+**Zum Namen.** `frames`, nicht `frame_deliveries` oder ähnliches. 3.3 nennt das Ding durchgehend „Frame", und 3.4 hat schon einmal dafür bezahlt, dass ein Sachverhalt zwei Namen trug. Der naheliegende Einwand — die Tabelle hält nicht den Frame, sondern nur seinen Umschlag — gilt für `events_relevant` genauso, die den Rohbeleg nicht hält.
+
+- `frame_id` als Primärschlüssel, **zusammen mit `flushed_at`**: Bei partitionierten Tabellen muss der Partitionsschlüssel Teil jedes Primärschlüssels sein — dieselbe Regel, die bei den Events `timestamp` erzwingt
+- **Warum `flushed_at` partitioniert und nicht `received_at`.** Der Empfangszeitpunkt wäre collectorseitig gesetzt und damit gegen Vordatieren immun, zerstörte aber die Deduplizierung: Bei einer erneuten Zustellung ist er ein anderer, die Zeile bekäme einen neuen Schlüssel, und `ON CONFLICT DO NOTHING` träfe nichts. Es muss der Wert sein, den die Sendung mitbringt — dasselbe Argument, aus dem Abschnitt 4 `event_id` gegen einen Idempotency-Key verteidigt
+- **Die erste Zustellung gewinnt, nicht die letzte.** Geschrieben wird `ON CONFLICT (frame_id, flushed_at) DO NOTHING`. Ein `DO UPDATE` überschriebe `received_at` mit der Ankunft des Wiederholungsversuchs — und damit verschwände genau die Lieferlücke, auf die `ids.dispatch_path_implausible` schaut. Ein verspäteter Frame sähe hinterher pünktlich aus
+- **Die absoluten Zähler machen die Deduplizierung nicht überflüssig, sondern nötig.** An einem Absolutwert lässt sich nichts verdoppeln — dafür sorgt 3.4. Verdoppelt würde die *Zahl der Sendungen*, und die ist der Nenner jeder Aussage über Zustellqualität. Wiederholungen entstehen fast ausschließlich auf dem `deferred`- und `recovered`-Pfad; ohne Deduplizierung wäre die `dispatch_path`-Verteilung systematisch in Richtung „mehr Nachlauf, als es gab" verzerrt
+- `received_at` mit `DEFAULT now()`, wie bei den Events. Zusammen mit `flushed_at` und `spool_delay_ms` die Grundlage der Uhrendrift
+- **Kein `clock_skew_ms`.** Zwei gespeicherte Werte und ihre Differenz sind drei Wahrheiten, von denen eine falsch werden kann. Schwerer wiegt: `received_at − flushed_at` ist **nicht** die Uhrendrift, sobald der Frame über den Spool lief — dann steckt darin überwiegend `spool_delay_ms`. Die richtige Größe ist `received_at − flushed_at − spool_delay_ms`, und aussagekräftig ist sie nur bei `dispatch_path = 'direct'`. Eine Spalte mit dem naheliegenden Namen wäre für zwei von drei Werten falsch; wo ein Index nötig wird, ist ein Ausdrucksindex der Weg
+- `schema_version` — erfüllt die Zusage aus OB4 („die im Feld laufenden Fassungen") für die Datenroute; bisher war das nur über den Heartbeat messbar. Zugleich das Merkmal, an dem eine **abgeleitete** `frame_id` erkennbar ist: `schema_version < 4` heißt abgeleitet (3.3). Deshalb ausdrücklich **kein** zusätzliches Kennzeichen — das wären zwei Wahrheiten für einen Sachverhalt
+- `process_epoch` und `pid` — 3.4 macht die absoluten Zähler erst durch den Epochenwechsel auswertbar; ohne sie ist ein Neustart nicht von einem Zählerrücksprung zu unterscheiden. Sie sind zugleich Eingabe der Ableitungsregel aus 3.3
+- `dispatch_path` und `spool_delay_ms` — der Kern der Zustellqualität. Sie stehen weiterhin **auch** an jedem Ereignis, weil die Regeln sie zeilenweise lesen; hier bekommen sie ihren fachlich richtigen Ort, einmal je Sendung statt sechsfach je Request
+- `event_count` — nicht Bequemlichkeit, sondern Messinstrument: 4.2.3 erklärt „5–7 Events je Request" ausdrücklich zur **Annahme** und verlangt, sie bei der ersten produktiven Installation zu messen. Zurückzuzählen kostete zwei Scans über zwei Tabellen mit verschiedenen Fristen
+- `byte_size` — die collectorseitig gemessene Größe. Sie beantwortet, ob `flush.max_frame_bytes` richtig steht und ob `dropped_frame_too_large` bevorsteht, bevor es eintritt
+- `counters` als **JSONB, nicht als Spaltensatz** — 3.7 erklärt einen neuen Zähler für additiv und fassungsneutral; eine Spalte je Zähler machte daraus eine Migration und höbe die Regel auf
+
+##### `heartbeats` — der Betriebszustand ohne Verkehr
+
+3.4 nennt drei Anforderungen, die nur der Heartbeat beantworten kann, und 4.2 hatte bis hierher keine Tabelle dafür. Ebenso setzt `ids.dispatch_path_implausible` (oben) voraus, dass der Collector weiß, wann ein Sensor tatsächlich geschwiegen hat — eine Regel ohne Datengrundlage. Beides zeigt auf dieselbe fehlende Tabelle.
+
+**Die Regel, nach der aufgeteilt wird:** Was 3.7 additiv erweitern darf, bleibt JSONB. Was auf dem Schreibpfad oder von einer benannten Regel gelesen wird, wird Spalte. Ohne diese Regel wäre die Aufteilung willkürlich.
+
+- Der Spaltenname ist der Pfad im JSON, mit Unterstrich statt Punkt — eine Regel ohne Ausnahme. 3.4 hat es einmal gekostet, dass dieselbe Zahl im Frame und im Heartbeat verschieden hieß
+- `runtime_drain_interval_s` ist Spalte, weil der Consumer ihn bei **jedem** Frame braucht: OB9 bemisst die Toleranzschwelle am Zweifachen dieses Werts, und `effective_at` hängt daran. Ein JSONB-Zugriff wäre hier genau die Kostenart, die oben für `actor_session_hash` abgelehnt wird
+- `heartbeat_mode` und `triggered_by`, weil sie nach 3.4 bestimmen, was ein *ausbleibender* Heartbeat bedeutet, und ihr Auseinanderfallen selbst ein Befund ist
+- `heartbeat_mode`, `triggered_by` und `circuit_breaker_state` als `TEXT`, **nicht** als ENUM: 3.7 führt genau drei geschlossene Vokabulare. Drei weitere einzuführen hieße, drei neue Auslöser für einen Fassungswechsel zu schaffen, ohne sie dort einzutragen
+- Die Blöcke `spool` und `circuit_breaker` fehlen, wenn sie nicht konfiguriert sind (3.4) — ihre Spalten sind deshalb nullable. `spool_oldest_pending_age_s` ist es zusätzlich aus eigenem Recht: `null` trägt dort schon die Bedeutung „nichts wartet"
+- `counters` und `latency` bleiben JSONB. Bei den Zählern aus demselben Grund wie bei `frames`; bei der Latenz, weil die **Menge der Perzentile** additiv erweiterbar ist — vier feste Spalten machten ein späteres `p95` zur Migration
+- **Keine eigene Kennung.** Der Scheduler drosselt prozessübergreifend je Sensor, es kann je Sensor und Intervall nur einen geben; `(sensor_id, sent_at)` ist der natürliche Schlüssel, und `sent_at` ist über den einzigen Wiederholungsfall (ein `401`, dann einmal wiederholen, 3.6) stabil. Heartbeats werden zudem nie gespoolt (3.4) — die Nachlaufproblematik der Frames gibt es hier nicht
 
 **Die Zählertabelle der Echtzeitschicht.** Die Regeln R2b, R3 und R4 (4.3.1) und die Cooldowns aus 4.4 brauchen alle dasselbe: einen kleinen Wert unter einem Schlüssel, der nach einer Frist von selbst verfällt.
-
-```sql
-CREATE UNLOGGED TABLE realtime_counters (
-    key        TEXT PRIMARY KEY,
-    value      BIGINT      NOT NULL DEFAULT 0,
-    expires_at TIMESTAMPTZ NOT NULL
-) WITH (
-    fillfactor                     = 70,
-    autovacuum_vacuum_scale_factor = 0.02,
-    autovacuum_vacuum_cost_delay   = 0
-);
-
-CREATE INDEX idx_realtime_counters_expires_at ON realtime_counters (expires_at);
-```
 
 Hochgezählt wird mit einer einzigen Anweisung, die den neuen Stand direkt zurückgibt:
 
@@ -1210,38 +1426,15 @@ RETURNING value;
 
 **Die Stundenaggregate der Anomalieschicht.** 4.2.3 sagt zu, dass ein täglicher Lauf Kennzahlen schreibt und die Langzeithaltung von `info`-Events dadurch entbehrlich wird. Ein Speicherort dafür fehlte: `metric_baselines` (4.2.4) hält nur Mittelwert und Streuung je Bucket — eine Zeitreihe der *Messwerte* ist das nicht, auch seit `computed_at` im Schlüssel steht. Die Aggregate brauchen eine eigene Tabelle:
 
-```sql
-CREATE TABLE metric_samples (
-    application_id  UUID NOT NULL,
-    environment_id  UUID NOT NULL,
-    metric_name     TEXT NOT NULL,
-    bucket_start    TIMESTAMPTZ NOT NULL,
-    value           DOUBLE PRECISION NOT NULL,
-    PRIMARY KEY (application_id, environment_id, metric_name, bucket_start)
-);
-```
-
 Sie ist die Grundlage, aus der der Baseline-Job (4.3.5) sein rollierendes Fenster rechnet, und sie ist um Größenordnungen kleiner als die Events, aus denen sie entsteht — eine Zeile je Metrik und Stunde statt je Ereignis.
 
-#### 4.2.2 Indizierung
+##### Indizierung — welche Regel liest welchen Index
 
 **Die beiden Tabellen bekommen NICHT denselben Indexsatz.** `events_relevant` trägt `warning` und `critical`, wird von fast jeder Regel abgefragt und ist vergleichsweise klein. `events_info` trägt den Großteil des Volumens (4.2.3) und wird von genau vier Regeln gelesen: B2, X4, P1 und P2. Ein Index, den dort keine Regel benutzt, zahlt Schreibkosten auf der schreibstärksten Tabelle des Systems — für nichts.
 
 Es gilt deshalb: **Ein Index ohne benannte Regel gehört nicht auf `events_info`.** Die Spalte „Leser" unten ist Teil der Festlegung, nicht Erläuterung; ein neuer Index ohne Eintrag dort ist ein Fehler.
 
 **`events_relevant`:**
-
-```sql
-CREATE INDEX idx_evr_timestamp ON events_relevant ("timestamp");
-CREATE INDEX idx_evr_correlation_id ON events_relevant (correlation_id);
-CREATE INDEX idx_evr_layer_event_type ON events_relevant (layer, event_type);
-CREATE INDEX idx_evr_actor_ip ON events_relevant (actor_ip);
-CREATE INDEX idx_evr_scope ON events_relevant (application_id, environment_id, effective_at);
-CREATE INDEX idx_evr_actor_user_ts ON events_relevant (actor_user, "timestamp");
-CREATE INDEX idx_evr_session_hash ON events_relevant (actor_session_hash);
-CREATE INDEX idx_evr_http_status ON events_relevant (((payload->>'http_status')::int));
-CREATE INDEX idx_evr_path ON events_relevant ((payload->>'path'));
-```
 
 | Index | Leser |
 |---|---|
@@ -1255,17 +1448,18 @@ CREATE INDEX idx_evr_path ON events_relevant ((payload->>'path'));
 | `idx_evr_http_status` | B1, B5, P1 |
 | `idx_evr_path` | B1 (`count(DISTINCT path)`), X4 |
 
-**`events_info`** — nur was B2, X4, P1 und P2 tatsächlich benutzen:
+**`events_info`** — nur was B2, X4, P1 und P2 tatsächlich benutzen. Nicht angelegt werden dort `correlation_id` (die Verkettung geschieht bei der Nachanalyse, nicht in einer Regel über `info`-Events), `layer, event_type` (keine der vier Regeln filtert so) und `actor_session_hash` — B8 und B9 arbeiten ausschließlich auf `warning`-Events und würden auf `events_info` nie zugreifen. Das war der teuerste der drei: ein Index über eine Spalte, die auf der Massentabelle bei jedem Einfügen geschrieben und nie gelesen wird.
 
-```sql
-CREATE INDEX idx_evi_scope ON events_info (application_id, environment_id, effective_at);
-CREATE INDEX idx_evi_actor_ip ON events_info (actor_ip);
-CREATE INDEX idx_evi_actor_user_ts ON events_info (actor_user, "timestamp");
-CREATE INDEX idx_evi_http_status ON events_info (((payload->>'http_status')::int));
-CREATE INDEX idx_evi_path ON events_info ((payload->>'path'));
-```
+**`frames` und `heartbeats`:**
 
-Nicht angelegt werden dort `correlation_id` (die Verkettung geschieht bei der Nachanalyse, nicht in einer Regel über `info`-Events), `layer, event_type` (keine der vier Regeln filtert so) und `actor_session_hash` — B8 und B9 arbeiten ausschließlich auf `warning`-Events und würden auf `events_info` nie zugreifen. Das war der teuerste der drei: ein Index über eine Spalte, die auf der Massentabelle bei jedem Einfügen geschrieben und nie gelesen wird.
+| Index | Leser |
+|---|---|
+| `idx_frames_sensor_received` | `ids.dispatch_path_implausible`, Lieferlücken, Zustellqualität und Uhrendrift je Sensor |
+| `idx_frames_scope` | die Sendungsübersicht einer Umgebung |
+| `idx_hb_received_at` | `ids.sensor_silent` — gefragt wird, von wem seit wann nichts **angekommen** ist; `sent_at` ist sensorgesetzt und für diese Frage wertlos |
+| `idx_hb_scope` | der Sensorüberblick einer Umgebung |
+
+Der Sparsamkeitsgrundsatz von oben gilt für `heartbeats` nicht in derselben Schärfe: Die Tabelle nimmt eine Zeile je Sensor und Minute auf, nicht dreihundert je Sekunde. Ausdrücklich **nicht** angelegt werden ein Index auf `frames.dispatch_path` — drei Werte, deren Verteilung als Aggregation im Zeitfenster des Scope-Index entsteht — und einer auf `events_*.frame_id`, weil dafür kein Leser benannt ist (OB14).
 
 **Der GIN-Index auf `payload` ist entfallen — er leistete nicht, was hier stand.** Die frühere Fassung versprach, er erlaube „spätere Abfragen auf einzelne Payload-Felder (z. B. `payload->>'http_status'`), ohne dass jedes mögliche Feld vorab bekannt sein muss". Das ist sachlich falsch: Ein GIN mit dem Standard-`jsonb_ops` bedient `@>`, `?`, `?|`, `?&` sowie `@?`/`@@` — **nicht** die Textextraktion `->>` mit anschließendem Vergleich. Die Beispielabfrage in 4.3.2 (`(payload->>'http_status')::int IN (403, 404)`) hätte ihn nie benutzt und wäre als Sequential Scan über die Partition gelaufen. Gleichzeitig ist GIN der teuerste Index beim Schreiben, und er lag auf der Tabelle mit dem höchsten Einfügedurchsatz des Systems: voller Preis, keine Wirkung.
 
@@ -1276,7 +1470,8 @@ An seine Stelle treten die beiden **Ausdrucksindizes** oben. Das Argument „ohn
 **Weitere Festlegungen:**
 
 - `events_raw` erhält keine eigenen Indizes über `event_id`/`timestamp` hinaus — die Tabelle wird ausschließlich für gezielte Einzelabfragen per `event_id` genutzt, nicht für Analysen
-- `unknown_fields` bekommt keinen Index (4.2.1): keine Abfrage würde ihn nutzen, und die Spalte liegt auf der schreibstärksten Tabelle
+- `unknown_fields` bekommt keinen Index (siehe oben): keine Abfrage würde ihn nutzen, und die Spalte liegt auf der schreibstärksten Tabelle
+- `frames.counters` und `heartbeats.counters`/`latency` bekommen keinen Index: Sie werden je Sensor über ein Zeitfenster gelesen, und dafür trägt der Scope-Index
 
 #### 4.2.3 Retention & Partitionierung
 
@@ -1294,6 +1489,9 @@ Bei 6 Events je Request also ~25,9 Mio. Events/Tag:
 |---|---|---|---|
 | `events` | ~600 B | ~15,6 GB | **~5,7 TB** bei 12 Monaten |
 | `events_raw` | ~3 KB | ~78 GB | **~3,5 TB** bei 45 Tagen |
+| `frames` | ~800 B | ~3,4 GB | ~1,25 TB bei 12 Monaten |
+
+`frames` trägt **eine** Zeile je Request statt sechs, ist also nicht am Ereignisaufkommen bemessen. Den Löwenanteil der 800 Byte trägt der `counters`-Block: 3.3 verlangt die vollständige Liste, jeder Zähler auch mit dem Wert `0`. Das ist der Preis der Zusage aus 3.4, dass „kein Verlust" von „diese Sensorfassung kennt den Zähler nicht" unterscheidbar bleibt — er ist hier ausgewiesen und nicht in einer Fußnote versteckt. Ob er sich auf Sendungen beschränken lässt, in denen sich kein Zähler geändert hat, ist als offener Punkt OB15 geführt.
 
 **Befund:** Eine pauschale Aufbewahrung ist bei mittlerem Traffic nicht tragfähig. Drei Korrekturen, die das Volumen um mehr als eine Größenordnung senken, ohne Erkennungsfähigkeit zu verlieren:
 
@@ -1331,15 +1529,19 @@ Umsetzung: `info`-Events und relevante Events werden in getrennte, jeweils monat
 
 ##### Partitionierung mit pg_partman
 
-**Entscheidung:** Alle drei Event-Tabellen werden über die Erweiterung **`pg_partman`** monatlich partitioniert und automatisiert bereinigt, mit den in „Volumenbudget und gestufte Retention“ abgeleiteten Aufbewahrungsdauern:
+**Entscheidung:** Die drei Event-Tabellen sowie `frames` und `heartbeats` werden über die Erweiterung **`pg_partman`** monatlich partitioniert und automatisiert bereinigt, mit den in „Volumenbudget und gestufte Retention“ abgeleiteten Aufbewahrungsdauern:
 
 | Tabelle | Retention | Begründung |
 |---|---|---|
 | `events_info` | 45 Tage | Massenvolumen, Erkenntniswert nur kurzfristig; Langzeitauswertung läuft über `metric_samples`. Die 15 Tage über dem Baseline-Fenster machen E2 feststellbar |
 | `events_relevant` | 12 Monate | `warning`/`critical` — kompakt, Basis für Langzeitauswertung und Korrelation |
 | `events_raw` | 45 Tage | groß, nur selektiv erfasst, für forensische Nachanalyse — gleiche Frist wie `events_info`, damit eine Untersuchung nicht an fehlenden Rohdaten endet |
+| `frames` | 45 Tage | ein Zustellnachweis je Sendung, rund 3,4 GB/Tag (Rechnung unten) — folgt damit `events_info`. Eine Sendung, deren Ereignisse längst verworfen sind, ist ein Nachweis ohne Gegenstand |
+| `heartbeats` | 12 Monate | vernachlässigbares Volumen, und die Frist ist **abgeleitet, nicht gewählt**: `ids.dispatch_path_implausible` (4.2.2) prüft jedes gespeicherte `recovered`-Ereignis gegen die Heartbeat-Historie. Sie muss deshalb so weit zurückreichen wie `events_relevant` |
 
 Die Monatspartitionierung bedeutet, dass die 45-Tage-Fristen tatsächlich 45 bis 75 Tage vorhalten (siehe „Volumenbudget und gestufte Retention"). `metric_samples`, `metric_baselines`, `alerts` und `realtime_counters` werden **nicht** partitioniert: Die ersten drei sind um Größenordnungen kleiner, die letzte räumt sich über `expires_at` selbst ab.
+
+**Bei den beiden neuen Tabellen heißt der Steuerwert nicht `timestamp`.** `frames` partitioniert auf `flushed_at`, `heartbeats` auf `sent_at` — es ist das erste Mal, dass er anders heißt, und wer den Block unten kopiert, kopiert sonst den falschen Namen. Beide Werte sind sensorgesetzt, und zwar aus demselben Grund, aus dem es `timestamp` bei den Events ist: Nur ein Wert, den die Sendung mitbringt, ist über eine erneute Zustellung hinweg stabil und taugt damit als Teil des Primärschlüssels (4.2.2).
 
 **Einrichtung:**
 
@@ -1378,57 +1580,37 @@ SELECT partman.create_parent(
 UPDATE partman.part_config
 SET retention = '45 days', retention_keep_table = false
 WHERE parent_table = 'public.events_raw';
+
+SELECT partman.create_parent(
+    p_parent_table := 'public.frames',
+    p_control       := 'flushed_at',
+    p_type          := 'range',
+    p_interval      := '1 month',
+    p_premake       := 3
+);
+UPDATE partman.part_config
+SET retention = '45 days', retention_keep_table = false
+WHERE parent_table = 'public.frames';
+
+SELECT partman.create_parent(
+    p_parent_table := 'public.heartbeats',
+    p_control       := 'sent_at',
+    p_type          := 'range',
+    p_interval      := '1 month',
+    p_premake       := 3
+);
+UPDATE partman.part_config
+SET retention = '12 months', retention_keep_table = false
+WHERE parent_table = 'public.heartbeats';
 ```
 
 - `retention_keep_table = false`: abgelaufene Partitionen werden per `DROP TABLE` entfernt (nicht nur geleert) — kein Bloat, kein `VACUUM`-Bedarf
 - `p_premake := 3`: `pg_partman` legt automatisch die nächsten drei Monatspartitionen im Voraus an
 - **Wichtig:** `pg_partman` benötigt einen regelmäßig laufenden Wartungsjob (`partman.run_maintenance_proc()`), der die eigentliche Erstellung/Bereinigung der Partitionen auslöst — üblich über die Erweiterung `pg_cron`, alternativ ein externer Scheduler, der die Prozedur periodisch aufruft (z. B. stündlich)
 
-#### 4.2.4 Auswertungstabellen
+#### 4.2.4 Auswertungstabellen — was in ihnen steht
 
-Neben den Event-Tabellen hält die Sammelstelle zwei Tabellen für die Ergebnisse der Detection (4.3). Sie stehen hier, damit alle Datenbankobjekte an einer Stelle definiert sind.
-
-```sql
-CREATE TYPE alert_source AS ENUM ('realtime', 'batch', 'positive_path', 'anomaly');
-
-CREATE TABLE alerts (
-    alert_id            UUID PRIMARY KEY,
-    dedup_key           TEXT NOT NULL,
-    first_seen          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_seen           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    occurrence_count    INTEGER NOT NULL DEFAULT 1,
-    rule_id             TEXT NOT NULL,        -- z. B. "R3", "B1", "X2", "anomaly:login_failure_rate"
-    alert_severity      severity_level NOT NULL,
-    source              alert_source NOT NULL,
-    application_id      UUID NOT NULL,
-    environment_id      UUID NOT NULL,
-    knowledge_version   TEXT,                 -- Stand der Pfad-Wissensbasis (4.3.1), bei R2/R2b/X4
-    correlation_ids     TEXT[],               -- betroffene correlation_id(s), falls vorhanden
-    actor_user          TEXT,
-    actor_ip            INET,
-    actor_session_hash  TEXT,
-    description         TEXT NOT NULL,
-    details             JSONB                 -- regel-spezifische Zusatzinfos (Zählerstand, Baseline-Wert)
-);
-
-CREATE UNIQUE INDEX idx_alerts_dedup ON alerts (dedup_key);
-
-CREATE TABLE metric_baselines (
-    application_id  UUID NOT NULL,
-    environment_id  UUID NOT NULL,
-    metric_name     TEXT NOT NULL,
-    bucket          SMALLINT NOT NULL,        -- Stunde des Tages, 0–23
-    computed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    mean            DOUBLE PRECISION NOT NULL,
-    stddev          DOUBLE PRECISION NOT NULL,
-    sample_count    INTEGER NOT NULL,
-    PRIMARY KEY (application_id, environment_id, metric_name, bucket, computed_at)
-);
-
-CREATE INDEX idx_alerts_first_seen ON alerts (first_seen);
-CREATE INDEX idx_alerts_rule_id ON alerts (rule_id);
-CREATE INDEX idx_alerts_actor_ip ON alerts (actor_ip);
-```
+Die Sammelstelle hält drei Tabellen für die Ergebnisse der Detection (4.3): `alerts` für die Befunde, `metric_samples` für die Stundenaggregate und `metric_baselines` für die daraus gerechneten Vergleichswerte. **Ihre Definition steht in 4.2.1**, zusammen mit allen übrigen Datenbankobjekten; hier steht, was in den Spalten inhaltlich gilt. Eine frühere Fassung begründete den umgekehrten Weg — die Tabellen stünden hier, „damit alle Datenbankobjekte an einer Stelle definiert sind". Genau das leistete der Abschnitt nicht: Er versammelte zwei von neun.
 
 **Hinweise:**
 
@@ -1480,7 +1662,7 @@ Wer sie dennoch abschalten will, tut das sensorseitig über `layers.security.cap
 | R6 | Kernel | `kernel.exception` mit `exception_class` beginnend `Twig\` | Template-Injection-Verdacht (S4) — eine Twig-Syntaxfehler zur Laufzeit bedeutet praktisch immer, dass Nutzereingabe in einen Template-Kontext gelangt ist |
 | R7 | Kernel | `kernel.exception` mit `exception_class` im Namensraum `Symfony\Component\Serializer\Exception\` | Deserialisierungs-Verdacht (S5); `critical` statt `warning`, wenn zusätzlich `payload.content_length` einen Schwellwert überschreitet |
 
-R3/R4 sind bewusst noch "Echtzeit", weil sie ausschließlich einen Upsert auf **eine** Zeile brauchen (4.2.1) und nie über die Event-Tabellen aggregieren — das hält die Latenz im Consumer niedrig. Der entscheidende Unterschied zur Batch-Schicht ist nicht Datenbank gegen Nicht-Datenbank, sondern ein einzelner Indexzugriff gegen eine Aggregation über Millionen Zeilen.
+R3/R4 sind bewusst noch "Echtzeit", weil sie ausschließlich einen Upsert auf **eine** Zeile brauchen (4.2.2) und nie über die Event-Tabellen aggregieren — das hält die Latenz im Consumer niedrig. Der entscheidende Unterschied zur Batch-Schicht ist nicht Datenbank gegen Nicht-Datenbank, sondern ein einzelner Indexzugriff gegen eine Aggregation über Millionen Zeilen.
 
 **Vorrangregel (Vermeidung von Doppelalarmen):** R1 ist eine **Auffangregel**. Ein Twig-Fehler mit Status 500 erfüllt gleichzeitig R1 und R6, ein Serializer-Fehler gleichzeitig R1 und R7 — ohne Vorrang entstünden pro Event zwei Alerts mit unterschiedlicher Aussagekraft. Deshalb gilt: Pro Event wird **genau ein** Alert erzeugt, und zwar von der spezifischsten zutreffenden Regel. Auswertungsreihenfolge: R6/R7 (spezifische Exception-Klassen) vor R1 (generisches 5xx). R2/R2b und R3–R5 betreffen andere Event-Typen und kollidieren nicht.
 
@@ -1862,20 +2044,22 @@ Drei getrennte Rollen statt eines gemeinsamen Zugangs:
 
 | Rolle | Rechte | Verwendet von |
 |---|---|---|
-| `ids_writer` | nur `INSERT` auf `events_relevant`, `events_info`, `events_raw`; `INSERT`/`UPDATE` auf `realtime_counters` | Consumer |
-| `ids_analyst` | `SELECT` auf die Event-Tabellen, `INSERT`/`UPDATE` auf `alerts`, `metric_samples` und `metric_baselines`, `DELETE` auf `realtime_counters` und `metric_samples` — **kein Zugriff auf `events_raw`** | Detection Job |
+| `ids_writer` | nur `INSERT` auf `events_relevant`, `events_info`, `events_raw`, `frames`, `heartbeats`; `INSERT`/`UPDATE` auf `realtime_counters` | Consumer |
+| `ids_analyst` | `SELECT` auf die Event-Tabellen sowie auf `frames` und `heartbeats`, `INSERT`/`UPDATE` auf `alerts`, `metric_samples` und `metric_baselines`, `DELETE` auf `realtime_counters` und `metric_samples` — **kein Zugriff auf `events_raw`** | Detection Job |
 | `ids_forensics` | `SELECT` auf `events_raw`, personengebunden, Zugriffe protokolliert | manuelle Nachanalyse |
 
 Die Schreibrechte auf `metric_samples` und `metric_baselines` sind kein Zugeständnis, sondern eine Berichtigung: Der Detection Job **füllt** beide Tabellen (4.3.5). Eine frühere Fassung gab ihm dort nur `SELECT` — der Job, der die Baselines berechnet, hätte sie nicht schreiben dürfen.
 
-**`realtime_counters` schwächt diese Trennung nicht.** Die Tabelle enthält keine Beweismittel, sondern Zählerstände, die von selbst verfallen (4.2.1); wer sie manipuliert, kann eine Echtzeitregel um ihr Zeitfenster betrügen, aber kein gespeichertes Ereignis verändern oder lesen. Deshalb darf der Consumer dort schreiben und der Detection Job löschen, ohne dass eine der beiden Rollen dem Beweisspeicher näher käme.
+**`realtime_counters` schwächt diese Trennung nicht.** Die Tabelle enthält keine Beweismittel, sondern Zählerstände, die von selbst verfallen (4.2.2); wer sie manipuliert, kann eine Echtzeitregel um ihr Zeitfenster betrügen, aber kein gespeichertes Ereignis verändern oder lesen. Deshalb darf der Consumer dort schreiben und der Detection Job löschen, ohne dass eine der beiden Rollen dem Beweisspeicher näher käme.
+
+**`frames` und `heartbeats` schwächen die Trennung ebenfalls nicht.** Sie tragen weder `payload` noch `raw` noch eines der vier `actor.*`-Felder — also keinen Beweisinhalt über die überwachte Anwendung, sondern Betriebsdaten über den Sensor. Der Detection Job muss sie lesen können, weil `ids.sensor_silent` und `ids.dispatch_path_implausible` genau daraus entstehen, und kommt dabei dem Beweisspeicher nicht näher. Der Vorbehalt gehört trotzdem daneben: `counters` und die `spool_*`-Spalten sind Aussagen über den Betrieb der überwachten Anwendung — wie viel Verkehr sie hatte, wann sie stillstand —, und das ist nicht nichts.
 
 Der Ausschluss von `events_raw` für `ids_analyst` ist möglich, weil **keine einzige Regel aus Abschnitt 4.3 auf `raw` zugreift**. Damit ist der sensibelste Datenbestand kein Bestandteil des laufenden Betriebs, sondern nur bei begründetem Anlass erreichbar — die Standardkompromittierung eines Dienstkontos erreicht ihn nicht.
 
 #### 4.5.3 Weitere Maßnahmen
 
 - **Transport:** ausschließlich TLS 1.2 oder neuer, mit verpflichtender Zertifikatsprüfung. Ein Schalter, der die Prüfung abstellt, darf in Produktion nicht greifen — er verwandelt eine authentifizierte Verbindung in eine, die jeder auf dem Weg übernehmen kann, und das fällt im Betrieb nicht auf. Der Ingest-Endpunkt (3.6) samt Token-Endpunkt ist die **einzige** öffentlich erreichbare Fläche des Collectors; Dashboard, Datenbank und Detection Job bleiben intern. Je `sensor_id` gilt eine Ratengrenze, und die Zugangsdaten sind im Anwendungsregister sperr- und rotierbar (OB3).
-- **Angreiferkontrollierte Felder:** Der Sensor läuft in der überwachten Anwendung; ist sie kompromittiert, ist er es auch (Abschnitt 2). **Jedes** Feld einer Sendung ist damit angreiferkontrolliert — insbesondere `timestamp`, `dispatch_path`, `spool_delay_ms`, `actor_ip`, `actor_user`, `application_id`, `environment_id`, `sensor_id`, `payload`, `raw` und `unknown_fields`. Wo daraus eine Erkennungsfolge entsteht, ist sie an Ort und Stelle behandelt: die Zeitachse in 4.2.1 (`effective_at`), die Herkunft in 3.6 (Eigentümerprüfung), die Größe in 4.2.1 (Deckelung von `unknown_fields`). **Für `actor_ip` und `actor_user` gibt es keine solche Behandlung, und das hat eine Folge:** Mit ihnen lassen sich Alerts gegen unbeteiligte Dritte erzeugen (Abschnitt 2). Jede automatische Reaktion, die an einem Alert hängt, ist damit fremdauslösbar — geführt als Randbedingung von E5.
+- **Angreiferkontrollierte Felder:** Der Sensor läuft in der überwachten Anwendung; ist sie kompromittiert, ist er es auch (Abschnitt 2). **Jedes** Feld einer Sendung ist damit angreiferkontrolliert — insbesondere `timestamp`, `flushed_at`, `sent_at`, `frame_id`, `process_epoch`, `pid`, `dispatch_path`, `spool_delay_ms`, `counters`, `actor_ip`, `actor_user`, `application_id`, `environment_id`, `sensor_id`, `payload`, `raw` und `unknown_fields`. Wo daraus eine Erkennungsfolge entsteht, ist sie an Ort und Stelle behandelt: die Zeitachse in 4.2.2 (`effective_at`), die Zukunftsgrenze in 4.1, die Herkunft in 3.6 (Eigentümerprüfung), die Größe in 4.2.2 (Deckelung von `unknown_fields`). **Für `actor_ip` und `actor_user` gibt es keine solche Behandlung, und das hat eine Folge:** Mit ihnen lassen sich Alerts gegen unbeteiligte Dritte erzeugen (Abschnitt 2). Jede automatische Reaktion, die an einem Alert hängt, ist damit fremdauslösbar — geführt als Randbedingung von E5.
 - **Log-Injection:** `path`, `user_agent` und `payload` sind angreiferkontrolliert. Sie werden ausschließlich als JSONB-Werte gespeichert, nie in Textlogzeilen interpoliert, und müssen in jeder späteren Auswertungsoberfläche als Daten behandelt werden, nicht als Markup.
 - **Datenschutz:** Die Entscheidung, Datenschutzaspekte bei `raw` nachrangig zu behandeln, ist bewusst getroffen worden (Priorität auf forensische Vollständigkeit). Sie ist vor einem produktiven Einsatz mit echten Nutzerdaten erneut zu prüfen — betroffen sind Rechtsgrundlage, Aufbewahrungsfristen und Auskunftsfähigkeit. Als offener Punkt geführt (6.3, OB8).
 
@@ -1894,14 +2078,15 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 | K1 | Rohdatenschutz, Zugriffstrennung, Absicherung der Sammelstelle | 4.5 |
 | K2 | Ausfall- und Überlastverhalten (fail-open, at-least-once, Spool) | Abschnitt 4 |
 | K3 | Latenz- und Volumenbudget, gestufte Retention | 2.1, 4.2.3 |
-| K4 | Anwendungs-, Umgebungs- und Sensorkontext, Uhrendrift | 2.2.1, 3, 4.2.1, 4.2.3 |
+| K4 | Anwendungs-, Umgebungs- und Sensorkontext, Uhrendrift | 2.2.1, 3, 4.2.1, 4.2.2, 4.2.3 |
 | K5 | Vorfallsbegriff, Deduplizierung, Cooldown | 4.4 |
 | OB2 | Auslieferungsform: zwei Bundles, Paketgrenze, Endpunkt-Rechte, Heartbeat | 1, 2 |
 | OB5 | Symfony-Versionsbindung: `^6.4\|^7.0`, PHP 8.2+ | 1, 6.3 |
 | OB6 | `correlation_id`-Erzeugung samt Umgang mit eingehenden Request-IDs | 2.2.1, 6.3 |
 | K6 | Transportformat (Frame), `dispatch_path`, Heartbeat als eigener Nachrichtentyp, `raw` je `event_type` | 3, 3.3–3.5 |
 | K7 | Transportweg: REST am Collector statt Message Broker — Endpunkte, Anmeldung, Antwortcodes, zwei Versandmodelle; Echtzeitzähler in PostgreSQL statt In-Memory-Store | 1, 2, 2.1, 3.6, 4.1, 4.2.1, 4.3, 4.5 |
-| K8 | Vertrauenswürdige Zeitachse (`effective_at`), Eigentümerprüfung über das Kennungstripel, Begriffstrennung Sensor/Erfassungsbaustein, Betriebsvoraussetzungen, Fassungswechselregeln | 1, 2.3, 3.3, 3.6, 3.7, 4.1, 4.2.1, 4.3.2 |
+| K8 | Vertrauenswürdige Zeitachse (`effective_at`), Eigentümerprüfung über das Kennungstripel, Begriffstrennung Sensor/Erfassungsbaustein, Betriebsvoraussetzungen, Fassungswechselregeln | 1, 2.3, 3.3, 3.6, 3.7, 4.1, 4.2.2, 4.3.2 |
+| K9 | Sendung und Lebenszeichen als Datenstruktur (`frames`, `heartbeats`), `frame_id` als Pflichtfeld, `schema_version` 4, vollständiges Schema an einer Stelle | 3.3, 3.4, 3.6, 3.7, 4.1, 4.2 |
 
 ### 6.2 Erkennung
 
@@ -1923,16 +2108,18 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 | ID | Thema | Prio | Blockiert |
 |---|---|---|---|
 | OB1 | **Teststrategie** — es gibt kein Verfahren, um zu prüfen, ob eine Regel tatsächlich anschlägt. Ohne simulierte Angriffe ist weder die Inbetriebnahme verifizierbar noch O3 durchführbar. | H | O3 |
-| OB4 | **Selbstüberwachung** — Annahmerate an den Ingest-Endpunkten, Ablehnungsquote je Statuscode, Verarbeitungsrückstand im Collector, Spool-Füllstand, Trefferquote je Regel, sowie die im Feld laufenden `schema_version`-Fassungen (3.7). Direkte Voraussetzung des Restrisikos aus Abschnitt 4: fail-open ist nur vertretbar, wenn Verluste sichtbar werden. | H | — |
+| OB4 | **Selbstüberwachung** — Annahmerate an den Ingest-Endpunkten, Ablehnungsquote je Statuscode, Verarbeitungsrückstand im Collector, Spool-Füllstand, Trefferquote je Regel, sowie die im Feld laufenden `schema_version`-Fassungen (3.7). **Neu hinzugekommen:** die Zahl der **abgeleiteten** `frame_id`s je Fassung, die Kollisionen dieser Ableitung (3.3), die `DO NOTHING`-Treffer auf `frames` als Maß für erneute Zustellungen und die Kappungen von `unknown_fields`. Alle vier entstehen erst beim Empfang und gehören deshalb nicht in die Sensorzähler aus 3.4. Direkte Voraussetzung des Restrisikos aus Abschnitt 4: fail-open ist nur vertretbar, wenn Verluste sichtbar werden. | H | — |
 | OB3 | **Konfigurierbarkeit pro Anwendung** — die Grundstruktur steht in Abschnitt 1 (IdsBackendBundle: Applications verwalten); offen ist das collectorseitige Anwendungsregister (Technologieprofil, erwartetes Heartbeat-Intervall, regelspezifische Schwellwerte). **Neu hinzugekommen:** Dasselbe Register führt die Kette Anwendung → Umgebung → Sensor mitsamt Eigentümerschaft (3.6), vergibt die drei UUIDs und die Zugangsdaten, hält den Anzeigenamen der Umgebung und braucht einen **Lebenszyklus je Sensor** — angelegt, aktiv, stillgelegt. Ohne die Stilllegung erzeugt jedes Herunterskalieren einen `ids.sensor_silent`-Alert für einen planmäßig verschwundenen Node (2.3). Ohne diesen Teil ist der Transport nicht in Betrieb zu nehmen. | H | — |
 | OB6 | ~~**`correlation_id`-Erzeugung**~~ — **erledigt** durch die Umsetzung: der Sensor erzeugt sie beim ersten `kernel.request` als UUIDv7. Eine eingehende Request-ID wird nur übernommen, wenn `correlation.require_trusted_proxy` erfüllt ist — sonst wäre sie reine Client-Eingabe, und ein Angreifer könnte die Spur eines Opfers übernehmen. | — | — |
 | OB5 | ~~**Symfony-Versionsbindung**~~ — **entschieden**: Zielversion des `IdsSensorBundle` ist PHP 8.2+ mit Symfony `^6.4\|^7.0`. Damit entfällt der Legacy-Doppelpfad für das alte Authenticator-System vollständig. Titel und Scope in Abschnitt 1 sind noch nachzuziehen. In einer 5.4-Anwendung ist das Bundle **nicht installierbar**. | — | — |
-| OB9 | **Toleranzschwelle für `dispatch_path: deferred`** (3.3.1) — sie ist zugleich die Klemmgrenze für `effective_at` (4.2.1) und damit nicht mehr nur eine Frage der Echtzeitregeln, sondern der gesamten Zeitachse. Der Consumer muss entscheiden, bis zu welchem `spool_delay_ms` er Echtzeit-Regeln auf einen nachgesendeten Frame anwendet. Empfehlung als Startwert: das Zweifache des im Heartbeat gemeldeten `drain_interval_s`. Ohne diese Festlegung ist unter mod_php **entweder** die Echtzeit-Erkennung dauerhaft aus, **oder** ein Ausfall-Nachlauf verfälscht bereits ausgewertete Zeitfenster. **Seit der Umstellung auf REST betrifft das nicht mehr nur mod_php:** Der gebündelte Versandmodus aus 3.6 ist auch unter PHP-FPM wählbar und markiert dort jeden Frame als `deferred`. Wer bündelt, ohne dass die Schwelle gesetzt ist, schaltet die Echtzeit-Erkennung ab, ohne es zu merken. | H | — |
+| OB9 | **Toleranzschwelle für `dispatch_path: deferred`** (3.3.1) — sie ist zugleich die Klemmgrenze für `effective_at` (4.2.2) und damit nicht mehr nur eine Frage der Echtzeitregeln, sondern der gesamten Zeitachse. Der Consumer muss entscheiden, bis zu welchem `spool_delay_ms` er Echtzeit-Regeln auf einen nachgesendeten Frame anwendet. Empfehlung als Startwert: das Zweifache des im Heartbeat gemeldeten `drain_interval_s`. Ohne diese Festlegung ist unter mod_php **entweder** die Echtzeit-Erkennung dauerhaft aus, **oder** ein Ausfall-Nachlauf verfälscht bereits ausgewertete Zeitfenster. **Seit der Umstellung auf REST betrifft das nicht mehr nur mod_php:** Der gebündelte Versandmodus aus 3.6 ist auch unter PHP-FPM wählbar und markiert dort jeden Frame als `deferred`. Wer bündelt, ohne dass die Schwelle gesetzt ist, schaltet die Echtzeit-Erkennung ab, ohne es zu merken. **Seit `frames` (4.2.2) ist die Schwelle messbar:** Die Verteilung von `spool_delay_ms` je Sensor und `dispatch_path` sagt, wo sie liegen muss. Offen bleibt sie, geraten werden muss sie nicht mehr. | H | — |
 | OB10 | ~~**Rechteübernahme per User-Switch ist ein blinder Fleck**~~ — **erledigt** durch die Umsetzung: `security.switch_user` und `security.switch_user.exit` stehen in 2.1.2 und 3.1.2. Es wurden zwei Typen statt des angedachten einen, weil ohne das Ende jede spätere Handlung unter der fremden Identität dauerhaft falsch zugeordnet bliebe. Eine neue Fassung war entgegen der Annahme nicht nötig — `event_type` ist nach 3.7 ein offenes Vokabular. Der Workaround über ein V6-Business-Event entfällt. | — | — |
 | OB8 | ~~**Datenschutz-Entscheidung**~~ — **entschieden**: Das Bundle stellt Vertraulichkeit von Zugangsdaten her, nicht Datenschutz, und kann es nicht — ob eine Verarbeitung zulässig ist, wie lange sie zulässig bleibt und wer Auskunft bekommt, entscheidet sich an der Anwendung und ihrem Betrieb. Die drei Fragen sind deshalb als **Betreiberpflichten** ausformuliert (`doc/06`), jeweils mit dem zugehörigen Hebel: die vier `actor.*`-Felder sind nicht abschaltbar (ohne Akteur arbeitet keine nutzerbezogene Regel — wer sie nicht verarbeiten darf, kann das Bundle nicht betreiben), `raw` ist es. Zwei Punkte kamen bei der Ausformulierung hinzu: der **Spool** hält bei einem Collector-Ausfall vollständige Frames samt `raw` unverschlüsselt auf der Platte der überwachten Anwendung, und `actor.user` ist bei Anmeldefehlversuchen angreiferkontrolliert — eine Auskunft, die stur danach filtert, gibt fremde Ereignisse heraus. | — | — |
 | OB11 | ~~**Kein `raw` für Alerts auf `info`-Events**~~ — **erledigt** durch die Umsetzung, und zwar über den ersten der drei genannten Wege in Verbindung mit collectorseitiger Filterung: `raw.always_for` (3.5) lässt den Betreiber einzelne Ereignistypen und Pfade als Kandidaten benennen, der Collector filtert danach weiter. Der dritte Weg — Nachforderung durch den Collector — bleibt verworfen: Er kostete Speicher im Request-Pfad und stünde damit gegen das Latenzbudget aus 2.1. Die Vorgabe ist leer, das bisherige Verhalten also unverändert. | — | — |
 | OB12 | **Rückstau an den Ingest-Endpunkten** — 3.6 legt fest, wie der Sensor auf `429` reagiert (spoolen, `Retry-After` beachten, der Breaker zählt einen Fehler). Offen ist die Gegenseite: ab welcher Rate der Collector ablehnt, mit welchem `Retry-After`, und wie er einen lauten, aber gesunden Sensor von einem flutenden Angreifer mit erbeuteten Zugangsdaten unterscheidet. Die drei Routen brauchen dabei **getrennte** Grenzen: Ein Heartbeat kommt einmal je Minute, Frames im Sekundentakt, und `/api/v1/token` ist die einzige für alle Sensoren gemeinsame Adresse und damit die einzige Stelle, an der Zugangsdaten durchprobiert werden können. | M | — |
 | OB13 | **Teilweise ungültige Sendungen** — 3.6 legt Antwortcodes für die Sendung fest. Was gilt, wenn ein Frame mit fünfzig Ereignissen ein einziges ungültiges enthält? `422` verwirft neunundvierzig gültige; eine Teilannahme nimmt `202` die eindeutige Bedeutung, an der die at-least-once-Zusage hängt. Auf **Frame**-Ebene ist der Fall durch die Transaktionsklammer aus 4.1 beantwortet, auf Ereignisebene nicht. Bewusst offen: Wie häufig einzelne ungültige Ereignisse real auftreten, weiß heute niemand, und ein geratenes Verfahren wäre so wenig wert wie eine geratene Volumenaufschlüsselung (4.2.3). | M | OB1 |
+| OB14 | **Verknüpfung Ereignis → Sendung im Dashboard** — `events_*.frame_id` steht (4.2.2), bekommt aber vorerst **keinen** Index: Der einzige Leser wäre die Abfrage „welche Ereignisse trug diese Sendung", und die gehört zum Dashboard, das laut Abschnitt 4 Gegenstand eines späteren Konzepts ist. Die Regel aus 4.2.2 verbietet einen Index ohne benannten Leser. Zu klären ist dann auch, ob er auf beide Event-Tabellen gehört oder nur auf `events_relevant`. | M | Dashboard-Konzept |
+| OB15 | **Umfang von `frames.counters`** — der Block trägt den Löwenanteil der ~3,4 GB/Tag aus 4.2.3, weil 3.3 die vollständige Zählerliste verlangt. Zu klären, ob er sich auf Sendungen beschränken lässt, in denen sich gegenüber der vorigen Sendung desselben Prozesses kein Zähler geändert hat — und was das für die Zuwachsbildung im Consumer bedeutet, die heute je Sendung eine Differenz bilden kann. | M | — |
 | O5 | **Alert-Weiterverarbeitung** (Benachrichtigung, Dashboard, Eskalation) — bewusst außerhalb des Scopes, hier nur zur Vollständigkeit. | — | — |
 
 ### 6.4 Empfohlene Reihenfolge

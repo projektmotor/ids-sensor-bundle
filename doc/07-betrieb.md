@@ -54,6 +54,22 @@ Der Modus reist im Payload mit, damit der Collector die Aussagekraft eines ausbl
 Heartbeats kennt: bei `request` heißt Schweigen möglicherweise nur „kein Verkehr", bei
 `command` heißt es „etwas ist kaputt".
 
+### Was der Collector mit dem Heartbeat macht
+
+Er legt jeden Heartbeat als Zeile ab (*4.2.1*). Das ist nicht Buchhaltung, sondern die
+Voraussetzung für vier Auswertungen, die alle einen **Verlauf** brauchen und nicht den
+letzten Stand:
+
+| Auswertung | woraus |
+|---|---|
+| `ids.sensor_silent` | die Lücke zwischen zwei Empfangszeitpunkten, gelesen im Licht von `heartbeat_mode` |
+| `ids.event_loss` | die Verlustzähler — alle mit `dropped_`-Präfix, dazu `ship_failed` und `heartbeat_failed` |
+| das 5-ms-Versprechen aus (*2.1*) | `latency.in_request_overhead_us`, im Betrieb statt im Benchmark |
+| drohender Spool-Überlauf | `spool.oldest_pending_age_s`, bevor der Puffer voll läuft und verwirft |
+
+`ids.dispatch_path_implausible` kommt dazu: Meldet ein Sensor Frames als `recovered`, ohne
+dass im Heartbeat-Verlauf je eine Lieferlücke stand, widerspricht das den Tatsachen.
+
 ### Warum die Drosselung die `sensor_id` kennt
 
 Der `Scheduler` drosselt **prozessübergreifend** — anders wäre er im request-getriebenen
@@ -78,6 +94,8 @@ voneinander und würden im Modus `both` doppelt senden.
 Eine Störung des IDS darf die überwachte Anwendung **unter keinen Umständen**
 beeinträchtigen (*4.*). Jeder Fehler wird verschluckt. Der Preis: **Events können verloren
 gehen** — deshalb wird jeder Verlust gezählt und reist im Frame sowie im Heartbeat mit.
+In beiden vollständig: jeder Zähler, auch mit dem Wert `0`. Sonst wäre „kein Verlust" von
+„diese Sensorfassung kennt den Zähler nicht" nicht zu unterscheiden (*3.3*, *3.4*).
 
 Die Zähler sind nach der Phase geordnet, in der der Verlust entsteht. Sie sind bewusst
 feiner geschnitten, als es zum Zählen nötig wäre: Jeder Zähler steht für **eine** Ursache
@@ -230,6 +248,7 @@ die Business-Ebene tatsächlich anbinden — siehe
 | Collector meldet `ids.sensor_silent`, Sensor läuft | Heartbeat-cron fehlt (unter mod_php Pflicht) |
 | Gar nichts kommt an, keine Fehlermeldung | unter mod_php: `spool:flush` läuft nicht, oder der Drain-Prozess sieht ein anderes Verzeichnis |
 | Alle Events tragen dieselbe `sensor_id` | die Kennung stammt aus einer geteilten Konfiguration (ConfigMap) statt je Node — siehe (*2.3*) |
+| Collector meldet `ids.dispatch_path_implausible` | der Sensor meldet Frames als `recovered`, ohne dass eine Lieferlücke im Heartbeat-Verlauf steht — meist eine falsch gehende Uhr oder ein zu selten laufender Drain; andernfalls ein Hinweis auf eine manipulierte Anwendung (*4.2.2*) |
 | Alle Events tragen die Proxy-IP | `framework.trusted_proxies` fehlt |
 
 Der erste Griff ist in allen Fällen `ids:sensor:setup-check`; er prüft genau diese Punkte.

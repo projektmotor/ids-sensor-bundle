@@ -19,7 +19,7 @@ mit allen Feldern und Bump-Regeln, steht im README des Pakets.
 flowchart TB
     subgraph frame["Frame — die Sendung (3.3)"]
         direction TB
-        fmeta["schema_version · sensor · flushed_at<br/>dispatch_path · spool_delay_ms<br/>counters · process_epoch · pid"]
+        fmeta["frame_id · schema_version<br/>sensor (application_id · environment_id<br/>sensor_id · process_epoch · pid)<br/>flushed_at · dispatch_path<br/>spool_delay_ms · counters"]
 
         subgraph event["Event — die Beobachtung (3.)"]
             direction TB
@@ -40,8 +40,14 @@ flowchart TB
 
 Ein Frame umhüllt die Events eines Requests; ein Event trägt seinen Payload und optional
 den Rohbeleg. Der Frame ist **kein** Event und ändert das Event-Schema nicht — deshalb
-liegen `dispatch_path` und die Zählerstände dort und nicht im Event: sie sind
-Eigenschaften der *Sendung*, nicht einer *Beobachtung*.
+liegen `frame_id`, `dispatch_path` und die Zählerstände dort und nicht im Event: sie sind
+Eigenschaften der *Sendung*, nicht einer *Beobachtung*. `process_epoch` und `pid` stehen
+dabei **innerhalb** des `sensor`-Blocks, nicht daneben.
+
+`frame_id` ist die Kennung der Sendung. Der Collector führt je Frame eine Zeile und wertet
+daraus die Zustellqualität aus (*4.2.2*); weil die Zustellung at-least-once ist, muss er
+eine wiederholte Sendung von einer zweiten unterscheiden können. `correlation_id` leistet
+das nicht: Ein Lauf ohne Request hat keine, und ein Lauf kann über mehrere Frames gehen.
 
 Die Verzeichnisse des Formatpakets spiegeln genau diese Verschachtelung:
 `Frame/`, `Event/`, `Payload/` und `Vocabulary/`. Siehe
@@ -78,6 +84,10 @@ Die neun Felder vor `actor` sowie die vier `actor.*`-Felder sind **Pflicht** —
 vorhanden, unabhängig von der Ebene. Die `actor.*`-Felder sind dabei ausdrücklich
 *nullable*: bei `kernel.request` liegt meist noch kein Security-Token vor, bei
 zustandslosen API-Requests existiert keine Session, im CLI-Kontext kein HTTP-Kontext.
+
+Es bleiben **neun**, auch seit es `frame_id` gibt: Die Kennung steht im Frame, nicht im
+Ereignis. Der Collector schreibt sie beim Auspacken an jede Event-Zeile (*4.1*) — auf der
+Leitung reist sie einmal je Sendung, nicht einmal je Beobachtung.
 
 ## Die geschlossenen Wertelisten
 
@@ -191,11 +201,20 @@ Was in `raw` unkenntlich gemacht wird und was nicht, steht in
 sie einstellbar, könnte eine kompromittierte Anwendung eine alte Version behaupten und
 damit collectorseitig den nachsichtigen Pfad auslösen.
 
+Die aktuelle Fassung ist **4**. Sie stieg, weil der Frame mit `frame_id` ein neues
+Pflichtfeld bekam (*3.3*) — der erste Bump, der ein Feld hinzufügt statt eines zu ändern.
+
 Die Bump-Regeln:
 
 - **kein** Bump bei additiven, optionalen Feldern — der Collector ignoriert Unbekanntes
-- **Bump** beim Entfernen, Umbenennen oder Umtypisieren eines Pflichtfeldes, bei
-  geänderter Bedeutung eines Feldes oder geändertem Hash-Verfahren
+- **Bump** beim Entfernen, Umbenennen oder Umtypisieren eines Pflichtfeldes, beim
+  **Hinzufügen eines Pflichtfeldes**, bei geänderter Bedeutung eines Feldes oder
+  geändertem Hash-Verfahren
+
+Die dritte Bedingung stand hier bis Fassung 3 nicht, und sie fehlte auch im Konzept: Ein
+Feld, das sofort als Pflichtfeld entsteht, ist weder „additiv und optional" noch „von
+optional auf Pflicht gehoben" und fiel damit durch beide Listen. Ein Collector der alten
+Fassung liest dort dauerhaft nichts, wo etwas steht — ohne Fehler, also unbemerkt.
 
 Der Zeitstempel ist auf `Y-m-d\TH:i:s.v\Z` festgelegt — UTC, Millisekunden, literales `Z`.
 Das Konzept zeigt in (*3.*) nur ein Beispiel; hier ist es verbindlich gemacht, weil die

@@ -142,6 +142,16 @@ geschrieben hat, bleibt `deferred`; was `direct` gehen sollte und dort landete, 
 Fehlschlag und wird `recovered`. Der Command hat dafür bewusst keine Option — ein einziger
 Wert für einen ganzen Lauf wäre für mindestens einen der beiden Fälle falsch.
 
+### Der Frame behält seine Kennung
+
+`frame_id` (*3.3*) entsteht, wenn der Frame **gebaut** wird — vor der Entscheidung
+Collector oder Spool. Beim Nachsenden bleibt sie unverändert, wie der ganze Frame.
+
+Das ist die Voraussetzung dafür, dass der Collector eine erneute Zustellung als dieselbe
+Sendung erkennt. Zöge ein Drain-Lauf neue Kennungen, wäre ein Frame, der den Direktversand
+versucht hat, gescheitert ist und später nachgesendet wurde, dort zweimal verzeichnet — und
+jede Störung machte im Nachhinein mehr Verkehr, als es je gab.
+
 ## Schranke 4: Was der Collector dauerhaft abweist
 
 Konzept (*3.6*) legt die Antwortcodes normativ fest, und der Sensor muss „geht nie" von
@@ -150,7 +160,7 @@ Konzept (*3.6*) legt die Antwortcodes normativ fest, und der Sensor muss „geht
 | Antwort | Bedeutung | Der Sensor |
 |---|---|---|
 | `202` | dauerhaft entgegengenommen | zählt `sent`; der Breaker schließt |
-| `400`, `413`, `422` | die Sendung ist aus sich heraus nicht annehmbar | **verwirft**, zählt `dropped_rejected`; **kein** Spool, Breaker unberührt |
+| `400`, `413`, `422` | die Sendung ist aus sich heraus nicht annehmbar — etwa ein Frame ohne `frame_id` | **verwirft**, zählt `dropped_rejected`; **kein** Spool, Breaker unberührt |
 | `401` | Token abgelaufen | meldet sich **einmal** neu an und wiederholt **einmal** |
 | `403` | die Zugangsdaten gehören nicht zu dieser Kette | **verwirft**, zählt `dropped_rejected`; Breaker unberührt |
 | `429` | Ratengrenze erreicht | **spoolt**, beachtet `Retry-After`; der Breaker zählt einen Fehler |
