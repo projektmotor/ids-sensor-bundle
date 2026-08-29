@@ -33,42 +33,74 @@ final class ResourceIdentifierResolver
 
     private const LAZY_OBJECT_INTERFACE = 'Symfony\Component\VarExporter\LazyObjectInterface';
 
+    /**
+     * Der zusammengesetzte Identifier für `payload.resource`.
+     *
+     * Bleibt als eigene Methode bestehen, weil das Feld unverändert weiterläuft — die
+     * beiden neuen ersetzen es nicht, sie zerlegen es.
+     */
     public function resolve(mixed $subject): ?string
+    {
+        return $this->resolveReference($subject)->identifier();
+    }
+
+    /**
+     * Dieselbe Auflösung, in Typ und Kennung zerlegt (Konzept 3.1.2, offener Punkt O2).
+     *
+     * EIN Durchlauf für alle drei Felder: `payload.resource` entsteht aus demselben
+     * Ergebnis. Zwei Auflösungen könnten auseinanderlaufen — etwa bei einem
+     * Doctrine-Proxy, dessen `getId()` beim zweiten Aufruf doch lädt.
+     */
+    public function resolveReference(mixed $subject): ResolvedResource
     {
         if (null === $subject) {
             // Rollenprüfungen ohne Subjekt (isGranted('ROLE_ADMIN')) haben keine
-            // Ressource. null ist die richtige Auskunft.
-            return null;
+            // Ressource. Keine Auskunft ist die richtige Auskunft.
+            return ResolvedResource::none();
         }
 
         try {
-            $resource = $this->truncate($this->doResolve($subject));
-
-            // `is_scalar('')` und `(string) false` liefern die leere Zeichenkette. Für
-            // `payload.resource` ist das keine dritte Auskunft neben Kennung und
-            // „keine Ressource", sondern eine Kennung, die nichts benennt — der
-            // Collector gruppiert danach. Und `doResolve()` sagt im Docblock zu, „immer
-            // eine Auskunft" zu geben; `''` löst das nicht ein.
-            return '' === $resource ? null : $resource;
+            return $this->capped($this->doResolve($subject));
         } catch (\Throwable) {
             // Auflösung fehlgeschlagen — das Event ist trotzdem wertvoll. Lieber
             // resource: null als kein Event.
-            return null;
+            return ResolvedResource::none();
         }
     }
 
     /**
-     * Der null-Fall ist bereits in resolve() abgefangen — ab hier gibt es immer eine
-     * Auskunft, und sei es nur der Klassenname.
+     * Kürzt beide Bestandteile und wirft leere Zeichenketten weg.
+     *
+     * `is_scalar('')` und `(string) false` liefern die leere Zeichenkette. Für
+     * `payload.resource` ist das keine dritte Auskunft neben Kennung und „keine
+     * Ressource", sondern eine Kennung, die nichts benennt — der Collector gruppiert
+     * danach.
      */
-    private function doResolve(mixed $subject): string
+    private function capped(ResolvedResource $resource): ResolvedResource
+    {
+        return new ResolvedResource(
+            self::blankToNull($this->truncate($resource->type)),
+            self::blankToNull($this->truncate($resource->id)),
+        );
+    }
+
+    private static function blankToNull(?string $value): ?string
+    {
+        return null === $value || '' === $value ? null : $value;
+    }
+
+    /**
+     * Der null-Fall ist bereits in resolveReference() abgefangen — ab hier gibt es
+     * immer eine Auskunft, und sei es nur der Klassenname.
+     */
+    private function doResolve(mixed $subject): ResolvedResource
     {
         // 1. Die ausdrückliche Angabe der Anwendung hat Vorrang.
         if ($subject instanceof IdsResourceIdentifier) {
             $explicit = $subject->getIdsResourceId();
 
             if (null !== $explicit && '' !== $explicit) {
-                return $explicit;
+                return self::split($explicit);
             }
         }
 
@@ -76,29 +108,54 @@ final class ResourceIdentifierResolver
         // Ohne diese Sonderbehandlung trüge jede access_control-Ablehnung
         // resource: null — und Regelautoren verlören den abgelehnten Pfad.
         if ($subject instanceof Request) {
-            return 'Request#'.$subject->getPathInfo();
+            return new ResolvedResource('Request', $subject->getPathInfo());
         }
 
         if ($subject instanceof \UnitEnum) {
-            return (new \ReflectionClass($subject))->getShortName().'#'.$subject->name;
+            return new ResolvedResource((new \ReflectionClass($subject))->getShortName(), $subject->name);
         }
 
+        // Ein skalares Subjekt (isGranted('EDIT', 42)) benennt seinen Typ nicht. Die
+        // Kennung allein ist trotzdem die richtige Auskunft — nur gruppieren lässt sie
+        // sich nicht, und genau das sagt der fehlende Typ aus.
         if (\is_scalar($subject)) {
-            return (string) $subject;
+            return new ResolvedResource(null, (string) $subject);
         }
 
         if (\is_array($subject)) {
-            return 'array#'.\count($subject);
+            return new ResolvedResource('array', (string) \count($subject));
         }
 
         if (\is_object($subject)) {
             return $this->fromObject($subject);
         }
 
-        return get_debug_type($subject);
+        return new ResolvedResource(get_debug_type($subject));
     }
 
-    private function fromObject(object $subject): string
+    /**
+     * Zerlegt eine ausdrückliche Angabe der Anwendung am ERSTEN `#`.
+     *
+     * Am ersten und nicht am letzten: `Contract\IdsResourceIdentifier` sagt die Form
+     * `Klasse#ID` zu, und eine Kennung darf selbst ein `#` enthalten (ein Slug etwa).
+     * Ohne `#` ist die ganze Angabe der Typ — eine Anwendung, die nur „Order" liefert,
+     * benennt einen Typ ohne Kennung und keine Kennung ohne Typ.
+     */
+    private static function split(string $explicit): ResolvedResource
+    {
+        $position = mb_strpos($explicit, '#');
+
+        if (false === $position) {
+            return new ResolvedResource($explicit);
+        }
+
+        return new ResolvedResource(
+            mb_substr($explicit, 0, $position),
+            mb_substr($explicit, $position + 1),
+        );
+    }
+
+    private function fromObject(object $subject): ResolvedResource
     {
         $short = (new \ReflectionClass($subject))->getShortName();
 
@@ -122,7 +179,7 @@ final class ResourceIdentifierResolver
 
         $id = $this->readId($subject);
 
-        return null === $id ? $short : $short.'#'.$id;
+        return new ResolvedResource($short, null === $id ? null : (string) $id);
     }
 
     /**

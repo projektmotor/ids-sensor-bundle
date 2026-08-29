@@ -16,6 +16,7 @@ use ProjektMotor\IdsSensor\Delivery\Transport\RuntimeProfile;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Processing\Normalization\KernelEventNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\QueryNormalizer;
+use ProjektMotor\IdsSensor\Processing\Normalization\RouteResourceResolver;
 use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
@@ -200,6 +201,7 @@ final class FlushListenerTest extends TestCase
                 new SeverityResolver(),
                 new QueryNormalizer(TestCleaner::default()),
                 TestCleaner::default(),
+                new RouteResourceResolver(),
             )],
             new FrameDispatcher(
                 new CollectingShipper(),
@@ -250,6 +252,7 @@ final class FlushListenerTest extends TestCase
                 new SeverityResolver(),
                 new QueryNormalizer(TestCleaner::default()),
                 TestCleaner::default(),
+                new RouteResourceResolver(),
             )],
             new FrameDispatcher(
                 new CollectingShipper(),
@@ -279,6 +282,7 @@ final class FlushListenerTest extends TestCase
                 new SeverityResolver(),
                 new QueryNormalizer(TestCleaner::default()),
                 TestCleaner::default(),
+                new RouteResourceResolver(),
             )],
             new FrameDispatcher(
                 $shipper,

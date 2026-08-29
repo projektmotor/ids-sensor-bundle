@@ -143,6 +143,12 @@ final class RequestSensor implements EventSubscriberInterface
             $route = $request->attributes->get('_route');
             $snapshot->route = \is_string($route) && '' !== $route ? $route : null;
 
+            // Nur festgehalten, nicht ausgewertet: Der Router hat sie bereits aufgelöst,
+            // das Zuweisen kostet keine Allokation. Woraus daraus resource_type und
+            // resource_id werden, entscheidet Phase B.
+            $parameters = $request->attributes->get('_route_params');
+            $snapshot->routeParameters = \is_array($parameters) ? $parameters : [];
+
             $captured = $snapshot->requestEvent;
 
             if (null === $captured) {

@@ -109,9 +109,16 @@ Der variable Teil. Immer ein flaches oder maximal zweistufig verschachteltes Obj
 
 | `layer` | Feldnamen definiert in | Beispiele |
 |---|---|---|
-| `kernel` | `IdsEventData\Payload\KernelPayload` | `method`, `path`, `route`, `http_status`, `exception_class` |
-| `security` | `IdsEventData\Payload\SecurityPayload` | `firewall`, `authenticator`, `attribute`, `resource`, `decision` |
+| `kernel` | `IdsEventData\Payload\KernelPayload` | `method`, `path`, `route`, `http_status`, `exception_class`, `command` |
+| `security` | `IdsEventData\Payload\SecurityPayload` | `firewall`, `authenticator`, `attribute`, `resource`, `decision`, `target_user` |
+| beide | `IdsEventData\Payload\ResourceReference` | `resource_type`, `resource_id` |
 | `business` | — | frei; die Anwendung liefert ihn über `getPayload()` |
+
+`ResourceReference` steht quer zu den Ebenen, weil dieselbe Aussage aus zwei Quellen kommt:
+auf der Security-Ebene aus dem Voter-Subjekt, auf der Kernel-Ebene aus Routenname und
+Routenparametern (*3.1.4*). Das **Vokabular** des Typs unterscheidet sich dabei bewusst —
+`order` dort, `app_order_show` hier —, und der Collector gruppiert deshalb innerhalb einer
+Ebene.
 
 Für die Business-Ebene gibt es bewusst **keine** feste Struktur (*3.1.3*) — was ein
 Vorfall bedeutet, weiß nur die Anwendung. Reservierte Schlüssel mit dem Präfix `_ids_`

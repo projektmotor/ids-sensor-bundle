@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ProjektMotor\IdsEventData\Event\Actor;
 use ProjektMotor\IdsEventData\Event\NormalizedEvent;
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Payload\ResourceReference;
 use ProjektMotor\IdsEventData\Payload\SecurityPayload;
 use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsEventData\Vocabulary\Severity;
@@ -62,11 +63,21 @@ final class SecurityEventNormalizerTest extends TestCase
         $event = $this->normalize(SecurityPayload::EVENT_ACCESS_DECISION, [
             SecurityPayload::FIELD_ATTRIBUTE => 'VIEW',
             SecurityPayload::FIELD_RESOURCE => 'Order#42',
+            ResourceReference::FIELD_RESOURCE_TYPE => 'order',
+            ResourceReference::FIELD_RESOURCE_ID => '42',
             SecurityPayload::FIELD_DECISION => 'denied',
         ]);
 
         self::assertSame(
-            ['attribute' => 'VIEW', 'resource' => 'Order#42', 'decision' => 'denied'],
+            [
+                'attribute' => 'VIEW',
+                'resource' => 'Order#42',
+                // Konzept 3.1.2, offener Punkt O2: zerlegt neben dem kombinierten Wert,
+                // damit die Regeln B7/P1/P2 nach Typ gruppieren können.
+                'resource_type' => 'order',
+                'resource_id' => '42',
+                'decision' => 'denied',
+            ],
             $event->payload,
         );
         self::assertSame(Severity::Warning, $event->severity);

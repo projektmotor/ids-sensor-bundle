@@ -582,10 +582,13 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
   "response_time_ms": 42,
   "response_size_bytes": 1523,
   "path": "/api/orders/42",
-  "route": "app_order_show"
+  "route": "app_order_show",
+  "resource_type": "app_order_show",
+  "resource_id": "42"
 }
 ```
 - `path` und `route` werden aus dem zugehörigen Request **redundant übernommen** (siehe 3.2)
+- `resource_type` und `resource_id` tragen die Ressource, auf die zugegriffen wurde — abgeleitet aus Routenname und Routenparametern (siehe unten)
 
 ##### `console.command`
 ```json
@@ -634,10 +637,13 @@ Die vier `actor.*`-Felder sind **immer vorhanden, aber nullable** — je nach Eb
 {
   "attribute": "ROLE_ADMIN",
   "resource": "Order#42",
+  "resource_type": "order",
+  "resource_id": "42",
   "decision": "denied"
 }
 ```
 - `resource`: Identifier-String (`Klasse#ID`), niemals das vollständige Objekt
+- `resource_type` und `resource_id`: derselbe Wert, zerlegt (siehe unten)
 - `decision`: `"granted"` oder `"denied"`
 
 ##### `security.switch_user` und `security.switch_user.exit`
@@ -683,6 +689,22 @@ Beispiel (projektspezifisch, nicht Teil des generischen Konzepts):
   "overridden_amount": 0.01
 }
 ```
+
+#### 3.1.4 Die Ressourcenangabe — zwei Felder auf beiden Ebenen
+
+`resource_type` und `resource_id` stehen sowohl im `kernel.response` als auch im `security.access_decision`. Sie schließen den offenen Punkt **O2**: Regel **B7** ist eine Kernel-Regel (4.3.2) und vergleicht „numerisch benachbarte Ressourcen-Identifier desselben Typs"; **P1** und **P2** (4.3.4) arbeiten auf erfolgreichen Zugriffen und damit ebenfalls auf `kernel.response`. Aus einem kombinierten String wie `Order#42` — oder gar nur aus `path` — ist dieser Vergleich lediglich über Zeichenkettenanalyse zu haben, und der Collector müsste sie für jede Zeile erneut fahren.
+
+`resource` bleibt unverändert bestehen. Die beiden ersetzen es nicht, sie zerlegen es: Der kombinierte String ist der Beleg für einen Menschen, der einen Vorfall liest, die zerlegten Felder sind der Gruppierschlüssel für die Regeln.
+
+**Das Vokabular des Typs hängt an der Quelle, und das ist keine Nachlässigkeit.** Die Security-Ebene benennt ihn nach der Klasse des Voter-Subjekts (`order`), die Kernel-Ebene nach dem Routennamen (`app_order_show`). Beide sind stabile Schlüssel; dasselbe Wort für dieselbe Sache sind sie nicht. **Der Collector gruppiert deshalb innerhalb einer Ebene, nicht über beide hinweg.**
+
+Ein gemeinsames Vokabular wäre nur um den Preis einer geratenen Übersetzung zu haben: Aus `/api/orders/42` den Typ `order` abzuleiten verlangte eine Pfadgrammatik samt Singularbildung — sprachabhängig, projektabhängig und lautlos falsch, wo sie danebenliegt. Ein Gruppierschlüssel, der manchmal danebenliegt, ist schlechter als einer, der ehrlich nur innerhalb seiner Ebene gilt.
+
+**Welcher Routenparameter die Kennung ist**, entscheidet eine feste Reihenfolge: `id`, sonst der erste Parameter, dessen Name auf `id` endet (`orderId`, `order_id`), sonst — und nur dann — ein einzelner übrig gebliebener Parameter. Der letzte Fall deckt `{slug}` und `{uuid}` ab, ohne bei zweien zu raten, welcher gemeint ist. Parameter mit führendem Unterstrich zählen nicht mit: `_locale` und `_format` stehen in den Routenparametern, sobald sie im Pfad vorkommen, benennen aber keine Ressource — ohne diesen Ausschluss wäre `/de/impressum` eine Ressource mit der Kennung `de`, und die Nachbarschaftsregel zählte Sprachwechsel.
+
+**Ohne Route keine Ressource.** Ein routenloser Pfad wie `/wp-admin/setup-config.php` ist genau das Scanning-Signal aus 2.1.1; ein erfundener Typ machte daraus eine Ressourcengruppe. Beide Felder sind dort `null`.
+
+**Beide Werte werden gekappt** (Typ 64, Kennung 128 Zeichen). Die Kennung stammt aus dem Pfad und ist damit angreiferkontrolliert; die Kennung ist außerdem immer eine Zeichenkette, weil längst nicht jede eine Zahl ist — UUIDs und Slugs sind verbreitet, und ein Feld, das mal Zahl und mal Text ist, kostet den Collector eine Fallunterscheidung je Zeile.
 
 ### 3.2 Bewusste Feldredundanz zwischen Request- und Folge-Events
 
@@ -1877,7 +1899,7 @@ Stand nach Einarbeitung der fünf kritischen Punkte (K1–K5). Priorität: **H**
 | ID | Thema | Prio | Blockiert |
 |---|---|---|---|
 | O1 | **Befundklasse `exposures`** — ein `404` auf `/_profiler` ist ein Befund über den Angreifer, ein `200` einer über die eigene Anwendung: anderer Adressat (Betrieb statt Sicherheitsüberwachung), anderer Lebenszyklus. R2b erzeugt derzeit einen Vorfall; eine bestätigte Fehlkonfiguration ist aber ein Zustand, der bis zur Behebung offen bleibt. Zu klären: Abgrenzung zu `alerts`, Lebenszyklus (offen/behoben/erneut aufgetreten), aktive vs. passive Prüfung. | H | — |
-| O2 | **`resource_type` / `resource_id` ableiten** — B7, P1 und P2 vergleichen „benachbarte IDs desselben Ressourcentyps", der `kernel.response`-Payload enthält aber nur `path` und `route`. Ohne Extraktion aus Route und Routenparametern sind die drei Regeln nur über String-Analyse umsetzbar. | H | B7, P1, P2 |
+| O2 | ~~**`resource_type` / `resource_id` ableiten**~~ — **erledigt** durch die Umsetzung: beide Felder stehen in `kernel.response` und `security.access_decision`, Regeln in 3.1.4. `resource` bleibt daneben bestehen. Offen geblieben und ausdrücklich so entschieden ist die Vereinheitlichung des Typ-VOKABULARS über die Ebenen hinweg — die gäbe es nur um den Preis einer geratenen Pfadgrammatik. Der Collector gruppiert innerhalb einer Ebene. | — | — |
 | E1 | ~~**CLI- und Worker-Kontext**~~ — **erledigt** durch die Umsetzung: `console.command` und `console.error` stehen in 2.1.1 und 3.1.1. Sie liegen auf der Ebene `kernel` und tragen trotzdem ihr eigenes Präfix — `layer` ist ein geschlossenes Vokabular, `event_type` ein offenes, also kostet die Konsole keine Fassung. Die Aufrufargumente bleiben ausdrücklich draußen (4.5.1), und die eigenen Befehle des Bundles sind per Vorgabe ausgeschlossen, weil der minütliche Spool-Drainer sich sonst selbst beobachtete. | — | — |
 | E4 | **Metrikkatalog der Anomalieschicht** — 4.3.5 nennt Beispiele, aber keinen verbindlichen Satz. `metric_baselines` existiert damit ohne definierten Inhalt. Nach 4.2.3 ist die Aggregation zugleich Voraussetzung für die kurze `info`-Retention. | H | 4.2.3 (3), P1–P3 |
 | O4 | **Baseline-Verfahren** — für P1–P3: Mindesthistorie pro Nutzer, Verhalten bei Neunutzern, Umgang mit selten aktiven Konten. **Neu hinzugekommen:** dazu die drei Größen, die 4.3.5 verlangt, ohne sie festzulegen — Mindestfallzahl je Bucket (geprüft an `metric_baselines.sample_count`), Untergrenze für `stddev` und die Entscheidung, ob statt Mittelwert und Streuung Median und MAD gerechnet werden. Ohne sie schlägt die Anomalieregel bei jeder Metrik an, die häufig 0 ist. | H | P1–P3, 4.3.5 |

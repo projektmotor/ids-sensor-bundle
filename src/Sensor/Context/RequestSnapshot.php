@@ -38,6 +38,20 @@ final class RequestSnapshot
 
     public ?string $route = null;
 
+    /**
+     * Die aufgelösten Routenparameter (`_route_params`), so wie der Router sie ablegt.
+     *
+     * Wird zusammen mit {@see $route} gesetzt und ausschließlich durchgereicht —
+     * ausgewertet wird sie erst in Phase B, vom RouteResourceResolver der
+     * Normalisierung. Als Prosa und nicht als Verweis, weil Phase A Phase B nicht
+     * einmal nennen darf; darauf sieht `ArchitectureTest::testSensorDoesNotKnowProcessing()`.
+     * Das Feld hält damit keine zweite Kopie: Es zeigt auf dasselbe Array, das ohnehin
+     * schon in den Request-Attributen liegt.
+     *
+     * @var array<array-key, mixed>
+     */
+    public array $routeParameters = [];
+
     public ?string $clientFingerprint = null;
 
     /**

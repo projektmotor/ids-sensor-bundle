@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ProjektMotor\IdsSensor\Sensor\Security;
 
+use ProjektMotor\IdsEventData\Payload\ResourceReference;
 use ProjektMotor\IdsEventData\Payload\SecurityPayload;
 use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CaptureBudget;
@@ -112,7 +113,9 @@ final class AccessDecisionSensor implements AccessDecisionManagerInterface, Rese
         }
 
         $attribute = self::stringifyAttributes($attributes);
-        $resource = $this->resourceResolver->resolve($object);
+        // EINE Auflösung für alle drei Felder — siehe {@see ResolvedResource}.
+        $reference = $this->resourceResolver->resolveReference($object);
+        $resource = $reference->identifier();
 
         // Dedup: eine Übersichtsseite prüft dasselbe Recht auf demselben Objekt oft
         // mehrfach. Ein Event je unterschiedlicher Entscheidung genügt.
@@ -142,6 +145,11 @@ final class AccessDecisionSensor implements AccessDecisionManagerInterface, Rese
             [
                 SecurityPayload::FIELD_ATTRIBUTE => $attribute,
                 SecurityPayload::FIELD_RESOURCE => $resource,
+                // Konzept 3.1.2, offener Punkt O2: zerlegt, damit die Regeln B7/P1/P2
+                // nach Typ gruppieren und Kennungen vergleichen können, ohne den
+                // kombinierten String je Zeile zu zerlegen.
+                ResourceReference::FIELD_RESOURCE_TYPE => $reference->typeForWire(),
+                ResourceReference::FIELD_RESOURCE_ID => $reference->id,
                 SecurityPayload::FIELD_DECISION => $decision,
             ],
         );

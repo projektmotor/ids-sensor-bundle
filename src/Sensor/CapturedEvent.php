@@ -26,6 +26,23 @@ use ProjektMotor\IdsEventData\Vocabulary\Layer;
  */
 final class CapturedEvent
 {
+    /**
+     * Die Routenparameter, wie der Router sie aufgelöst hat.
+     *
+     * KEIN Drahtformatfeld. Der führende Unterstrich ist die Regel dieser Klasse:
+     * Schlüssel, die so beginnen, sind Rohstoff für die Normalisierung und nie ein Feld
+     * des Ereignisses — die Normalisierer bauen ihre Payloads aus einer Positivliste.
+     * Das Gegenstück auf der Business-Ebene heißt `_ids_` (Konzept 3.1.3).
+     *
+     * Die Konstante steht HIER und nicht beim RouteResourceResolver der Normalisierung,
+     * der sie liest: Der Sensor läuft in Phase A unter dem Latenzbudget aus Konzept 2.1,
+     * der Normalisierer erst nach dem Absenden der Antwort. Ein Import in diese Richtung
+     * kehrte die Schichtung um, und `testSensorDoesNotKnowProcessing()` liest dafür den
+     * ganzen Dateiinhalt — auch Docblocks. Der Verweis steht deshalb als Prosa da,
+     * dieselbe Regel wie im Ereignisformat-Paket für fremde Namensräume.
+     */
+    public const KEY_ROUTE_PARAMETERS = '_route_parameters';
+
     private ?Actor $actor = null;
 
     private ?string $correlationId = null;

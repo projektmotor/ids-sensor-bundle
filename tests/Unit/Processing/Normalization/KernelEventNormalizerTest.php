@@ -13,6 +13,7 @@ use ProjektMotor\IdsEventData\Vocabulary\Severity;
 use ProjektMotor\IdsSensor\Processing\Normalization\EventFactory;
 use ProjektMotor\IdsSensor\Processing\Normalization\KernelEventNormalizer;
 use ProjektMotor\IdsSensor\Processing\Normalization\QueryNormalizer;
+use ProjektMotor\IdsSensor\Processing\Normalization\RouteResourceResolver;
 use ProjektMotor\IdsSensor\Processing\Normalization\SeverityResolver;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
 use ProjektMotor\IdsSensor\Tests\Fixtures\SequentialEventIdGenerator;
@@ -83,7 +84,8 @@ final class KernelEventNormalizerTest extends TestCase
     }
 
     /**
-     * Konzept 3.1.1 — kernel.response: fünf Felder, path und route redundant.
+     * Konzept 3.1.1 — kernel.response: path und route redundant, dazu die zerlegte
+     * Ressourcenangabe aus Routenname und Routenparametern (offener Punkt O2).
      */
     public function testResponsePayloadHasTheFieldsFromTheConcept(): void
     {
@@ -93,6 +95,7 @@ final class KernelEventNormalizerTest extends TestCase
             KernelPayload::FIELD_RESPONSE_SIZE_BYTES => 1523,
             KernelPayload::FIELD_PATH => '/api/orders/42',
             KernelPayload::FIELD_ROUTE => 'app_order_show',
+            CapturedEvent::KEY_ROUTE_PARAMETERS => ['id' => '42'],
         ]);
 
         self::assertSame([
@@ -101,8 +104,46 @@ final class KernelEventNormalizerTest extends TestCase
             'response_size_bytes' => 1523,
             'path' => '/api/orders/42',
             'route' => 'app_order_show',
+            'resource_type' => 'app_order_show',
+            'resource_id' => '42',
         ], $event->payload);
         self::assertSame(Severity::Info, $event->severity);
+    }
+
+    /**
+     * Der Rohstoff verlässt den Prozess NICHT.
+     *
+     * Der Sensor reicht die Routenparameter unter einem Schlüssel mit führendem
+     * Unterstrich durch. Stünde er im Payload, gingen `_locale`, `_format` und jeder
+     * andere Routenparameter unredigiert an den Collector — an der Denylist vorbei, weil
+     * niemand dieses Feld kennt.
+     */
+    public function testTheRawRouteParametersNeverReachThePayload(): void
+    {
+        $event = $this->normalize('kernel.response', [
+            KernelPayload::FIELD_HTTP_STATUS => 200,
+            KernelPayload::FIELD_ROUTE => 'app_order_show',
+            CapturedEvent::KEY_ROUTE_PARAMETERS => ['id' => '42', 'token' => 'geheim'],
+        ]);
+
+        self::assertArrayNotHasKey(CapturedEvent::KEY_ROUTE_PARAMETERS, $event->payload);
+        self::assertStringNotContainsString('geheim', json_encode($event->payload, \JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Ohne Route keine Ressource. Ein routenloser Pfad — genau das Scanning-Signal aus
+     * Konzept 2.1.1 — hat keinen Ressourcentyp, und `null` ist dort die ehrliche
+     * Auskunft.
+     */
+    public function testARoutelessResponseHasNoResource(): void
+    {
+        $event = $this->normalize('kernel.response', [
+            KernelPayload::FIELD_HTTP_STATUS => 404,
+            KernelPayload::FIELD_PATH => '/wp-admin/setup-config.php',
+        ]);
+
+        self::assertNull($event->payload['resource_type']);
+        self::assertNull($event->payload['resource_id']);
     }
 
     /**
@@ -247,6 +288,7 @@ final class KernelEventNormalizerTest extends TestCase
             new SeverityResolver(),
             new QueryNormalizer(TestCleaner::default()),
             TestCleaner::default(),
+            new RouteResourceResolver(),
         );
     }
 

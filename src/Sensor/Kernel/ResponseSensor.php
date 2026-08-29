@@ -91,6 +91,10 @@ final class ResponseSensor implements EventSubscriberInterface
                     // Redundant aus dem Request übernommen (Konzept 3.2).
                     KernelPayload::FIELD_PATH => null !== $snapshot ? $snapshot->path : $request->getPathInfo(),
                     KernelPayload::FIELD_ROUTE => null !== $snapshot ? $snapshot->route : null,
+                    // Kein Drahtformatfeld, sondern der Rohstoff für resource_type und
+                    // resource_id. Der Normalisierer baut den Payload aus einer
+                    // Positivliste; dieser Schlüssel steht nicht darin.
+                    CapturedEvent::KEY_ROUTE_PARAMETERS => null !== $snapshot ? $snapshot->routeParameters : [],
                 ],
             );
 

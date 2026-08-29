@@ -13,6 +13,54 @@ ein eigenes Paket und einen eigenen Changelog:
 
 ## [Unreleased]
 
+### Added — `resource_type` und `resource_id` auf beiden Ebenen (offener Punkt O2)
+
+Regel **B7** ist eine Kernel-Regel und vergleicht „numerisch benachbarte
+Ressourcen-Identifier desselben Typs"; **P1** und **P2** arbeiten auf erfolgreichen
+Zugriffen und damit ebenfalls auf `kernel.response`. Dort standen bislang nur `path` und
+`route` — die Nachbarschaft war damit nur über Zeichenkettenanalyse im Collector zu haben,
+für jede Zeile erneut. Auf der Security-Ebene stand die Angabe als kombinierter String
+(`Order#42`), der dasselbe Problem eine Ebene später erzeugte.
+
+Beide Ebenen tragen jetzt `resource_type` und `resource_id`. **`resource` bleibt
+unverändert bestehen** — die beiden ersetzen es nicht, sie zerlegen es: Der kombinierte
+String ist der Beleg für einen Menschen, der einen Vorfall liest, die zerlegten Felder sind
+der Gruppierschlüssel für die Regeln. `Contract\IdsResourceIdentifier` ist unangetastet;
+zerlegt wird sensorseitig, damit die Semver-Fläche nicht bricht.
+
+**Das Vokabular des Typs hängt an der Quelle, und das ist eine Entscheidung.** Die
+Security-Ebene benennt ihn nach der Klasse des Voter-Subjekts (`order`), die Kernel-Ebene
+nach dem Routennamen (`app_order_show`). Der Collector gruppiert deshalb **innerhalb einer
+Ebene**. Ein gemeinsames Vokabular wäre nur um den Preis einer geratenen Übersetzung zu
+haben: Aus `/api/orders/42` den Typ `order` abzuleiten verlangte eine Pfadgrammatik samt
+Singularbildung — sprachabhängig, projektabhängig und lautlos falsch, wo sie danebenliegt.
+Ein Gruppierschlüssel, der manchmal danebenliegt, ist schlechter als einer, der ehrlich nur
+innerhalb seiner Ebene gilt.
+
+**Welcher Routenparameter die Kennung ist**, entscheidet eine feste Reihenfolge: `id`,
+sonst der erste Parameter, dessen Name auf `id` endet, sonst — und nur dann — ein einzelner
+übrig gebliebener. Der letzte Fall deckt `{slug}` und `{uuid}` ab, ohne bei zweien zu
+raten. Parameter mit führendem Unterstrich zählen nicht mit: `_locale` steht in den
+Routenparametern, sobald es im Pfad vorkommt, und ohne den Ausschluss wäre `/de/impressum`
+eine Ressource mit der Kennung `de` — die Nachbarschaftsregel zählte Sprachwechsel.
+
+Ohne Route keine Ressource: Ein routenloser Pfad wie `/wp-admin/setup-config.php` ist genau
+das Scanning-Signal aus 2.1.1, und ein erfundener Typ machte daraus eine Ressourcengruppe.
+
+**Die Ableitung läuft in Phase B**, also nach dem Absenden der Antwort und außerhalb des
+5-ms-Budgets. Der Sensor reicht nur die Routenparameter durch, die der Router ohnehin schon
+aufgelöst hat — unter `CapturedEvent::KEY_ROUTE_PARAMETERS`. Der führende Unterstrich ist
+dabei die neue Regel dieser Klasse: So beginnende Schlüssel sind Rohstoff für die
+Normalisierung und **nie** ein Feld des Ereignisses. Ein eigener Test hält fest, dass sie
+den Prozess nicht verlassen — sonst gingen `_locale`, `_format` und jeder andere
+Routenparameter unredigiert an den Collector, an der Denylist vorbei, weil niemand dieses
+Feld kennt.
+
+Neu ist außerdem `Sensor\Security\ResolvedResource`: ein Wertobjekt, aus dem alle drei
+Felder in EINEM Durchlauf entstehen. Zwei getrennte Auflösungen könnten auseinanderlaufen —
+bei einem Doctrine-Proxy, dessen `getId()` beim zweiten Aufruf doch lädt, oder schlicht,
+wenn jemand später nur eine der beiden Stellen anfasst.
+
 ### Added — Die Rechteübernahme hinterlässt jetzt eine Spur (offener Punkt OB10)
 
 Symfonys `SwitchUserListener` erzeugt **keines** der drei Security-Ereignisse — weder eine

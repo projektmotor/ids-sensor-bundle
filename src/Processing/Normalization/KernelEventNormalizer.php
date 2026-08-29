@@ -29,6 +29,7 @@ final class KernelEventNormalizer implements EventNormalizerInterface
         private readonly SeverityResolver $severityResolver,
         private readonly QueryNormalizer $queryNormalizer,
         private readonly Cleaner $cleaner,
+        private readonly RouteResourceResolver $routeResources,
     ) {
     }
 
@@ -155,6 +156,9 @@ final class KernelEventNormalizer implements EventNormalizerInterface
      */
     private function responsePayload(CapturedEvent $captured, ?int $status): array
     {
+        $route = FieldValue::asString($captured->get(KernelPayload::FIELD_ROUTE));
+        $parameters = $captured->get(CapturedEvent::KEY_ROUTE_PARAMETERS);
+
         return [
             KernelPayload::FIELD_HTTP_STATUS => $status,
             KernelPayload::FIELD_RESPONSE_TIME_MS => self::intOrNull($captured->get(KernelPayload::FIELD_RESPONSE_TIME_MS)),
@@ -163,7 +167,12 @@ final class KernelEventNormalizer implements EventNormalizerInterface
                 FieldValue::asString($captured->get(KernelPayload::FIELD_PATH)),
                 KernelPayload::MAX_PATH_LENGTH,
             ),
-            KernelPayload::FIELD_ROUTE => FieldValue::asString($captured->get(KernelPayload::FIELD_ROUTE)),
+            KernelPayload::FIELD_ROUTE => $route,
+            // Konzept 3.1.1, offener Punkt O2: Regel B7 vergleicht „numerisch
+            // benachbarte Ressourcen-Identifier desselben Typs" und ist eine
+            // KERNEL-Regel. Ohne diese beiden Felder bliebe ihr nur Zeichenkettenanalyse
+            // auf `path`, für jede Zeile erneut.
+            ...$this->routeResources->resolve($route, \is_array($parameters) ? $parameters : []),
         ];
     }
 

@@ -12,7 +12,7 @@
             "dist": {
                 "type": "path",
                 "url": "/ids-event-data",
-                "reference": "a87da030e6175cae31ca4bead071d495a2500934"
+                "reference": "aa11a632c3d96917006f7a2afbdf4b10700e425b"
             },
             "require": {
                 "ext-mbstring": "*",

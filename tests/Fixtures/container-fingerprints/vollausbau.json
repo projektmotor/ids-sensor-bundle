@@ -1025,7 +1025,8 @@
                 "@ids_sensor.event_factory",
                 "@ids_sensor.severity_resolver",
                 "@ids_sensor.query_normalizer",
-                "@ids_sensor.payload_confidentiality_cleanup.cleaner"
+                "@ids_sensor.payload_confidentiality_cleanup.cleaner",
+                "@ids_sensor.route_resource_resolver"
             ],
             "tags": {
                 "ids_sensor.event_normalizer": [
@@ -1178,6 +1179,16 @@
                     []
                 ]
             }
+        },
+        "ids_sensor.route_resource_resolver": {
+            "class": "ProjektMotor\\IdsSensor\\Processing\\Normalization\\RouteResourceResolver",
+            "public": false,
+            "shared": true,
+            "lazy": false,
+            "abstract": false,
+            "synthetic": false,
+            "arguments": [],
+            "tags": []
         },
         "ids_sensor.runtime_profile": {
             "class": "ProjektMotor\\IdsSensor\\Delivery\\Transport\\RuntimeProfile",

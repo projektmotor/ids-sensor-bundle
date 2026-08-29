@@ -6,6 +6,7 @@ namespace ProjektMotor\IdsSensor\Processing\Normalization;
 
 use ProjektMotor\IdsEventData\Event\NormalizedEvent;
 use ProjektMotor\IdsEventData\Event\SensorIdentity;
+use ProjektMotor\IdsEventData\Payload\ResourceReference;
 use ProjektMotor\IdsEventData\Payload\SecurityPayload;
 use ProjektMotor\IdsEventData\Vocabulary\Layer;
 use ProjektMotor\IdsSensor\Sensor\CapturedEvent;
@@ -66,6 +67,14 @@ final class SecurityEventNormalizer implements EventNormalizerInterface
                     SecurityPayload::MAX_ATTRIBUTE_LENGTH,
                 ),
                 SecurityPayload::FIELD_RESOURCE => FieldValue::asString($captured->get(SecurityPayload::FIELD_RESOURCE)),
+                ResourceReference::FIELD_RESOURCE_TYPE => FieldValue::truncate(
+                    FieldValue::asString($captured->get(ResourceReference::FIELD_RESOURCE_TYPE)),
+                    ResourceReference::MAX_TYPE_LENGTH,
+                ),
+                ResourceReference::FIELD_RESOURCE_ID => FieldValue::truncate(
+                    FieldValue::asString($captured->get(ResourceReference::FIELD_RESOURCE_ID)),
+                    ResourceReference::MAX_ID_LENGTH,
+                ),
                 SecurityPayload::FIELD_DECISION => FieldValue::asString($captured->get(SecurityPayload::FIELD_DECISION)),
             ],
             // Konzept 3.1.2: actor.user trägt den Übernehmenden, target_user den

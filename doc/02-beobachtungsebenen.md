@@ -151,6 +151,26 @@ zwei Grenzen: identische Entscheidungen werden entdoppelt, und
 `max_decisions_per_request` (Vorgabe 200) deckelt hart — eine Übersichtsseite mit einem
 Voter pro Zeile erzeugt sonst beliebig viele.
 
+### Die Ressourcenangabe steht in drei Feldern
+
+| Feld | Beispiel | Wofür |
+|---|---|---|
+| `resource` | `Order#42` | der Beleg für einen Menschen, der einen Vorfall liest |
+| `resource_type` | `order` | der Gruppierschlüssel der Erkennungsregeln |
+| `resource_id` | `42` | die Kennung, die Regel B7 auf Nachbarschaft prüft |
+
+Die beiden zerlegten Felder ersetzen `resource` nicht, sie zerlegen es (*3.1.4*). Ohne sie
+wäre „numerisch benachbarte Identifier desselben Typs" nur über Zeichenkettenanalyse im
+Collector zu haben, für jede Zeile erneut.
+
+Dieselben zwei Felder stehen auch im `kernel.response` — dort abgeleitet aus Routenname und
+Routenparametern. **Das Vokabular des Typs unterscheidet sich dabei bewusst:** Hier kommt
+er aus der Klasse des Voter-Subjekts (`order`), dort aus dem Routennamen
+(`app_order_show`). Der Collector gruppiert deshalb innerhalb einer Ebene. Ein gemeinsames
+Vokabular gäbe es nur um den Preis einer geratenen Pfadgrammatik samt Singularbildung — und
+ein Gruppierschlüssel, der manchmal danebenliegt, ist schlechter als einer, der ehrlich nur
+innerhalb seiner Ebene gilt.
+
 ### Die Ressourcenkennung — der eine Punkt, an dem auch hier Anwendungscode hilft
 
 (*3.1.2*) verlangt für `payload.resource` einen Identifier-String der Form `Klasse#ID` und
@@ -180,8 +200,9 @@ Die Methode **muss ohne Datenbankzugriff auskommen**; `null` bedeutet „keine K
 verfügbar", dann greift die übliche Auflösung. Mehr als Kosmetik ist das, weil die
 Erkennung von Rechteausweitung daran hängt: Regel B7 sucht „numerisch benachbarte
 Ressourcen-Identifier desselben Typs", P1 und P2 vergleichen sie gegen die Historie eines
-Nutzers. Steht dort überall nur der Klassenname, laufen alle drei ins Leere — es ist
-derselbe offene Punkt, den (*6.2*) als **O2** führt.
+Nutzers. Steht dort überall nur der Klassenname, laufen alle drei ins Leere — daran ändern
+auch `resource_type` und `resource_id` nichts: Sie zerlegen, was da ist, sie erfinden keine
+Kennung. (*O2*) ist geschlossen, dieser Punkt bleibt bei der Anwendung.
 
 Das Interface liegt in `Contract/` und ist damit Teil der Semver-Fläche des Bundles; es zu
 implementieren erzeugt keine Laufzeitabhängigkeit auf das Bundle über diese eine

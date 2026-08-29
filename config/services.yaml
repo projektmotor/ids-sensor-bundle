@@ -117,8 +117,14 @@ services:
             # Für die exception_message: sie trägt bei JEDER Stufe den angefragten Pfad
             # samt Query, und die Denylist aus Konzept 4.5.1 sah dieses Feld bis dahin nie.
             $cleaner: '@ids_sensor.payload_confidentiality_cleanup.cleaner'
+            $routeResources: '@ids_sensor.route_resource_resolver'
         tags:
             - { name: ids_sensor.event_normalizer }
+
+    # Läuft in Phase B: die Ableitung kostet den Request nichts, der Sensor reicht nur die
+    # Routenparameter durch, die der Router ohnehin schon aufgelöst hat.
+    ids_sensor.route_resource_resolver:
+        class: ProjektMotor\IdsSensor\Processing\Normalization\RouteResourceResolver
 
     # Vorgabe ohne collector.base_uri: so ist das Erfassungsbudget messbar, bevor ein
     # Collector erreichbar ist.
